@@ -96,7 +96,22 @@
    - `github.com/stretchr/testify` for tests
 
    Note: Go is not installed in the current environment, so `go mod tidy`/`go.sum` generation must run once Go is available.
-4. ☐ Add configuration model
+4. ☑ Add configuration model
+
+   Implemented `internal/config.Config` with environment-based loading and validation.
+
+   Supported variables:
+
+   - `PORT` default `8080`
+   - `DATABASE_URL` required
+   - `JWT_SECRET` required
+   - `JWT_ISSUER` default `tasks-server`
+   - `ACCESS_TOKEN_TTL` default `15m`
+   - `REFRESH_TOKEN_TTL` default `720h`
+   - `WRITE_RATE_LIMIT_PER_MIN` default `60`
+   - `MAX_BLOB_BYTES` default `1048576`
+   - `MAX_BATCH_BLOBS` default `100`
+   - `TOMBSTONE_RETENTION` default `720h`
 5. ☐ Define initial PostgreSQL migrations
 6. ☐ Implement server startup path
 7. ☐ Define common API response helpers
