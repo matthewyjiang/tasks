@@ -112,7 +112,27 @@
    - `MAX_BLOB_BYTES` default `1048576`
    - `MAX_BATCH_BLOBS` default `100`
    - `TOMBSTONE_RETENTION` default `720h`
-5. ☐ Define initial PostgreSQL migrations
+5. ☑ Define initial PostgreSQL migrations
+
+   Added numbered Goose migrations:
+
+   - `001_init.sql`
+     - `pgcrypto` extension
+     - `users`
+     - `devices`
+     - `blobs`
+     - `refresh_tokens`
+   - `002_add_settings.sql`
+     - `plaintext_settings`
+   - `003_add_shared_blobs.sql`
+     - `shared_blobs`
+
+   Schema decisions applied:
+
+   - `blobs.task_id` and `shared_blobs.task_id` are `TEXT`, allowing normal UUID task IDs and the reserved `vault_settings` ID.
+   - Blob tombstones may have `NULL` ciphertext/nonce.
+   - Nonce length is constrained to 12 bytes where present.
+   - Device keys are stored per-device in `devices`, not as a single user key.
 6. ☐ Implement server startup path
 7. ☐ Define common API response helpers
 8. ☐ Implement auth domain
