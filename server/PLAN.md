@@ -83,7 +83,19 @@
    ├── migrations/          # numbered SQL migrations
    └── test/                # integration/contract test helpers
    ```
-3. ☐ Choose core Go dependencies
+3. ☑ Choose core Go dependencies
+
+   Added `server/go.mod` with the v0.1 dependency set:
+
+   - `github.com/go-chi/chi/v5` for routing
+   - `github.com/jackc/pgx/v5` / `pgxpool` for PostgreSQL
+   - `github.com/golang-jwt/jwt/v5` for JWT access tokens
+   - `golang.org/x/crypto` for Argon2id password hashing
+   - `github.com/google/uuid` for UUID parsing/generation
+   - `github.com/pressly/goose/v3` for SQL migrations
+   - `github.com/stretchr/testify` for tests
+
+   Note: Go is not installed in the current environment, so `go mod tidy`/`go.sum` generation must run once Go is available.
 4. ☐ Add configuration model
 5. ☐ Define initial PostgreSQL migrations
 6. ☐ Implement server startup path
