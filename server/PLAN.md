@@ -63,7 +63,26 @@
    - Max blob size is `1 MiB` by default.
    - Max batch size is `100` blobs.
 
-2. ☐ Create server project skeleton under `server/`
+2. ☑ Create server project skeleton under `server/`
+
+   Created the initial implementation layout:
+
+   ```text
+   server/
+   ├── cmd/server/          # executable entrypoint
+   ├── internal/auth/       # auth service, password hashing, JWT/refresh logic
+   ├── internal/blobs/      # encrypted blob repository and handlers
+   ├── internal/config/     # env configuration loading
+   ├── internal/db/         # PostgreSQL connection and migration helpers
+   ├── internal/http/       # router/server assembly
+   ├── internal/keys/       # device/key-directory handlers
+   ├── internal/middleware/ # auth, logging, rate-limit middleware
+   ├── internal/respond/    # JSON response/error helpers
+   ├── internal/settings/   # plaintext settings handlers
+   ├── internal/share/      # shared-task handlers
+   ├── migrations/          # numbered SQL migrations
+   └── test/                # integration/contract test helpers
+   ```
 3. ☐ Choose core Go dependencies
 4. ☐ Add configuration model
 5. ☐ Define initial PostgreSQL migrations
