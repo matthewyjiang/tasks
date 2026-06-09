@@ -99,8 +99,9 @@ fn encrypt_bytes(plaintext: &[u8], key: &[u8]) -> CoreResult<Blob> {
     let mut nonce = [0_u8; AES_GCM_NONCE_LENGTH];
     OsRng.fill_bytes(&mut nonce);
 
+    let nonce_value = Nonce::from(nonce);
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .encrypt(&nonce_value, plaintext)
         .map_err(|_| CryptoError::DecryptFailed)?;
 
     Ok(Blob { ciphertext, nonce })
@@ -111,8 +112,14 @@ fn decrypt_bytes(blob: &Blob, key: &[u8]) -> CoreResult<Vec<u8>> {
 
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::BadKeyLength(key.len()))?;
+    let nonce: [u8; AES_GCM_NONCE_LENGTH] = blob
+        .nonce
+        .as_slice()
+        .try_into()
+        .map_err(|_| CryptoError::DecryptFailed)?;
+    let nonce_value = Nonce::from(nonce);
     cipher
-        .decrypt(Nonce::from_slice(&blob.nonce), blob.ciphertext.as_ref())
+        .decrypt(&nonce_value, blob.ciphertext.as_ref())
         .map_err(|_| CryptoError::DecryptFailed.into())
 }
 
@@ -136,7 +143,8 @@ fn derive_wrap_key(
         peer_public_key.as_affine(),
     );
 
-    let hkdf = Hkdf::<Sha256>::new(None, shared_secret.raw_secret_bytes().as_slice());
+    let raw_secret = shared_secret.raw_secret_bytes();
+    let hkdf = Hkdf::<Sha256>::new(None, &raw_secret[..]);
     let mut wrap_key = [0_u8; DATA_KEY_LENGTH];
     hkdf.expand(DEK_WRAP_INFO, &mut wrap_key)
         .map_err(|_| CryptoError::KeyAgreementFailed)?;
