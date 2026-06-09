@@ -214,19 +214,19 @@ Expose only stable core APIs to platform shells.
 
 TODO:
 
-- [ ] Add `core/uniffi/core.udl`.
-- [ ] Map Rust types into UniFFI-compatible records/enums.
-- [ ] Add exported constructor and CRUD methods.
+- [x] Add `core/uniffi/core.udl`.
+- [x] Map Rust types into UniFFI-compatible records/enums.
+- [x] Add exported constructor and CRUD methods.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] UDL contains every public API intended for Swift/Kotlin.
-- [ ] UDL does not expose internal-only APIs.
-- [ ] Generated Swift bindings compile.
-- [ ] Generated Kotlin bindings compile.
-- [ ] FFI constructors and CRUD methods round-trip representative values.
-- [ ] FFI error mapping preserves meaningful error names/messages.
-- [ ] UUID, timestamp, nullable fields, byte arrays, and string lists cross the FFI boundary correctly.
+- [x] UDL contains every public API intended for Swift/Kotlin.
+- [x] UDL does not expose internal-only APIs.
+- [ ] Generated Swift bindings compile once `uniffi-bindgen` is added to CI/tooling.
+- [ ] Generated Kotlin bindings compile once `uniffi-bindgen` is added to CI/tooling.
+- [x] FFI constructors and CRUD methods round-trip representative values.
+- [x] FFI error mapping preserves meaningful error names/messages.
+- [x] UUID, timestamp, nullable fields, byte arrays, and string lists cross the FFI boundary correctly.
 
 ## Current immediate next step
 

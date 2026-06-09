@@ -6,6 +6,7 @@ pub mod core;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod ffi;
 pub mod platform;
 pub mod settings;
 pub mod sync;
@@ -19,6 +20,11 @@ pub use crypto::{
 pub use db::LocalDatabase;
 pub use error::{
     CoreError, CoreResult, CryptoError, DbError, PlatformError, SettingsError, SyncError,
+};
+pub use ffi::{
+    decrypt_task_blob, encrypt_task_blob, generate_account_data_key, FfiBlob, FfiCoreError,
+    FfiCoreErrorKind, FfiTask, FfiTaskFilter, FfiTaskManagerCore, FfiTaskPatch, FfiTaskSort,
+    FfiTaskStatus,
 };
 pub use platform::{
     init_account, init_device_keypair, MockPlatform, Platform, ScheduledNotification,

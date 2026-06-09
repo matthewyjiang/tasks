@@ -1,0 +1,80 @@
+namespace taskmanager_core {
+  enum FfiTaskStatus {
+    "inbox",
+    "in_progress",
+    "done"
+  };
+
+  enum FfiTaskSort {
+    "updated_at_desc",
+    "updated_at_asc",
+    "due_at_asc",
+    "due_at_desc",
+    "created_at_asc",
+    "created_at_desc"
+  };
+
+  dictionary FfiTask {
+    string id;
+    string title;
+    string body;
+    long? due_at;
+    FfiTaskStatus status;
+    string? project_id;
+    sequence<string> tags;
+    long created_at;
+    long updated_at;
+    boolean deleted;
+    boolean dirty;
+  };
+
+  dictionary FfiTaskPatch {
+    string? title;
+    string? body;
+    long? due_at;
+    boolean clear_due_at;
+    FfiTaskStatus? status;
+    string? project_id;
+    boolean clear_project_id;
+    sequence<string>? tags;
+  };
+
+  dictionary FfiTaskFilter {
+    FfiTaskStatus? status;
+    string? project_id;
+    long? due_after;
+    long? due_before;
+    boolean include_deleted;
+  };
+
+  dictionary FfiBlob {
+    sequence<u8> ciphertext;
+    sequence<u8> nonce;
+  };
+
+  [Error]
+  enum FfiCoreError {
+    "crypto_error",
+    "database_error",
+    "sync_error",
+    "platform_error",
+    "settings_error",
+    "serialization_error",
+    "invalid_uuid",
+    "invalid_nonce"
+  };
+
+  interface FfiTaskManagerCore {
+    constructor(string database_path);
+    FfiTask create_task(string title, string body, long? due_at) throws FfiCoreError;
+    FfiTask get_task(string task_id) throws FfiCoreError;
+    FfiTask update_task(string task_id, FfiTaskPatch patch) throws FfiCoreError;
+    void delete_task(string task_id) throws FfiCoreError;
+    sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort) throws FfiCoreError;
+    sequence<FfiTask> search_tasks(string query) throws FfiCoreError;
+  };
+
+  FfiBlob encrypt_task_blob(FfiTask task, sequence<u8> key) throws FfiCoreError;
+  FfiTask decrypt_task_blob(FfiBlob blob, sequence<u8> key) throws FfiCoreError;
+  sequence<u8> generate_account_data_key();
+};
