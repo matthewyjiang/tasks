@@ -165,8 +165,8 @@ Global flags include:
    A friendlier target would be something like:
 
    ```sh
-   taskmanager device pair
-   taskmanager device pair --code ABCD-1234
+   tsk device pair
+   tsk device pair --code ABCD-1234
    ```
 
 2. **Date parsing is improved but limited**
@@ -230,7 +230,7 @@ For automation, the current flow is strong:
 
 ```sh
 TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
-  taskmanager \
+  tsk \
   --profile ci \
   --db /tmp/taskmanager/tasks.db \
   --config /tmp/taskmanager/settings.json \

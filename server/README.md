@@ -46,7 +46,7 @@ Non-interactive CLI setup for tests/scripts:
 
 ```sh
 TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
-  taskmanager \
+  tsk \
   --profile ci \
   --output json \
   configure \

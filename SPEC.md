@@ -561,13 +561,13 @@ Every command that changes local state must go through the core library and pres
 
 | Command | Core/API coverage |
 |---|---|
-| `taskmanager account init` | `init_account`, local DB/bootstrap settings, device public-key registration |
-| `taskmanager auth login` / `auth refresh` / `auth logout` | Server auth endpoints, token storage through platform key store |
-| `taskmanager device init-keypair` | `init_device_keypair` |
-| `taskmanager device list` | Server key directory |
-| `taskmanager device register` | Register this device public key with server |
-| `taskmanager device wrap-key --target <device_id>` | `wrap_data_key`, wrapped-key upload |
-| `taskmanager device unwrap-key --from <device_id>` | Wrapped-key fetch, `unwrap_data_key`, local key storage |
+| `tsk account init` | `init_account`, local DB/bootstrap settings, device public-key registration |
+| `tsk auth login` / `auth refresh` / `auth logout` | Server auth endpoints, token storage through platform key store |
+| `tsk device init-keypair` | `init_device_keypair` |
+| `tsk device list` | Server key directory |
+| `tsk device register` | Register this device public key with server |
+| `tsk device wrap-key --target <device_id>` | `wrap_data_key`, wrapped-key upload |
+| `tsk device unwrap-key --from <device_id>` | Wrapped-key fetch, `unwrap_data_key`, local key storage |
 
 #### Task commands
 
@@ -597,20 +597,20 @@ Every command that changes local state must go through the core library and pres
 
 | Command | Coverage |
 |---|---|
-| `taskmanager settings get [key]` | Plaintext and vault settings read paths |
-| `taskmanager settings set <key> <value>` | Plaintext/vault settings write paths and sync dirty marking |
-| `taskmanager settings pull-plaintext` / `push-plaintext` | `/settings/plaintext` endpoints |
-| `taskmanager settings migrate` | Vault settings schema migration functions |
+| `tsk settings get [key]` | Plaintext and vault settings read paths |
+| `tsk settings set <key> <value>` | Plaintext/vault settings write paths and sync dirty marking |
+| `tsk settings pull-plaintext` / `push-plaintext` | `/settings/plaintext` endpoints |
+| `tsk settings migrate` | Vault settings schema migration functions |
 
 #### Sharing commands
 
 | Command | Coverage |
 |---|---|
-| `taskmanager share create <task_id> --recipient <user_or_device>` | Per-task key generation, task re-encryption, recipient key wrap, `/share/:task_id` |
-| `taskmanager share inbox` | Shared-task inbox fetch |
-| `taskmanager share accept <share_id>` | Wrapped task-key unwrap and local import |
-| `taskmanager share revoke <task_id> --recipient <id>` | Share deletion, task-key rotation, remaining-recipient rewrap |
-| `taskmanager share list <task_id>` | Current collaborators and key state |
+| `tsk share create <task_id> --recipient <user_or_device>` | Per-task key generation, task re-encryption, recipient key wrap, `/share/:task_id` |
+| `tsk share inbox` | Shared-task inbox fetch |
+| `tsk share accept <share_id>` | Wrapped task-key unwrap and local import |
+| `tsk share revoke <task_id> --recipient <id>` | Share deletion, task-key rotation, remaining-recipient rewrap |
+| `tsk share list <task_id>` | Current collaborators and key state |
 
 #### Crypto diagnostic commands
 
@@ -618,10 +618,10 @@ These commands exist for development/test profiles and must never print secret k
 
 | Command | Coverage |
 |---|---|
-| `taskmanager crypto encrypt-task <task_id>` | `encrypt_blob` |
-| `taskmanager crypto decrypt-blob <file>` | `decrypt_blob` |
-| `taskmanager crypto wrap-data-key ...` / `unwrap-data-key ...` | Direct wrap/unwrap coverage |
-| `taskmanager crypto verify-local` | Validate local key availability and decryptability without network |
+| `tsk crypto encrypt-task <task_id>` | `encrypt_blob` |
+| `tsk crypto decrypt-blob <file>` | `decrypt_blob` |
+| `tsk crypto wrap-data-key ...` / `unwrap-data-key ...` | Direct wrap/unwrap coverage |
+| `tsk crypto verify-local` | Validate local key availability and decryptability without network |
 
 ### 7.5 Output and exit-code contract
 
