@@ -288,9 +288,9 @@ fn run_sync(
         SyncCommands::Run => {
             let (database, platform, client, data_key) =
                 sync_runtime(db_path, profile, server_url, offline)?;
+            let pull = sync_pull(&database, &client, &data_key).map_err(CliError::from)?;
             let push =
                 sync_push(&database, &platform, &client, &data_key).map_err(CliError::from)?;
-            let pull = sync_pull(&database, &client, &data_key).map_err(CliError::from)?;
             output::format_command_result(
                 output_format,
                 &SyncResultOutput {
@@ -396,24 +396,20 @@ impl SyncClient for HttpSyncClient {
 
     fn delete_blobs(&self, task_ids: Vec<Uuid>) -> taskmanager_core::CoreResult<PushResponse> {
         let mut accepted_task_ids = Vec::new();
-        let mut failed_task_ids = Vec::new();
         for task_id in task_ids {
-            let result = self
-                .auth(
-                    self.client
-                        .delete(format!("{}/blobs/{}", self.base_url, task_id)),
-                )
-                .send()
-                .map_err(|_| SyncError::NetworkUnavailable)
-                .and_then(|response| response.error_for_status().map_err(http_error));
-            match result {
-                Ok(_) => accepted_task_ids.push(task_id),
-                Err(_) => failed_task_ids.push(task_id),
-            }
+            self.auth(
+                self.client
+                    .delete(format!("{}/blobs/{}", self.base_url, task_id)),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(http_error)?;
+            accepted_task_ids.push(task_id);
         }
         Ok(PushResponse {
             accepted_task_ids,
-            failed_task_ids,
+            failed_task_ids: Vec::new(),
         })
     }
 

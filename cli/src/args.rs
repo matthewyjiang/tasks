@@ -157,11 +157,11 @@ pub enum SyncCommands {
     Status,
     /// Queue a task for sync retry.
     Retry(TaskIdArgs),
-    /// Push local changes to server. Not implemented until HTTP sync client is wired.
+    /// Push local encrypted changes to the server.
     Push,
-    /// Pull remote changes from server. Not implemented until HTTP sync client is wired.
+    /// Pull remote encrypted changes from the server.
     Pull,
-    /// Run pull then push. Not implemented until HTTP sync client is wired.
+    /// Pull remote changes, then push remaining local changes.
     Run,
     /// List conflicts. Not implemented until conflict persistence is wired.
     Conflicts,

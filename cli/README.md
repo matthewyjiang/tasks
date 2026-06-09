@@ -208,7 +208,7 @@ taskmanager task create --title "Buy groceries" --due 1781200000000 --tag person
 taskmanager sync status
 taskmanager --server http://127.0.0.1:18080 sync push
 
-# 4. Pull remote encrypted blobs and run a full push-then-pull cycle later.
+# 4. Pull remote encrypted blobs and run a full pull-then-push cycle later.
 taskmanager --server http://127.0.0.1:18080 sync pull
 taskmanager --server http://127.0.0.1:18080 sync run
 ```
