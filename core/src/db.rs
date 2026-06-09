@@ -188,11 +188,98 @@ impl LocalDatabase {
             );
 
             CREATE TABLE IF NOT EXISTS sync_queue (
-                task_id     TEXT NOT NULL,
+                task_id     TEXT PRIMARY KEY,
                 queued_at   INTEGER NOT NULL,
                 attempt     INTEGER NOT NULL DEFAULT 0,
                 next_retry  INTEGER NOT NULL DEFAULT 0
-            );",
+            );
+
+            DELETE FROM sync_queue
+            WHERE rowid NOT IN (
+                SELECT keep.rowid
+                FROM sync_queue AS keep
+                WHERE keep.task_id = sync_queue.task_id
+                ORDER BY keep.attempt DESC, keep.next_retry DESC, keep.rowid DESC
+                LIMIT 1
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_task_id_unique
+            ON sync_queue(task_id);",
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn upsert_synced_task(&self, task: &Task) -> CoreResult<()> {
+        self.upsert_task(task)
+    }
+
+    pub(crate) fn dirty_tasks(&self) -> CoreResult<Vec<Task>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE dirty = 1 ORDER BY updated_at ASC, id ASC",
+        )?;
+        let tasks = statement.query_map([], read_task)?;
+        collect_tasks(tasks)
+    }
+
+    pub(crate) fn clear_dirty(&self, task_id: Uuid) -> CoreResult<()> {
+        self.connection.execute(
+            "UPDATE tasks SET dirty = 0 WHERE id = ?1",
+            params![task_id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn last_pull_cursor(&self) -> CoreResult<i64> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT last_pull FROM sync_cursor WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0))
+    }
+
+    pub(crate) fn set_last_pull_cursor(&self, cursor: i64) -> CoreResult<()> {
+        self.connection.execute(
+            "INSERT INTO sync_cursor (id, last_pull) VALUES (1, ?1)
+             ON CONFLICT(id) DO UPDATE SET last_pull = excluded.last_pull",
+            params![cursor],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn retry_queue_entries(&self) -> CoreResult<Vec<(Uuid, i64, i64)>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT task_id, attempt, next_retry FROM sync_queue ORDER BY task_id ASC")?;
+        let rows = statement.query_map([], |row| {
+            let task_id: String = row.get(0)?;
+            Ok((parse_uuid(&task_id, "task_id")?, row.get(1)?, row.get(2)?))
+        })?;
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row?);
+        }
+        Ok(entries)
+    }
+
+    pub(crate) fn queue_retry(&self, task_id: Uuid, now: i64) -> CoreResult<()> {
+        let current_attempt: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT attempt FROM sync_queue WHERE task_id = ?1",
+                params![task_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let attempt = current_attempt.unwrap_or(0) + 1;
+        let delay_ms = 1_000_i64.saturating_mul(2_i64.saturating_pow((attempt - 1).min(10) as u32));
+        self.connection.execute(
+            "INSERT INTO sync_queue (task_id, queued_at, attempt, next_retry) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(task_id) DO UPDATE SET attempt = excluded.attempt, next_retry = excluded.next_retry",
+            params![task_id.to_string(), now, attempt, now + delay_ms],
         )?;
         Ok(())
     }
@@ -334,6 +421,14 @@ mod tests {
         LocalDatabase::open_in_memory().unwrap()
     }
 
+    fn temporary_database_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "taskmanager-core-{name}-{}-{}.sqlite3",
+            std::process::id(),
+            Uuid::new_v4()
+        ))
+    }
+
     fn create_named(
         database: &LocalDatabase,
         title: &str,
@@ -366,6 +461,33 @@ mod tests {
         let database = db();
         database.initialize_schema().unwrap();
         database.initialize_schema().unwrap();
+    }
+
+    #[test]
+    fn sync_queue_migrates_old_non_unique_schema() {
+        let path = temporary_database_path("sync_queue_migrates_old_non_unique_schema");
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE sync_queue (
+                        task_id     TEXT NOT NULL,
+                        queued_at   INTEGER NOT NULL,
+                        attempt     INTEGER NOT NULL DEFAULT 0,
+                        next_retry  INTEGER NOT NULL DEFAULT 0
+                    );",
+                )
+                .unwrap();
+        }
+
+        let database = LocalDatabase::open(&path).unwrap();
+        let task_id = Uuid::new_v4();
+        database.queue_retry(task_id, 1_000).unwrap();
+        database.queue_retry(task_id, 2_000).unwrap();
+
+        let entries = database.retry_queue_entries().unwrap();
+        assert_eq!(entries, vec![(task_id, 2, 4_000)]);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
