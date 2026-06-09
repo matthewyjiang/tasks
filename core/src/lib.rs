@@ -8,6 +8,7 @@ pub mod db;
 pub mod error;
 pub mod platform;
 pub mod settings;
+pub mod sync;
 pub mod types;
 
 pub use core::TaskManagerCore;
@@ -27,5 +28,9 @@ pub use settings::{
     AuthMethod, DefaultSort, DisplayDensity, PlaintextSettings, PlaintextSettingsSyncPayload,
     Theme, VaultSettings, VaultSettingsBlob, PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID,
     VAULT_SETTINGS_SCHEMA_VERSION,
+};
+pub use sync::{
+    resolve_conflict, sync_pull, sync_push, BlobPush, PullResponse, PushResponse, RemoteBlob,
+    SyncClient,
 };
 pub use types::{Blob, SyncResult, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};

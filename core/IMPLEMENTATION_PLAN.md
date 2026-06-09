@@ -183,30 +183,30 @@ Add sync abstractions before concrete HTTP implementation.
 
 TODO:
 
-- [ ] Add `core/src/sync.rs`.
-- [ ] Define an HTTP/client trait for server interaction.
-- [ ] Implement `sync_push` using dirty local rows.
-- [ ] Clear dirty flags only after confirmed success.
-- [ ] Implement `sync_pull` using decrypted remote blobs.
-- [ ] Implement last-write-wins conflict resolution.
-- [ ] Implement retry queue persistence.
+- [x] Add `core/src/sync.rs`.
+- [x] Define an HTTP/client trait for server interaction.
+- [x] Implement `sync_push` using dirty local rows.
+- [x] Clear dirty flags only after confirmed success.
+- [x] Implement `sync_pull` using decrypted remote blobs.
+- [x] Implement last-write-wins conflict resolution.
+- [x] Implement retry queue persistence.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] `sync_push` sends only dirty, non-deleted tasks as encrypted blobs.
-- [ ] `sync_push` sends tombstones through the delete path.
-- [ ] Successful push clears `dirty` only for confirmed task IDs.
-- [ ] Partial batch failure leaves failed tasks dirty.
-- [ ] Network unavailable returns `NetworkUnavailable` and queues retry.
-- [ ] Auth failure returns `AuthExpired` without clearing dirty flags.
-- [ ] Server error returns status and body.
-- [ ] `sync_pull` decrypts remote blobs and upserts local tasks.
-- [ ] `sync_pull` advances cursor only after successful processing.
-- [ ] Pull decryption failure does not advance cursor.
-- [ ] Last-write-wins chooses higher payload `updated_at`.
-- [ ] Equal timestamp conflict is deterministic.
-- [ ] Retry queue persists across DB reopen.
-- [ ] Exponential backoff increases attempts and next retry time.
+- [x] `sync_push` sends only dirty, non-deleted tasks as encrypted blobs.
+- [x] `sync_push` sends tombstones through the delete path.
+- [x] Successful push clears `dirty` only for confirmed task IDs.
+- [x] Partial batch failure leaves failed tasks dirty.
+- [x] Network unavailable returns `NetworkUnavailable` and queues retry.
+- [x] Auth failure returns `AuthExpired` without clearing dirty flags.
+- [x] Server error returns status and body.
+- [x] `sync_pull` decrypts remote blobs and upserts local tasks.
+- [x] `sync_pull` advances cursor only after successful processing.
+- [x] Pull decryption failure does not advance cursor.
+- [x] Last-write-wins chooses higher payload `updated_at`.
+- [x] Equal timestamp conflict is deterministic.
+- [x] Retry queue persists across DB reopen.
+- [x] Exponential backoff increases attempts and next retry time.
 
 ## Milestone 8: UniFFI boundary
 
