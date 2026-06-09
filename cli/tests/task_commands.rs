@@ -16,7 +16,7 @@ impl TaskCli {
     }
 
     fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("taskmanager").unwrap();
+        let mut cmd = Command::cargo_bin("tsk").unwrap();
         cmd.args(["--db", self.db.to_str().unwrap(), "--output", "json"]);
         cmd
     }
@@ -331,7 +331,7 @@ fn complete_and_reopen_map_to_status_patches() {
 fn task_commands_work_offline() {
     let temp = tempfile::tempdir().unwrap();
     let db = temp.path().join("tasks.db");
-    let output = Command::cargo_bin("taskmanager")
+    let output = Command::cargo_bin("tsk")
         .unwrap()
         .args([
             "--offline",

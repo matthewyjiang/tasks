@@ -22,7 +22,7 @@ impl CryptoCli {
     }
 
     fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("taskmanager").unwrap();
+        let mut cmd = Command::cargo_bin("tsk").unwrap();
         cmd.args(["--output", "json", "--db", self.db.to_str().unwrap()])
             .env("TASKMANAGER_INSECURE_KEY_DIR", &self.key_dir);
         cmd

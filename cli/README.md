@@ -14,7 +14,7 @@ cargo test -p taskmanager-cli
 cargo clippy -p taskmanager-cli --all-targets
 ```
 
-Install locally so `taskmanager` is available on your `PATH`:
+Install locally so `tsk` is available on your `PATH`:
 
 ```sh
 make cli-install
@@ -51,13 +51,13 @@ If `--db` is omitted, task commands use:
 Human output is the default:
 
 ```sh
-taskmanager task list
+tsk task list
 ```
 
 Machine-readable JSON uses a stable envelope:
 
 ```sh
-taskmanager --output json version
+tsk --output json version
 ```
 
 ```json
@@ -80,28 +80,28 @@ Errors are written to stderr. With JSON/JSONL output selected, errors use:
 Task commands use `taskmanager_core::TaskManagerCore` against the local DB.
 
 ```sh
-taskmanager --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due tomorrow --tag work --tag urgent
+tsk --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due tomorrow --tag work --tag urgent
 
-taskmanager --db /tmp/tasks.db task list
+tsk --db /tmp/tasks.db task list
 
-taskmanager --db /tmp/tasks.db task get <task_id>
+tsk --db /tmp/tasks.db task get <task_id>
 
-taskmanager --db /tmp/tasks.db task update <task_id> --status in-progress --project-id <uuid>
+tsk --db /tmp/tasks.db task update <task_id> --status in-progress --project-id <uuid>
 
-taskmanager --db /tmp/tasks.db task complete <task_id>
+tsk --db /tmp/tasks.db task complete <task_id>
 
-taskmanager --db /tmp/tasks.db task reopen <task_id>
+tsk --db /tmp/tasks.db task reopen <task_id>
 
-taskmanager --db /tmp/tasks.db task search "literal text"
+tsk --db /tmp/tasks.db task search "literal text"
 
-taskmanager --db /tmp/tasks.db task delete <task_id>
+tsk --db /tmp/tasks.db task delete <task_id>
 ```
 
 `task delete` creates a tombstone through core; it does not hard-delete the row.
 
 ## Account, auth, and device key commands
 
-`taskmanager configure` is the normal user path for creating local account keys, saving the server URL, and registering/logging in with email and password. Lower-level account, auth, and device commands operate locally through the CLI platform key store for diagnostics, headless tests, and advanced recovery workflows.
+`tsk configure` is the normal user path for creating local account keys, saving the server URL, and registering/logging in with email and password. Lower-level account, auth, and device commands operate locally through the CLI platform key store for diagnostics, headless tests, and advanced recovery workflows.
 
 By default, the CLI stores secrets in the platform key store. On Linux this uses the Freedesktop Secret Service/libsecret-compatible backend when available.
 
@@ -114,27 +114,27 @@ export TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager-profile-a/keys
 Initialize account keys:
 
 ```sh
-taskmanager --output json account init
+tsk --output json account init
 ```
 
 Clear local account/device keys and auth tokens from the platform key store:
 
 ```sh
-taskmanager --output json account clear
+tsk --output json account clear
 ```
 
 Initialize only a device keypair:
 
 ```sh
-taskmanager --output json device init-keypair
+tsk --output json device init-keypair
 ```
 
 Log in with email/password, or store/remove already-issued auth tokens locally:
 
 ```sh
-taskmanager --output json auth login --email you@example.com --server-url http://127.0.0.1:18080
-taskmanager --output json auth login --access-token <token> --refresh-token <token>
-taskmanager --output json auth logout
+tsk --output json auth login --email you@example.com --server-url http://127.0.0.1:18080
+tsk --output json auth login --access-token <token> --refresh-token <token>
+tsk --output json auth logout
 ```
 
 `configure` remains the recommended first-run command because it also creates local account/device keys and saves the server URL.
@@ -142,13 +142,13 @@ taskmanager --output json auth logout
 Wrap the account data key for another device public key:
 
 ```sh
-taskmanager --output json device wrap-key --target <recipient_public_key_hex>
+tsk --output json device wrap-key --target <recipient_public_key_hex>
 ```
 
 Unwrap and store an account data key from another device:
 
 ```sh
-taskmanager --output json device unwrap-key \
+tsk --output json device unwrap-key \
   --from <sender_public_key_hex> \
   --ciphertext <wrapped_ciphertext_hex> \
   --nonce <nonce_hex>
@@ -161,20 +161,20 @@ Commands intentionally never print private key or account data key material.
 Plaintext settings are stored per profile, or at `--config <path>` when supplied. They can be read before opening the encrypted vault:
 
 ```sh
-taskmanager --config /tmp/settings.json --output json settings get
-taskmanager --config /tmp/settings.json --output json settings get server_url
-taskmanager --config /tmp/settings.json --output json settings set server_url https://api.example.com
-taskmanager --config /tmp/settings.json --output json settings set auth_method pin
-taskmanager --config /tmp/settings.json --output json settings set language en
-taskmanager --config /tmp/settings.json --output json settings set last_sync_cursor 42
+tsk --config /tmp/settings.json --output json settings get
+tsk --config /tmp/settings.json --output json settings get server_url
+tsk --config /tmp/settings.json --output json settings set server_url https://api.example.com
+tsk --config /tmp/settings.json --output json settings set auth_method pin
+tsk --config /tmp/settings.json --output json settings set language en
+tsk --config /tmp/settings.json --output json settings set last_sync_cursor 42
 ```
 
 Syncable plaintext settings exclude the device-local `last_sync_cursor`:
 
 ```sh
-taskmanager --config /tmp/settings.json --output json settings pull-plaintext
-taskmanager --config /tmp/settings.json --output json settings push-plaintext '{"schema_version":1,"server_url":"https://api.example.com","auth_method":"password","language":"en"}'
-taskmanager --config /tmp/settings.json --output json settings migrate
+tsk --config /tmp/settings.json --output json settings pull-plaintext
+tsk --config /tmp/settings.json --output json settings push-plaintext '{"schema_version":1,"server_url":"https://api.example.com","auth_method":"password","language":"en"}'
+tsk --config /tmp/settings.json --output json settings migrate
 ```
 
 ## Crypto diagnostics
@@ -182,11 +182,11 @@ taskmanager --config /tmp/settings.json --output json settings migrate
 The `crypto` namespace is hidden from default help because it is a developer diagnostic surface rather than a normal user workflow. It remains available explicitly to generate encrypted fixtures, troubleshoot local key material, debug sync/blob failures, and validate crypto behavior in black-box tests. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
 
 ```sh
-taskmanager crypto verify-local
-taskmanager --output json crypto encrypt-task <task_id> > blob.json
-taskmanager --output json crypto decrypt-blob blob.json  # accepts the CLI {"result": ...} wrapper or a raw blob
-taskmanager --output json crypto wrap-data-key --target <peer_public_key>
-taskmanager --dangerously-print-secrets --output json crypto unwrap-data-key \
+tsk crypto verify-local
+tsk --output json crypto encrypt-task <task_id> > blob.json
+tsk --output json crypto decrypt-blob blob.json  # accepts the CLI {"result": ...} wrapper or a raw blob
+tsk --output json crypto wrap-data-key --target <peer_public_key>
+tsk --dangerously-print-secrets --output json crypto unwrap-data-key \
   --from <peer_public_key> \
   --ciphertext <hex> \
   --nonce <hex>
@@ -194,14 +194,14 @@ taskmanager --dangerously-print-secrets --output json crypto unwrap-data-key \
 
 ## Generated packaging artifacts
 
-Shell completions and the `taskmanager(1)` man page can be generated from the CLI definition:
+Shell completions and the `tsk(1)` man page can be generated from the CLI definition:
 
 ```sh
-taskmanager generate completion bash > taskmanager.bash
-taskmanager generate completion zsh > _taskmanager
-taskmanager generate completion fish > taskmanager.fish
-taskmanager generate completion powershell > taskmanager.ps1
-taskmanager generate man > taskmanager.1
+tsk generate completion bash > tsk.bash
+tsk generate completion zsh > _tsk
+tsk generate completion fish > tsk.fish
+tsk generate completion powershell > tsk.ps1
+tsk generate man > tsk.1
 ```
 
 ## Server status
@@ -213,28 +213,28 @@ A functional local-server workflow looks like this:
 ```sh
 # 1. Run the setup wizard once. It creates local account keys, saves the
 #    server URL, and logs in/registers with the server using email + password.
-taskmanager configure
+tsk configure
 
 # You can also provide everything non-interactively:
-taskmanager configure \
+tsk configure \
   --server-url http://127.0.0.1:18080 \
   --email you@example.com \
   --password "$TASKMANAGER_PASSWORD"
 
 # 2. Work normally while offline/local-first.
-taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work
-taskmanager task create --title "Buy groceries" --due tomorrow --tag personal
+tsk task create --title "Plan launch" --body "Draft rollout checklist" --tag work
+tsk task create --title "Buy groceries" --due tomorrow --tag personal
 
 # 3. Inspect what needs sync, then push encrypted blobs to the server.
-taskmanager sync status
-taskmanager sync push
+tsk sync status
+tsk sync push
 
 # 4. Pull remote encrypted blobs and run a full pull-then-push cycle later.
-taskmanager sync pull
-taskmanager sync run
+tsk sync pull
+tsk sync run
 ```
 
-After a successful push, `taskmanager sync status` should report fewer dirty rows, and JSON output for `sync run` includes a deterministic summary such as:
+After a successful push, `tsk sync status` should report fewer dirty rows, and JSON output for `sync run` includes a deterministic summary such as:
 
 ```json
 {

@@ -119,7 +119,7 @@ fn run_generate(command: GenerateCommands) -> CliResult<Option<String>> {
         GenerateCommands::Completion(args) => {
             let mut command = Cli::command();
             let mut buffer = Vec::new();
-            clap_complete::generate(args.shell, &mut command, "taskmanager", &mut buffer);
+            clap_complete::generate(args.shell, &mut command, "tsk", &mut buffer);
             String::from_utf8(buffer).map(Some).map_err(|error| {
                 CliError::Input(format!("generated completion is not UTF-8: {error}"))
             })

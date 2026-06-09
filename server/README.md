@@ -39,7 +39,7 @@ curl http://localhost:18080/healthz
 Then configure the CLI against the local server:
 
 ```sh
-taskmanager configure --server-url http://localhost:18080
+tsk configure --server-url http://localhost:18080
 ```
 
 Non-interactive CLI setup for tests/scripts:

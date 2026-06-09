@@ -27,7 +27,7 @@ impl CliFixture {
     }
 
     fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("taskmanager").unwrap();
+        let mut cmd = Command::cargo_bin("tsk").unwrap();
         cmd.args([
             "--profile",
             &self.profile,
@@ -43,7 +43,7 @@ impl CliFixture {
 
 #[test]
 fn json_output_contains_deterministic_envelope() {
-    let output = Command::cargo_bin("taskmanager")
+    let output = Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output", "json", "version"])
         .assert()
@@ -59,7 +59,7 @@ fn json_output_contains_deterministic_envelope() {
 
 #[test]
 fn jsonl_output_emits_one_json_object_per_line() {
-    let output = Command::cargo_bin("taskmanager")
+    let output = Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output", "jsonl", "version"])
         .assert()
@@ -77,7 +77,7 @@ fn jsonl_output_emits_one_json_object_per_line() {
 
 #[test]
 fn table_output_is_human_readable() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output", "table", "version"])
         .assert()
@@ -88,7 +88,7 @@ fn table_output_is_human_readable() {
 
 #[test]
 fn quiet_suppresses_non_result_messages() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--quiet", "--output", "json", "version"])
         .assert()
@@ -99,7 +99,7 @@ fn quiet_suppresses_non_result_messages() {
 
 #[test]
 fn trace_writes_to_stderr_not_stdout() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--trace", "--output", "json", "version"])
         .assert()

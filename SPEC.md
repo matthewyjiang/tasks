@@ -573,25 +573,25 @@ Every command that changes local state must go through the core library and pres
 
 | Command | Core coverage |
 |---|---|
-| `taskmanager task create --title ... [--body ...] [--due ...] [--tag ...] [--project ...]` | `create_task` |
-| `taskmanager task get <task_id>` | `get_task` |
-| `taskmanager task update <task_id> [fields...]` | `update_task` |
-| `taskmanager task delete <task_id>` | `delete_task` tombstone |
-| `taskmanager task list [filters...] [--sort ...]` | `list_tasks` with all `TaskFilter` and `TaskSort` variants |
-| `taskmanager task search <query>` | `search_tasks` |
-| `taskmanager task complete <task_id>` / `reopen <task_id>` | `update_task` status patch |
+| `tsk task create --title ... [--body ...] [--due ...] [--tag ...] [--project ...]` | `create_task` |
+| `tsk task get <task_id>` | `get_task` |
+| `tsk task update <task_id> [fields...]` | `update_task` |
+| `tsk task delete <task_id>` | `delete_task` tombstone |
+| `tsk task list [filters...] [--sort ...]` | `list_tasks` with all `TaskFilter` and `TaskSort` variants |
+| `tsk task search <query>` | `search_tasks` |
+| `tsk task complete <task_id>` / `reopen <task_id>` | `update_task` status patch |
 
 #### Sync and server-pipeline commands
 
 | Command | Core/API coverage |
 |---|---|
-| `taskmanager sync push` | `sync_push` |
-| `taskmanager sync pull [--since <cursor>]` | `sync_pull` |
-| `taskmanager sync run` | Pull then push, or configured bidirectional order |
-| `taskmanager sync status` | Local dirty rows, queue depth, retry state, cursor |
-| `taskmanager sync retry <task_id>` | `queue_retry` |
-| `taskmanager sync conflicts` | Inspect pending conflicts when pluggable conflict handling is enabled |
-| `taskmanager sync resolve <task_id> --local|--remote|--json <patch>` | `resolve_conflict` / configured strategy |
+| `tsk sync push` | `sync_push` |
+| `tsk sync pull [--since <cursor>]` | `sync_pull` |
+| `tsk sync run` | Pull then push, or configured bidirectional order |
+| `tsk sync status` | Local dirty rows, queue depth, retry state, cursor |
+| `tsk sync retry <task_id>` | `queue_retry` |
+| `tsk sync conflicts` | Inspect pending conflicts when pluggable conflict handling is enabled |
+| `tsk sync resolve <task_id> --local|--remote|--json <patch>` | `resolve_conflict` / configured strategy |
 
 #### Settings commands
 

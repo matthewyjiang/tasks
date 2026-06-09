@@ -9,7 +9,7 @@ use crate::output::OutputFormat;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "taskmanager",
+    name = "tsk",
     version,
     about = "Local-first encrypted task manager CLI"
 )]
@@ -265,7 +265,7 @@ pub struct CryptoBlobFileArgs {
 pub enum GenerateCommands {
     /// Generate shell completions for bash, zsh, fish, PowerShell, or elvish.
     Completion(GenerateCompletionArgs),
-    /// Generate a roff man page for taskmanager(1).
+    /// Generate a roff man page for tsk(1).
     Man,
 }
 
