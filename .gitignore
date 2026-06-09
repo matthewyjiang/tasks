@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Local agent/project instructions
+AGENTS.md
+
+# Environment files
+.env
+.env.*
+!.env.example
