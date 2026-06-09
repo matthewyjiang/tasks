@@ -1,0 +1,174 @@
+use std::path::Path;
+
+use uuid::Uuid;
+
+use crate::db::LocalDatabase;
+use crate::error::CoreResult;
+use crate::types::{Task, TaskFilter, TaskPatch, TaskSort};
+
+pub struct TaskManagerCore {
+    database: LocalDatabase,
+}
+
+impl TaskManagerCore {
+    pub fn open(database_path: impl AsRef<Path>) -> CoreResult<Self> {
+        Ok(Self {
+            database: LocalDatabase::open(database_path)?,
+        })
+    }
+
+    pub fn open_in_memory() -> CoreResult<Self> {
+        Ok(Self {
+            database: LocalDatabase::open_in_memory()?,
+        })
+    }
+
+    pub fn create_task(
+        &self,
+        title: String,
+        body: String,
+        due_at: Option<i64>,
+    ) -> CoreResult<Task> {
+        self.database.create_task(title, body, due_at)
+    }
+
+    pub fn get_task(&self, task_id: Uuid) -> CoreResult<Task> {
+        self.database.get_task(task_id)
+    }
+
+    pub fn update_task(&self, task_id: Uuid, patch: TaskPatch) -> CoreResult<Task> {
+        self.database.update_task(task_id, patch)
+    }
+
+    pub fn delete_task(&self, task_id: Uuid) -> CoreResult<()> {
+        self.database.delete_task(task_id)
+    }
+
+    pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
+        self.database.list_tasks(filter, sort)
+    }
+
+    pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
+        self.database.search_tasks(query)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{CoreError, DbError};
+    use crate::types::TaskStatus;
+
+    #[test]
+    fn constructor_opens_in_memory_database() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let tasks = core
+            .list_tasks(TaskFilter::default(), TaskSort::UpdatedAtDesc)
+            .unwrap();
+
+        assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn constructor_opens_or_creates_database_path() {
+        let path = temporary_database_path("constructor_opens_or_creates_database_path");
+        let core = TaskManagerCore::open(&path).unwrap();
+
+        let created = core
+            .create_task("persisted".to_owned(), "body".to_owned(), None)
+            .unwrap();
+        drop(core);
+
+        let reopened = TaskManagerCore::open(&path).unwrap();
+        assert_eq!(reopened.get_task(created.id).unwrap(), created);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn constructor_fails_clearly_for_invalid_database_path() {
+        let path = std::env::temp_dir().join(format!(
+            "taskmanager-core-missing-dir-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let invalid_path = path.join("db.sqlite3");
+
+        let error = match TaskManagerCore::open(invalid_path) {
+            Ok(_) => panic!("opening an invalid database path should fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, CoreError::Database(DbError::Sqlite(_))));
+    }
+
+    #[test]
+    fn facade_crud_methods_delegate_to_database() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let created = core
+            .create_task("title".to_owned(), "body".to_owned(), Some(123))
+            .unwrap();
+
+        assert_eq!(core.get_task(created.id).unwrap(), created);
+
+        let updated = core
+            .update_task(
+                created.id,
+                TaskPatch {
+                    title: Some("updated".to_owned()),
+                    status: Some(TaskStatus::Done),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.title, "updated");
+        assert_eq!(updated.status, TaskStatus::Done);
+
+        let listed = core
+            .list_tasks(TaskFilter::default(), TaskSort::UpdatedAtDesc)
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, created.id);
+
+        let searched = core.search_tasks("updated".to_owned()).unwrap();
+        assert_eq!(searched.len(), 1);
+        assert_eq!(searched[0].id, created.id);
+
+        core.delete_task(created.id).unwrap();
+        assert!(core.get_task(created.id).unwrap().deleted);
+    }
+
+    #[test]
+    fn facade_preserves_database_error_semantics() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let missing_id = Uuid::new_v4();
+
+        let error = core.get_task(missing_id).unwrap_err();
+        assert!(
+            matches!(error, CoreError::Database(DbError::TaskNotFound(id)) if id == missing_id)
+        );
+    }
+
+    #[test]
+    fn multiple_facades_over_same_path_observe_consistent_state() {
+        let path =
+            temporary_database_path("multiple_facades_over_same_path_observe_consistent_state");
+        let first = TaskManagerCore::open(&path).unwrap();
+        let second = TaskManagerCore::open(&path).unwrap();
+
+        let created = first
+            .create_task("shared".to_owned(), "body".to_owned(), None)
+            .unwrap();
+
+        assert_eq!(second.get_task(created.id).unwrap(), created);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn temporary_database_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "taskmanager-core-{name}-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ))
+    }
+}
