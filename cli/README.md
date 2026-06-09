@@ -194,12 +194,15 @@ taskmanager generate man > taskmanager.1
 A functional local-server workflow looks like this:
 
 ```sh
-# 1. Start with local keys and store the server tokens returned by the auth API.
-taskmanager account init
-taskmanager --server http://127.0.0.1:18080 auth login \
+# 1. Run the setup wizard once. It creates local account keys, saves the
+#    server URL, and stores the tokens returned by the auth API.
+taskmanager configure
+
+# You can also provide everything non-interactively:
+taskmanager configure \
+  --server-url http://127.0.0.1:18080 \
   --access-token "$JWT" \
   --refresh-token "$REFRESH"
-taskmanager settings set server_url http://127.0.0.1:18080
 
 # 2. Work normally while offline/local-first.
 taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work

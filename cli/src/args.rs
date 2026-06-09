@@ -52,6 +52,8 @@ pub struct Cli {
 pub enum Commands {
     /// Print machine-readable version information.
     Version,
+    /// Interactively configure local keys, server URL, and auth tokens.
+    Configure(ConfigureArgs),
     /// Manage account bootstrap.
     Account {
         #[command(subcommand)]
@@ -92,6 +94,21 @@ pub enum Commands {
         #[command(subcommand)]
         command: GenerateCommands,
     },
+}
+
+#[derive(Debug, Args)]
+pub struct ConfigureArgs {
+    /// Server base URL to save in plaintext settings.
+    #[arg(long)]
+    pub server_url: Option<String>,
+
+    /// Access token to store in the platform key store.
+    #[arg(long)]
+    pub access_token: Option<String>,
+
+    /// Refresh token to store in the platform key store.
+    #[arg(long)]
+    pub refresh_token: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

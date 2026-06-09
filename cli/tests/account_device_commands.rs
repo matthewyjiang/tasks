@@ -6,22 +6,30 @@ use tempfile::TempDir;
 struct KeyCli {
     _temp: TempDir,
     key_dir: std::path::PathBuf,
+    config: std::path::PathBuf,
 }
 
 impl KeyCli {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let key_dir = temp.path().join("keys");
+        let config = temp.path().join("settings.json");
         Self {
             _temp: temp,
             key_dir,
+            config,
         }
     }
 
     fn command(&self) -> Command {
         let mut cmd = Command::cargo_bin("taskmanager").unwrap();
-        cmd.args(["--output", "json"])
-            .env("TASKMANAGER_INSECURE_KEY_DIR", &self.key_dir);
+        cmd.args([
+            "--output",
+            "json",
+            "--config",
+            self.config.to_str().unwrap(),
+        ])
+        .env("TASKMANAGER_INSECURE_KEY_DIR", &self.key_dir);
         cmd
     }
 
@@ -36,6 +44,59 @@ impl KeyCli {
             .clone();
         serde_json::from_slice(&output).unwrap()
     }
+}
+
+#[test]
+fn configure_initializes_account_settings_and_tokens_non_interactively() {
+    let cli = KeyCli::new();
+
+    let value = cli.json(&[
+        "configure",
+        "--server-url",
+        "https://api.example.com",
+        "--access-token",
+        "access",
+        "--refresh-token",
+        "refresh",
+    ]);
+
+    assert_eq!(value["result"]["account_initialized"], true);
+    assert_eq!(value["result"]["server_url"], "https://api.example.com");
+    assert_eq!(value["result"]["access_token_stored"], true);
+    assert_eq!(value["result"]["refresh_token_stored"], true);
+    assert_eq!(
+        cli.json(&["settings", "get", "server_url"])["result"],
+        "https://api.example.com"
+    );
+
+    let rerun = cli.json(&[
+        "configure",
+        "--server-url",
+        "https://next.example.com",
+        "--access-token",
+        "next-access",
+    ]);
+    assert_eq!(rerun["result"]["account_initialized"], false);
+    assert_eq!(rerun["result"]["refresh_token_stored"], false);
+}
+
+#[test]
+fn configure_accepts_interactive_input_on_stdin() {
+    let cli = KeyCli::new();
+
+    let output = cli
+        .command()
+        .args(["configure"])
+        .write_stdin("https://api.example.com\naccess\n\n")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: Value = serde_json::from_slice(&output).unwrap();
+
+    assert_eq!(value["result"]["server_url"], "https://api.example.com");
+    assert_eq!(value["result"]["refresh_token_stored"], false);
 }
 
 #[test]

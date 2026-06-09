@@ -82,6 +82,14 @@ pub struct CryptoVerifyOutput {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ConfigureOutput {
+    pub account_initialized: bool,
+    pub server_url: String,
+    pub access_token_stored: bool,
+    pub refresh_token_stored: bool,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SyncResultOutput {
     pub pushed: usize,
     pub pulled: usize,
@@ -164,6 +172,18 @@ impl TableOutput for UnwrappedKeyOutput {
 impl TableOutput for SecretBytesOutput {
     fn to_table(&self) -> String {
         self.hex.clone()
+    }
+}
+
+impl TableOutput for ConfigureOutput {
+    fn to_table(&self) -> String {
+        format!(
+            "Configured taskmanager\naccount_initialized\t{}\nserver_url\t{}\naccess_token_stored\t{}\nrefresh_token_stored\t{}",
+            self.account_initialized,
+            self.server_url,
+            self.access_token_stored,
+            self.refresh_token_stored
+        )
     }
 }
 

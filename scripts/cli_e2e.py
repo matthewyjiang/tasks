@@ -242,23 +242,26 @@ def main() -> int:
                     "pub_key": base64.b64encode(bytes.fromhex(account_a["public_key"])).decode("ascii"),
                 },
             )
-            login = parse_result(
+            configured = parse_result(
                 cli(
                     env,
                     profile_a,
-                    "auth",
-                    "login",
+                    "configure",
+                    "--server-url",
+                    SERVER_URL,
                     "--access-token",
                     server_auth["jwt"],
                     "--refresh-token",
                     server_auth["refresh_token"],
                 )
             )
-            assert login["stored"] is True
+            assert configured["account_initialized"] is False
+            assert configured["server_url"] == SERVER_URL
+            assert configured["access_token_stored"] is True
+            assert configured["refresh_token_stored"] is True
 
             settings_defaults = parse_result(cli(env, profile_a, "settings", "get"))
             assert settings_defaults["auth_method"] == "password"
-            parse_result(cli(env, profile_a, "settings", "set", "server_url", SERVER_URL))
             parse_result(cli(env, profile_a, "settings", "set", "auth_method", "pin"))
             parse_result(cli(env, profile_a, "settings", "set", "language", "en-US"))
             parse_result(cli(env, profile_a, "settings", "set", "last_sync_cursor", "123"))

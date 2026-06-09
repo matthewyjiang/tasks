@@ -4,20 +4,22 @@ pub mod error;
 pub mod output;
 pub mod platform;
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use args::{
-    AccountCommands, AuthCommands, Cli, Commands, CryptoCommands, DeviceCommands, GenerateCommands,
-    SettingsCommands, SyncCommands, TaskCommands,
+    AccountCommands, AuthCommands, Cli, Commands, ConfigureArgs, CryptoCommands, DeviceCommands,
+    GenerateCommands, SettingsCommands, SyncCommands, TaskCommands,
 };
 use clap::{CommandFactory, Parser};
 use error::{CliError, CliResult};
 use output::{
-    AuthOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput,
-    SecretBytesOutput, SyncResultOutput, UnwrappedKeyOutput, VersionOutput, WrappedKeyOutput,
+    AuthOutput, ConfigureOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat,
+    PublicKeyOutput, SecretBytesOutput, SyncResultOutput, UnwrappedKeyOutput, VersionOutput,
+    WrappedKeyOutput,
 };
 use taskmanager_core::{
     decrypt_blob, encrypt_blob, init_account, init_device_keypair, sync_pull, sync_push,
@@ -52,6 +54,9 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
             },
         )
         .map(Some),
+        Some(Commands::Configure(args)) => {
+            run_configure(args, cli.output, ctx.config_path, &ctx.profile, ctx.offline)
+        }
         Some(Commands::Account { command }) => run_account(command, cli.output, ctx.offline),
         Some(Commands::Auth { command }) => run_auth(command, cli.output, ctx.offline),
         Some(Commands::Device { command }) => run_device(command, cli.output, ctx.offline),
@@ -119,6 +124,101 @@ fn run_generate(command: GenerateCommands) -> CliResult<Option<String>> {
                 CliError::Input(format!("generated man page is not UTF-8: {error}"))
             })
         }
+    }
+}
+
+fn run_configure(
+    args: ConfigureArgs,
+    output_format: OutputFormat,
+    config_path: Option<PathBuf>,
+    profile: &str,
+    offline: bool,
+) -> CliResult<Option<String>> {
+    let platform = platform::CliPlatform::new(offline);
+    let account_initialized = if key_exists(&platform, DEVICE_PRIVATE_KEY_ID)?
+        && key_exists(&platform, ACCOUNT_DATA_KEY_ID)?
+    {
+        false
+    } else {
+        init_account(&platform).map_err(CliError::from)?;
+        true
+    };
+
+    let server_url = match args.server_url {
+        Some(value) => value,
+        None => prompt("Server URL (for example http://127.0.0.1:18080): ")?,
+    };
+    let access_token = match args.access_token {
+        Some(value) => value,
+        None => prompt("Access token/JWT: ")?,
+    };
+    let refresh_token = match args.refresh_token {
+        Some(value) => Some(value),
+        None => prompt_optional("Refresh token (optional, press Enter to skip): ")?,
+    };
+
+    let settings_path = resolve_config_path(config_path, profile)?;
+    let mut settings = PlaintextSettings::read_from_file(&settings_path).map_err(CliError::from)?;
+    set_plaintext_setting(&mut settings, "server_url", &server_url)?;
+    settings
+        .write_to_file(&settings_path)
+        .map_err(CliError::from)?;
+
+    platform
+        .store_key(AUTH_ACCESS_TOKEN_ID, access_token.as_bytes())
+        .map_err(CliError::from)?;
+    let refresh_token_stored = if let Some(refresh_token) = refresh_token {
+        platform
+            .store_key(AUTH_REFRESH_TOKEN_ID, refresh_token.as_bytes())
+            .map_err(CliError::from)?;
+        true
+    } else {
+        false
+    };
+
+    output::format_command_result(
+        output_format,
+        &ConfigureOutput {
+            account_initialized,
+            server_url,
+            access_token_stored: true,
+            refresh_token_stored,
+        },
+    )
+    .map(Some)
+}
+
+fn prompt(label: &str) -> CliResult<String> {
+    eprint!("{label}");
+    io::stderr()
+        .flush()
+        .map_err(|error| CliError::LocalStorage(format!("failed to write prompt: {error}")))?;
+    let mut value = String::new();
+    io::stdin()
+        .read_line(&mut value)
+        .map_err(|error| CliError::Input(format!("failed to read input: {error}")))?;
+    let value = value.trim().to_owned();
+    if value.is_empty() {
+        Err(CliError::Input("required configure value was empty".into()))
+    } else {
+        Ok(value)
+    }
+}
+
+fn prompt_optional(label: &str) -> CliResult<Option<String>> {
+    eprint!("{label}");
+    io::stderr()
+        .flush()
+        .map_err(|error| CliError::LocalStorage(format!("failed to write prompt: {error}")))?;
+    let mut value = String::new();
+    io::stdin()
+        .read_line(&mut value)
+        .map_err(|error| CliError::Input(format!("failed to read input: {error}")))?;
+    let value = value.trim().to_owned();
+    if value.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(value))
     }
 }
 
