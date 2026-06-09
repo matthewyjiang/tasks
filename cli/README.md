@@ -174,7 +174,7 @@ The suite:
 2. Starts a fresh PostgreSQL container with `docker compose down -v && docker compose up -d postgres` under `server/`.
 3. Starts the Go server with test-only environment values on `http://127.0.0.1:18080`.
 4. Runs the compiled CLI with isolated temp profiles and `--server http://127.0.0.1:18080`.
-5. Exercises the currently implemented CLI interfaces and edge cases, including task CRUD, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics, and unsupported server-backed sync commands.
+5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, and unsupported server-backed commands.
 
 This test should be extended whenever new CLI features are added, especially once auth/device registration and sync push/pull start using the server.
 

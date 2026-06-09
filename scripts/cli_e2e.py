@@ -91,7 +91,13 @@ def read_process_output(process: subprocess.Popen[str]) -> str:
         return f"<failed to read process output: {error}>"
 
 
-def cli(base_env: dict[str, str], profile_dir: Path, *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
+def cli(
+    base_env: dict[str, str],
+    profile_dir: Path,
+    *args: str,
+    expect: int = 0,
+    output: str = "json",
+) -> subprocess.CompletedProcess[str]:
     env = base_env.copy()
     env["TASKMANAGER_INSECURE_KEY_DIR"] = str(profile_dir / "keys")
     env["TASKMANAGER_REMINDER_DIR"] = str(profile_dir / "reminders")
@@ -102,7 +108,7 @@ def cli(base_env: dict[str, str], profile_dir: Path, *args: str, expect: int = 0
         "--db",
         str(profile_dir / "tasks.db"),
         "--output",
-        "json",
+        output,
         *args,
     ]
     result = run(cmd, env=env)
@@ -211,18 +217,99 @@ def main() -> int:
                     "server e2e task",
                     "--body",
                     "created while server is running",
+                    "--due",
+                    "2000",
                     "--tag",
                     "e2e",
+                    "--tag",
+                    "server",
                 )
             )
             task_id = created["id"]
             assert created["dirty"] is True
+            assert created["title"] == "server e2e task"
+            assert created["due_at"] == 2000
+            assert created["tags"] == ["e2e", "server"]
+
+            positional = parse_result(cli(env, profile_a, "task", "create", "positional title"))
+            positional_id = positional["id"]
+
+            got = parse_result(cli(env, profile_a, "task", "get", task_id))
+            assert got["id"] == task_id
+
+            updated = parse_result(
+                cli(
+                    env,
+                    profile_a,
+                    "task",
+                    "update",
+                    task_id,
+                    "--title",
+                    "updated e2e task",
+                    "--body",
+                    "updated body",
+                    "--due-at",
+                    "3000",
+                    "--status",
+                    "in-progress",
+                    "--tags",
+                    "updated,edge",
+                )
+            )
+            assert updated["title"] == "updated e2e task"
+            assert updated["body"] == "updated body"
+            assert updated["status"] == "in_progress"
+            assert updated["due_at"] == 3000
+            assert updated["tags"] == ["updated", "edge"]
+
+            cleared = parse_result(cli(env, profile_a, "task", "update", task_id, "--clear-due-at"))
+            assert cleared["due_at"] is None
+
+            complete = parse_result(cli(env, profile_a, "task", "complete", task_id))
+            assert complete["status"] == "done"
+            reopened = parse_result(cli(env, profile_a, "task", "reopen", task_id))
+            assert reopened["status"] == "inbox"
+
+            search = parse_result(cli(env, profile_a, "task", "search", "updated e2e"))
+            assert any(task["id"] == task_id for task in search)
+
+            punctuation = parse_result(cli(env, profile_a, "task", "create", "C++ foo-bar"))
+            punctuation_search = parse_result(cli(env, profile_a, "task", "search", "C++ foo-bar"))
+            assert any(task["id"] == punctuation["id"] for task in punctuation_search)
 
             listed = parse_result(cli(env, profile_a, "task", "list"))
             assert any(task["id"] == task_id for task in listed)
+            assert any(task["id"] == positional_id for task in listed)
+
+            inbox = parse_result(cli(env, profile_a, "task", "list", "--status", "inbox"))
+            assert all(task["status"] == "inbox" for task in inbox)
+            due_sorted = parse_result(cli(env, profile_a, "task", "list", "--sort", "due-at-asc"))
+            assert isinstance(due_sorted, list)
+
+            table = cli(env, profile_a, "task", "get", task_id, output="table")
+            assert task_id in table.stdout
+            jsonl = cli(env, profile_a, "task", "get", task_id, output="jsonl")
+            assert json.loads(jsonl.stdout)["result"]["id"] == task_id
+
+            deleted = parse_result(cli(env, profile_a, "task", "delete", positional_id))
+            assert deleted["deleted"] is True
+            deleted_get = parse_result(cli(env, profile_a, "task", "get", positional_id))
+            assert deleted_get["deleted"] is True
+            missing = cli(env, profile_a, "task", "get", "00000000-0000-0000-0000-000000000000", expect=1)
+            assert_error(missing, "input_error")
+            with_deleted = parse_result(cli(env, profile_a, "task", "list", "--include-deleted"))
+            assert any(task["id"] == positional_id and task["deleted"] is True for task in with_deleted)
+
+            create_missing_title = cli(env, profile_a, "task", "create", expect=1)
+            assert_error(create_missing_title, "input_error")
+            invalid_uuid = cli(env, profile_a, "task", "get", "not-a-uuid", expect=1)
+            assert_error(invalid_uuid, "input_error")
+            conflicting_due = cli(env, profile_a, "task", "update", task_id, "--due-at", "1", "--clear-due-at", expect=1)
+            assert_error(conflicting_due, "input_error")
 
             status = parse_result(cli(env, profile_a, "sync", "status"))
-            assert status["dirty_count"] == 1
+            assert status["dirty_count"] >= 3
+            assert status["retry_queue_depth"] == 0
             retry = parse_result(cli(env, profile_a, "sync", "retry", task_id))
             assert retry["attempt"] == 1
             assert retry["task_id"] == task_id
@@ -248,8 +335,23 @@ def main() -> int:
             malformed = cli(env, profile_a, "device", "wrap-key", "--target", "éé", expect=1)
             assert_error(malformed, "input_error")
 
-            sync_push = cli(env, profile_a, "sync", "push", expect=6)
-            assert_error(sync_push, "unsupported_platform")
+            retry_again = parse_result(cli(env, profile_a, "sync", "retry", task_id))
+            assert retry_again["attempt"] == 2
+            status_after_retry = parse_result(cli(env, profile_a, "sync", "status"))
+            assert status_after_retry["retry_queue_depth"] == 1
+
+            for sync_command in ["push", "pull", "run", "conflicts"]:
+                unsupported = cli(env, profile_a, "sync", sync_command, expect=6)
+                assert_error(unsupported, "unsupported_platform")
+            sync_resolve = cli(env, profile_a, "sync", "resolve", task_id, expect=6)
+            assert_error(sync_resolve, "unsupported_platform")
+
+            auth_refresh = cli(env, profile_a, "auth", "refresh", expect=6)
+            assert_error(auth_refresh, "unsupported_platform")
+            device_register = cli(env, profile_a, "device", "register", expect=6)
+            assert_error(device_register, "unsupported_platform")
+            device_list = cli(env, profile_a, "device", "list", expect=6)
+            assert_error(device_list, "unsupported_platform")
 
             logout = parse_result(cli(env, profile_a, "auth", "logout"))
             assert logout["logged_out"] is True
