@@ -1,5 +1,5 @@
 use serde::Serialize;
-use taskmanager_core::{Task, TaskStatus};
+use taskmanager_core::{RetryQueueEntry, SyncStatus, Task, TaskStatus};
 use uuid::Uuid;
 
 use crate::error::CliResult;
@@ -135,6 +135,24 @@ impl TableOutput for WrappedKeyOutput {
 impl TableOutput for UnwrappedKeyOutput {
     fn to_table(&self) -> String {
         "Data key stored".to_string()
+    }
+}
+
+impl TableOutput for SyncStatus {
+    fn to_table(&self) -> String {
+        format!(
+            "dirty_count\t{}\nretry_queue_depth\t{}\ncursor\t{}",
+            self.dirty_count, self.retry_queue_depth, self.cursor
+        )
+    }
+}
+
+impl TableOutput for RetryQueueEntry {
+    fn to_table(&self) -> String {
+        format!(
+            "task_id\t{}\nattempt\t{}\nnext_retry\t{}",
+            self.task_id, self.attempt, self.next_retry
+        )
     }
 }
 

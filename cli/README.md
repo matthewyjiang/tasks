@@ -146,7 +146,9 @@ Commands intentionally never print private key or account data key material.
 - persistent server URL settings
 - server auth refresh/login integration
 - device register/list against the server
-- sync push/pull/run/status
+- sync push/pull/run
+
+Local sync diagnostics are available with `sync status` and `sync retry`.
 
 ## Headless reminders
 
@@ -157,3 +159,36 @@ export TASKMANAGER_REMINDER_DIR=/tmp/taskmanager-reminders
 ```
 
 Reminder commands are not exposed directly yet; this backs core/platform integration.
+
+## Local CLI/server E2E suite
+
+Run the black-box CLI pipeline from the repository root:
+
+```sh
+./scripts/cli_e2e.py
+```
+
+The suite:
+
+1. Builds `taskmanager-cli`.
+2. Starts a fresh PostgreSQL container with `docker compose down -v && docker compose up -d postgres` under `server/`.
+3. Starts the Go server with test-only environment values on `http://127.0.0.1:18080`.
+4. Runs the compiled CLI with isolated temp profiles and `--server http://127.0.0.1:18080`.
+5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, and unsupported server-backed commands.
+
+This test should be extended whenever new CLI features are added, especially once auth/device registration and sync push/pull start using the server.
+
+Requirements:
+
+- Docker with Compose v2
+- Go
+- Rust/Cargo
+
+Optional environment overrides:
+
+```sh
+TASKMANAGER_E2E_SERVER_URL=http://127.0.0.1:18080 \
+TASKMANAGER_E2E_DATABASE_URL='postgres://tasks:tasks@localhost:5432/tasks?sslmode=disable' \
+TASKMANAGER_E2E_JWT_SECRET='taskmanager-cli-e2e-test-secret-change-me-32-bytes' \
+./scripts/cli_e2e.py
+```

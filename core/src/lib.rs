@@ -41,4 +41,7 @@ pub use sync::{
     resolve_conflict, sync_pull, sync_push, BlobPush, PullResponse, PushResponse, RemoteBlob,
     SyncClient,
 };
-pub use types::{Blob, SyncResult, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};
+pub use types::{
+    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskPatch, TaskSort,
+    TaskStatus,
+};

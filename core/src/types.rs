@@ -60,6 +60,20 @@ pub struct Blob {
     pub nonce: [u8; 12],
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStatus {
+    pub dirty_count: usize,
+    pub retry_queue_depth: usize,
+    pub cursor: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetryQueueEntry {
+    pub task_id: Uuid,
+    pub attempt: i64,
+    pub next_retry: i64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyncResult {
     pub pushed: usize,

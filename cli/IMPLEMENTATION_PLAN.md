@@ -156,19 +156,19 @@ TODO:
 - [ ] Add `sync push`.
 - [ ] Add `sync pull [--since <cursor>]`.
 - [ ] Add `sync run`.
-- [ ] Add `sync status`.
-- [ ] Add `sync retry <task_id>`.
+- [x] Add `sync status`.
+- [x] Add `sync retry <task_id>`.
 - [ ] Add `sync conflicts`.
 - [ ] Add `sync resolve <task_id> --local|--remote|--json <patch>`.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] `sync status` reports dirty row count, retry queue depth, and cursor.
+- [x] `sync status` reports dirty row count, retry queue depth, and cursor.
 - [ ] `sync push` clears `dirty` only for server-confirmed blobs.
 - [ ] Network failure preserves dirty rows and queues retries.
 - [ ] `sync pull` advances cursor only after successful decrypt/upsert.
 - [ ] `sync run` produces deterministic JSON summary.
-- [ ] `sync retry` updates queue state for the selected task.
+- [x] `sync retry` updates queue state for the selected task.
 - [ ] Conflict commands report and resolve conflicts through core APIs.
 
 ## Milestone 7: Settings commands
