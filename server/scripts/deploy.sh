@@ -18,22 +18,12 @@ prompt() {
   local name="$1"
   local label="$2"
   local default="${3:-}"
-  local secret="${4:-false}"
   local value=""
 
-  if [[ "$secret" == "true" ]]; then
-    if [[ -n "$default" ]]; then
-      read -r -s -p "$label [keep existing]: " value
-    else
-      read -r -s -p "$label: " value
-    fi
-    echo
+  if [[ -n "$default" ]]; then
+    read -r -p "$label [$default]: " value
   else
-    if [[ -n "$default" ]]; then
-      read -r -p "$label [$default]: " value
-    else
-      read -r -p "$label: " value
-    fi
+    read -r -p "$label: " value
   fi
   value="${value:-$default}"
   printf -v "$name" '%s' "$value"
@@ -95,25 +85,25 @@ main() {
   prompt POSTGRES_DB "Postgres database name" "${POSTGRES_DB:-tasks}"
   prompt POSTGRES_USER "Postgres user" "${POSTGRES_USER:-tasks}"
 
-  local generated_pg="${POSTGRES_PASSWORD:-}"
-  if [[ -z "$generated_pg" ]]; then
-    generated_pg="$(random_secret)"
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
+  if [[ -z "$POSTGRES_PASSWORD" ]]; then
+    POSTGRES_PASSWORD="$(random_secret)"
+    echo "Generated Postgres password."
   fi
-  prompt POSTGRES_PASSWORD "Postgres password" "$generated_pg" true
 
-  local generated_jwt="${JWT_SECRET:-}"
-  if [[ -z "$generated_jwt" || "$generated_jwt" == "replace-with-a-long-random-secret" ]]; then
-    generated_jwt="$(random_secret)"
+  JWT_SECRET="${JWT_SECRET:-}"
+  if [[ -z "$JWT_SECRET" || "$JWT_SECRET" == "replace-with-a-long-random-secret" ]]; then
+    JWT_SECRET="$(random_secret)"
+    echo "Generated JWT signing key."
   fi
-  prompt JWT_SECRET "JWT secret" "$generated_jwt" true
 
-  prompt JWT_ISSUER "JWT issuer" "${JWT_ISSUER:-tasks-server}"
-  prompt ACCESS_TOKEN_TTL "Access token TTL" "${ACCESS_TOKEN_TTL:-15m}"
-  prompt REFRESH_TOKEN_TTL "Refresh token TTL" "${REFRESH_TOKEN_TTL:-720h}"
-  prompt WRITE_RATE_LIMIT_PER_MIN "Write rate limit per user/min" "${WRITE_RATE_LIMIT_PER_MIN:-60}"
-  prompt MAX_BLOB_BYTES "Max blob bytes" "${MAX_BLOB_BYTES:-1048576}"
-  prompt MAX_BATCH_BLOBS "Max batch blobs" "${MAX_BATCH_BLOBS:-100}"
-  prompt TOMBSTONE_RETENTION "Tombstone retention" "${TOMBSTONE_RETENTION:-720h}"
+  JWT_ISSUER="${JWT_ISSUER:-tasks-server}"
+  ACCESS_TOKEN_TTL="${ACCESS_TOKEN_TTL:-15m}"
+  REFRESH_TOKEN_TTL="${REFRESH_TOKEN_TTL:-720h}"
+  WRITE_RATE_LIMIT_PER_MIN="${WRITE_RATE_LIMIT_PER_MIN:-60}"
+  MAX_BLOB_BYTES="${MAX_BLOB_BYTES:-1048576}"
+  MAX_BATCH_BLOBS="${MAX_BATCH_BLOBS:-100}"
+  TOMBSTONE_RETENTION="${TOMBSTONE_RETENTION:-720h}"
 
   echo
   echo "This will write $ENV_FILE and run: docker compose -f $COMPOSE_FILE up -d --build"
