@@ -162,7 +162,7 @@ taskmanager --config /tmp/settings.json --output json settings migrate
 
 ## Crypto diagnostics
 
-Development diagnostics use existing local account/device keys. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
+The `crypto` namespace is intentionally exposed in help, but these are developer diagnostics rather than normal user workflows. Use them to generate encrypted fixtures, troubleshoot local key material, debug sync/blob failures, and validate crypto behavior in black-box tests. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
 
 ```sh
 taskmanager crypto verify-local

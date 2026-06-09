@@ -76,7 +76,7 @@ pub enum Commands {
         #[command(subcommand)]
         command: SettingsCommands,
     },
-    /// Run development crypto diagnostics.
+    /// Run developer crypto diagnostics for fixtures, troubleshooting, and E2E validation.
     Crypto {
         #[command(subcommand)]
         command: CryptoCommands,
@@ -195,15 +195,15 @@ pub struct SettingsPushPlaintextArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum CryptoCommands {
-    /// Encrypt a local task with the account data key and print the encrypted blob.
+    /// Dev diagnostic: encrypt a local task to inspect or fixture the sync blob shape.
     EncryptTask(TaskIdArgs),
-    /// Decrypt a JSON blob file with the account data key.
+    /// Dev diagnostic: decrypt a JSON blob fixture while debugging crypto/sync failures.
     DecryptBlob(CryptoBlobFileArgs),
-    /// Wrap the local account data key for a target public key.
+    /// Dev diagnostic: wrap the local data key without registering or mutating devices.
     WrapDataKey(DeviceWrapKeyArgs),
-    /// Unwrap an account data key without storing it.
+    /// Dev diagnostic: print an unwrapped data key for troubleshooting; requires --dangerously-print-secrets.
     UnwrapDataKey(DeviceUnwrapKeyArgs),
-    /// Verify local crypto key material can encrypt/decrypt a fixture task.
+    /// Dev diagnostic: verify stored local keys can encrypt/decrypt a fixture task.
     VerifyLocal,
 }
 
