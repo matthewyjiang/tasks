@@ -1,26 +1,27 @@
-# Server setup and CLI UX re-evaluation
+# Server setup and CLI UX evaluation
 
 Date: 2026-06-09
 
-This document re-evaluates the current user experience of the server setup flow and the `taskmanager` CLI after the second UX pass on `ux-evaluation-fixes`.
+This is a clean re-evaluation of the current server setup and `taskmanager` CLI UX after the recent UX fixes. It intentionally distinguishes between **technical/developer UX** and **normal end-user product UX**.
 
 ## Summary
 
-Both the server setup and CLI now meet an **A-** UX bar for a technical 1.0 audience. The server has a one-command local development path, non-mutating checks, clearer runtime documentation, a CLI handoff, and safer deploy-time database URL construction. The CLI now has discoverable first-run help, hidden password prompts, explicit offline semantics, cleaner help output, first-class email/password `auth login`, and human-readable due-date input for common cases.
+The project has improved substantially. The server setup is now solid for contributors, and the CLI no longer has several first-run trust issues. However, calling both areas a blanket “A” would overstate the current product polish.
 
 Recommended UX readiness call:
 
-- Server setup: **A-** improved from B-
-- CLI as developer/test harness: **A** improved from A-
-- CLI as normal user product: **A-** improved from B-
+- Server setup for developers: **A-**
+- Server setup for non-developer/self-hosting users: **B+**
+- CLI as developer/test harness: **A- / A**
+- CLI as normal user product: **B+**
 
-Remaining gaps are no longer first-run blockers. The main opportunities are product expansion: guided multi-device pairing, broader natural-language date parsing, and implementing hidden future commands.
+The codebase is now in good shape for a technical 1.0 audience. For a broader consumer-quality terminal product, the CLI still needs friendlier device pairing, richer date parsing, stronger semantics for global UX flags, and fewer hidden-but-present unfinished commands.
 
 ## Server setup UX
 
 ### Current flow
 
-Local development now supports one-command startup:
+The server now supports a one-command local development path:
 
 ```sh
 cd server
@@ -29,7 +30,7 @@ make dev
 
 `make dev` starts PostgreSQL with Docker Compose, loads `.env` if present, runs migrations, and starts the API.
 
-Manual setup is still documented for contributors who want each step:
+The manual flow is still documented:
 
 ```sh
 cp .env.example .env
@@ -38,68 +39,69 @@ set -a; . ./.env; set +a
 make run
 ```
 
-Deployment is handled by `server/scripts/deploy.sh`, which interactively prompts for configuration, writes `.env`, starts Docker Compose, and checks `/healthz`.
+Deployment is handled by:
+
+```sh
+cd server
+./scripts/deploy.sh
+```
+
+The deploy script interactively prompts for configuration, writes `.env`, starts Docker Compose, and checks `/healthz`.
 
 ### What works well
 
-- One-command local development exists via `make dev`.
-- `make check` now verifies without mutating files.
-- `make fix` performs the mutating cleanup/formatting path.
-- Runtime requirements and expected ports are documented.
-- Server docs now show the next CLI action:
+- `make dev` provides a straightforward local startup path.
+- `make check` is now non-mutating.
+- `make fix` handles mutating formatting/module cleanup.
+- Server requirements and expected ports are documented.
+- The README now connects server setup to CLI setup:
 
   ```sh
   taskmanager configure --server-url http://localhost:8080
   ```
 
-- The deploy script is interactive and approachable for technical users.
+- The deploy script is interactive and preserves existing `.env` defaults.
 - Secrets are generated automatically when missing.
-- Existing `.env` values are preserved and offered as defaults.
-- Docker Compose deployment runs a health check after startup.
-- Deploy-time database URL components are URL-encoded, so special characters in generated or user-entered Postgres passwords are safer.
-- Server defaults remain sensible:
-  - `PORT=8080`
-  - `ACCESS_TOKEN_TTL=15m`
-  - `REFRESH_TOKEN_TTL=720h`
-  - `WRITE_RATE_LIMIT_PER_MIN=60`
-  - `MAX_BLOB_BYTES=1048576`
-  - `MAX_BATCH_BLOBS=100`
-  - `TOMBSTONE_RETENTION=720h`
+- Deploy health checking is built in.
+- Deploy-generated database URL components are URL-encoded, so reserved password characters are handled better.
+- Defaults are sensible for a technical deployment.
 
-### Remaining friction points
+### Remaining friction
 
-1. **`make dev` assumes Docker/Postgres port availability**
+1. **Port conflicts are not proactively diagnosed**
 
-   The docs list expected ports, but the command does not proactively diagnose port conflicts before Docker Compose reports them.
+   The docs mention ports, but `make dev` does not preflight-check whether `5432` or `8080` are already in use.
 
-2. **Deploy script now depends on Python 3**
+2. **Self-hosting is still technical**
 
-   This is reasonable on most servers and is checked up front, but it is one more deployment prerequisite.
+   The deploy script is good for developers/operators, but a normal self-hosting user still needs comfort with SSH, Docker Compose, environment variables, and logs.
 
-3. **Sample API docs remain intentionally light**
+3. **Deploy script depends on Python 3 for URL encoding**
 
-   The README includes health and auth examples, but encrypted blob sync is still best exercised through the CLI.
+   This is acceptable on most servers and is checked, but it is still an extra runtime requirement.
 
-### Server UX recommendations
+4. **API examples are intentionally minimal**
 
-Already resolved from the original must-fix list:
+   The README provides health/auth examples, but blob sync is still best understood through the CLI/E2E suite.
 
-- Add a one-command local dev startup path.
-- Make `make check` non-mutating and add `make fix`.
-- Document how to connect the CLI to the local server.
-- Fix raw DB password interpolation in deploy-generated `DATABASE_URL`.
+### Server rating rationale
 
-Nice-to-have future improvements:
+- **A- for developers** because local setup, validation, docs, and deploy flow are now coherent and low-friction.
+- **B+ for non-developer self-hosting** because the workflow is still terminal/Docker/operator-oriented and lacks preflight diagnostics.
 
-- Detect local port conflicts before `docker compose up`.
-- Add a deploy preflight summary showing required commands and versions.
-- Add deeper API examples for developers building direct integrations.
+### Server recommendations
+
+To reach a stronger A:
+
+- Add preflight checks for required commands and occupied ports in `make dev` or a `scripts/dev.sh` wrapper.
+- Print clearer next-step messages after `make dev` starts successfully.
+- Add a concise self-hosting troubleshooting section for ports, Docker permissions, migrations, and health check failures.
 
 ## CLI UX
 
 ### Current visible command surface
 
-The normal visible CLI namespaces are now:
+Normal visible commands:
 
 - `version`
 - `configure`
@@ -111,7 +113,7 @@ The normal visible CLI namespaces are now:
 - `device init-keypair|wrap-key|unwrap-key`
 - `generate completion|man`
 
-Hidden but still callable for tests/diagnostics:
+Hidden but still callable:
 
 - `crypto ...`
 - `auth refresh`
@@ -131,129 +133,90 @@ Global flags include:
 - `--trace`
 - `--dangerously-print-secrets`
 
-### Improvements now in place
+### What works well
 
-1. **No-command behavior is discoverable**
-
-   Running `taskmanager` with no command prints full help instead of returning silently.
-
-2. **Password input is safer**
-
-   `configure` and email/password `auth login` hide password input on TTYs while preserving stdin-compatible behavior for tests/headless automation.
-
-3. **Unsupported/developer commands are hidden from default help**
-
-   Developer and unfinished surfaces no longer make the product look broken to normal users, while still remaining available for diagnostics and E2E coverage.
-
-4. **Offline semantics are explicit**
-
-   `--offline configure` and email/password `--offline auth login` fail clearly before attempting server authentication.
-
-5. **`auth login` now matches user expectations**
-
-   Users can log in with email/password:
-
-   ```sh
-   taskmanager auth login --email you@example.com --server-url http://localhost:8080
-   ```
-
-   Token import still works for scripts and advanced workflows:
-
-   ```sh
-   taskmanager auth login --access-token ... --refresh-token ...
-   ```
-
-6. **Common human-readable due dates are supported**
-
-   Task due-date arguments accept epoch milliseconds plus common date forms:
-
-   ```sh
-   taskmanager task create "Buy milk" --due tomorrow
-   taskmanager task create "File taxes" --due 2026-04-15
-   ```
-
-7. **CLI docs match implementation**
-
-   The README now describes the current configure/auth/sync behavior, hidden crypto diagnostics, human due-date examples, and the recommended first-run flow.
-
-8. **Validation coverage improved**
-
-   Tests cover no-command help, hidden unsupported/developer commands, offline configure behavior, and human due dates. The CLI/server E2E suite continues to exercise the integrated flow.
-
-### What works well now
-
-- The command hierarchy is understandable and maps well to product concepts.
-- First-run behavior is discoverable.
-- `taskmanager configure` is a strong setup path: it initializes local keys, saves the server URL, registers/logs in, and stores tokens.
-- `auth login` now supports the expected email/password workflow.
-- Default help is cleaner and less alarming.
-- `--output json` and `--output jsonl` are strong features for scripts and tests.
-- Path overrides are excellent for integration testing:
+- Running `taskmanager` with no command now prints help.
+- `configure` hides password input on TTYs.
+- `auth login` now supports email/password login, not only token storage.
+- Networked setup/login commands fail clearly when used with `--offline`.
+- Developer/unfinished commands are hidden from default help, reducing user confusion.
+- `configure` is a good first-run path: it initializes keys, saves server URL, registers/logs in, and stores tokens.
+- JSON and JSONL output are strong for automation.
+- Path overrides are excellent for tests and isolated profiles:
   - `--profile`
   - `--config`
   - `--db`
-- Per-profile local state is a good default:
-  - `~/.taskmanager/profiles/<profile>/tasks.db`
-  - `~/.taskmanager/profiles/<profile>/settings.json`
-- Shell completion and man-page generation are available.
-- The insecure file-backed key store is explicitly opted in, which is good for safety.
+- Shell completions and man-page generation are available.
+- The insecure file-backed key store is explicit opt-in.
+- Due dates now accept simple human forms:
 
-### Remaining friction points
+  ```sh
+  --due today
+  --due tomorrow
+  --due 2026-06-10
+  ```
 
-1. **Device pairing remains low-level**
+### Remaining friction
 
-   Current key wrapping commands expose raw public keys, ciphertext, and nonces. This is useful for diagnostics, but normal users would benefit from a guided pairing flow such as:
+1. **Device pairing is still not user-friendly**
+
+   The current device workflow exposes public keys, ciphertext, and nonces. This is acceptable for diagnostics and tests, but not an A-level normal-user pairing experience.
+
+   A friendlier target would be something like:
 
    ```sh
    taskmanager device pair
    taskmanager device pair --code ABCD-1234
    ```
 
-2. **Natural-language due dates are intentionally limited**
+2. **Date parsing is improved but limited**
 
-   `today`, `tomorrow`, `YYYY-MM-DD`, and epoch milliseconds are enough for an A- technical CLI. Broader forms like `next friday` or `tomorrow 9am` would be a polish improvement.
+   Supporting `today`, `tomorrow`, and `YYYY-MM-DD` is useful, but normal users may expect:
 
-3. **Some global flags remain future-facing**
+   ```sh
+   --due "tomorrow 9am"
+   --due "next friday"
+   --due "in 2 days"
+   ```
 
-   `--quiet` and `--yes` are accepted, but they still have limited visible effect because most commands are already non-interactive or direct.
+3. **Some unsupported commands still exist**
 
-4. **Hidden unsupported commands still exist**
+   Hiding unsupported commands is a good practical compromise, but a fully polished 1.0 CLI should avoid shipping visible-or-hidden command paths that intentionally return unsupported errors unless they are explicitly internal/testing-only.
 
-   Hiding unsupported commands is acceptable for this stage, but a strict consumer 1.0 could either implement them or exclude them from release builds.
+4. **`--quiet` and `--yes` remain weak**
 
-## CLI UX recommendations
+   These flags are accepted globally, but most commands do not visibly change behavior based on them. That can make the CLI feel more complete on paper than in practice.
 
-Already resolved from the original must-fix list:
+5. **Local-only setup is not first-class**
 
-- Print help when no command is supplied.
-- Hide password input in `configure`.
-- Make `auth login` support real email/password login.
-- Hide unsupported/developer commands from default help.
-- Update `cli/README.md` to match current auth/configure behavior.
-- Define correct `--offline` semantics for networked setup/login commands.
-- Add common human-readable due-date parsing.
+   `--offline configure` now fails clearly, which is better than surprising behavior. But users may still reasonably want:
 
-Nice-to-have future improvements:
+   ```sh
+   taskmanager configure --local-only
+   ```
 
-- Add friendly multi-device pairing.
-- Expand date parsing to include times and relative weekday phrases.
-- Give `--quiet` and `--yes` stronger semantics or remove them until needed.
-- Normalize any remaining naming differences across args and output.
-- Add `configure --local-only` for users who want explicitly offline setup.
+6. **Normal-user docs could be more guided**
 
-## Suggested first-run user journey
+   The README is improved, but the product could benefit from a short “happy path” tutorial with expected output and troubleshooting.
 
-The polished basic flow is now mostly available:
+### CLI rating rationale
+
+- **A- / A as a developer/test harness** because the CLI is scriptable, deterministic, well-covered, and supports isolated state cleanly.
+- **B+ as a normal user product** because core first-run issues are fixed, but device pairing, richer dates, global flag semantics, and hidden unsupported commands still hold it back from a confident A.
+
+## Suggested first-run journey
+
+This flow is now mostly supported:
 
 ```sh
-# Start local server for development.
+# Start local server.
 cd server
 make dev
 
-# Configure local CLI profile and account.
+# Configure CLI profile and account.
 taskmanager configure --server-url http://localhost:8080
 
-# Create a task with a human due date.
+# Create a task.
 taskmanager task create "Buy milk" --due tomorrow
 
 # Sync.
@@ -263,7 +226,7 @@ taskmanager sync run
 taskmanager task list
 ```
 
-For CI or scripts, the non-interactive flow remains strong:
+For automation, the current flow is strong:
 
 ```sh
 TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
@@ -278,6 +241,26 @@ TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
   --password "$TASKMANAGER_TEST_PASSWORD"
 ```
 
+## Priority recommendations
+
+Highest impact to reach a more defensible A for normal users:
+
+1. Add friendly `device pair` / `device accept` flow.
+2. Expand due-date parsing to include times and common relative phrases.
+3. Add `configure --local-only`.
+4. Give `--quiet` and `--yes` meaningful behavior or remove them until needed.
+5. Decide whether hidden unsupported commands should be implemented, made test-only, or removed from release builds.
+6. Add server dev preflight checks for ports and Docker availability.
+
 ## Overall conclusion
 
-The server and CLI now both clear an A-level bar for technical users and automated environments. The remaining gaps are not basic trust or first-run blockers; they are advanced product polish items. The highest-leverage next UX improvement would be a friendly multi-device pairing workflow, followed by richer date parsing and a decision on hidden future commands.
+The current state is much better than the original evaluation. The server and CLI are genuinely strong for technical users, contributors, and automated environments.
+
+However, they are **not unambiguously A-level for normal end users yet**. A fair current assessment is:
+
+- **Server developer UX: A-**
+- **Server self-hosting UX: B+**
+- **CLI developer/test UX: A- / A**
+- **CLI normal-user UX: B+**
+
+The next UX milestone should focus less on setup basics and more on making advanced product workflows feel human: device pairing, natural dates, local-only setup, and removing or completing unfinished command paths.
