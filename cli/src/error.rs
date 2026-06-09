@@ -1,5 +1,6 @@
 use clap::error::ErrorKind;
 use serde::Serialize;
+use taskmanager_core::{CoreError, CryptoError, DbError, PlatformError, SyncError};
 use thiserror::Error;
 
 pub type CliResult<T> = Result<T, CliError>;
@@ -62,6 +63,30 @@ impl CliError {
             },
         };
         serde_json::to_string(&body).unwrap_or_else(|_| "{\"error\":{\"code\":\"serialization_error\",\"message\":\"failed to serialize error\",\"details\":null}}".to_string())
+    }
+}
+
+impl From<CoreError> for CliError {
+    fn from(error: CoreError) -> Self {
+        match error {
+            CoreError::Database(DbError::TaskNotFound(_)) => Self::Input(error.to_string()),
+            CoreError::Database(_) | CoreError::Platform(PlatformError::KeyNotFound(_)) => {
+                Self::LocalStorage(error.to_string())
+            }
+            CoreError::Crypto(CryptoError::DecryptFailed)
+            | CoreError::Crypto(CryptoError::BadKeyLength(_))
+            | CoreError::Crypto(CryptoError::DeserFailed(_))
+            | CoreError::Crypto(CryptoError::KeyAgreementFailed) => Self::Crypto(error.to_string()),
+            CoreError::Sync(SyncError::NetworkUnavailable)
+            | CoreError::Sync(SyncError::AuthExpired)
+            | CoreError::Sync(SyncError::ServerError { .. }) => Self::Network(error.to_string()),
+            CoreError::Sync(SyncError::BlobConflict(_)) => Self::Conflict(error.to_string()),
+            CoreError::Platform(PlatformError::OperationFailed(message)) => {
+                Self::UnsupportedPlatform(message)
+            }
+            CoreError::Settings(_) => Self::LocalStorage(error.to_string()),
+            CoreError::Serialization(error) => Self::Serialization(error),
+        }
     }
 }
 
