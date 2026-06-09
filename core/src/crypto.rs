@@ -1,3 +1,5 @@
+use std::fmt;
+
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
@@ -14,10 +16,20 @@ const DATA_KEY_LENGTH: usize = 32;
 const AES_GCM_NONCE_LENGTH: usize = 12;
 const DEK_WRAP_INFO: &[u8] = b"dek-wrap";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct DeviceKeypair {
     pub private_key: Vec<u8>,
     pub public_key: Vec<u8>,
+}
+
+impl fmt::Debug for DeviceKeypair {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeviceKeypair")
+            .field("private_key", &"<redacted>")
+            .field("public_key", &self.public_key)
+            .finish()
+    }
 }
 
 pub fn generate_data_key() -> [u8; DATA_KEY_LENGTH] {
@@ -159,6 +171,17 @@ mod tests {
     #[test]
     fn generated_data_key_is_32_bytes() {
         assert_eq!(generate_data_key().len(), 32);
+    }
+
+    #[test]
+    fn device_keypair_debug_redacts_private_key() {
+        let keypair = generate_device_keypair();
+        let debug_text = format!("{keypair:?}");
+        let private_key_text = format!("{:?}", keypair.private_key);
+
+        assert!(debug_text.contains("<redacted>"));
+        assert!(debug_text.contains("public_key"));
+        assert!(!debug_text.contains(&private_key_text));
     }
 
     #[test]

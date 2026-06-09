@@ -65,6 +65,7 @@ Interface tests to add before leaving this milestone:
 - [x] Tampered ciphertext fails as `DecryptFailed`.
 - [x] Tampered nonce fails as `DecryptFailed`.
 - [x] Device public keys are stable encoded bytes accepted by the peer unwrap path.
+- [x] `DeviceKeypair` debug output redacts private key bytes.
 - [x] A data key wrapped by device A for device B unwraps correctly on device B.
 - [x] Unwrap with the wrong private key fails.
 - [x] Unwrap with malformed public key bytes fails cleanly.
