@@ -222,8 +222,8 @@ Interface tests to add before leaving this milestone:
 
 - [x] UDL contains every public API intended for Swift/Kotlin.
 - [x] UDL does not expose internal-only APIs.
-- [ ] Generated Swift bindings compile once `uniffi-bindgen` is added to CI/tooling.
-- [ ] Generated Kotlin bindings compile once `uniffi-bindgen` is added to CI/tooling.
+- [x] Generated Swift bindings compile in CI.
+- [x] Generated Kotlin bindings compile in CI.
 - [x] FFI constructors and CRUD methods round-trip representative values.
 - [x] FFI error mapping preserves meaningful error names/messages.
 - [x] UUID, timestamp, nullable fields, byte arrays, and string lists cross the FFI boundary correctly.

@@ -1,4 +1,3 @@
-namespace taskmanager_core {
   enum FfiTaskStatus {
     "inbox",
     "in_progress",
@@ -18,12 +17,12 @@ namespace taskmanager_core {
     string id;
     string title;
     string body;
-    long? due_at;
+    i64? due_at;
     FfiTaskStatus status;
     string? project_id;
     sequence<string> tags;
-    long created_at;
-    long updated_at;
+    i64 created_at;
+    i64 updated_at;
     boolean deleted;
     boolean dirty;
   };
@@ -31,7 +30,7 @@ namespace taskmanager_core {
   dictionary FfiTaskPatch {
     string? title;
     string? body;
-    long? due_at;
+    i64? due_at;
     boolean clear_due_at;
     FfiTaskStatus? status;
     string? project_id;
@@ -42,8 +41,8 @@ namespace taskmanager_core {
   dictionary FfiTaskFilter {
     FfiTaskStatus? status;
     string? project_id;
-    long? due_after;
-    long? due_before;
+    i64? due_after;
+    i64? due_before;
     boolean include_deleted;
   };
 
@@ -66,15 +65,24 @@ namespace taskmanager_core {
 
   interface FfiTaskManagerCore {
     constructor(string database_path);
-    FfiTask create_task(string title, string body, long? due_at) throws FfiCoreError;
-    FfiTask get_task(string task_id) throws FfiCoreError;
-    FfiTask update_task(string task_id, FfiTaskPatch patch) throws FfiCoreError;
-    void delete_task(string task_id) throws FfiCoreError;
-    sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort) throws FfiCoreError;
-    sequence<FfiTask> search_tasks(string query) throws FfiCoreError;
+    [Throws=FfiCoreError]
+    FfiTask create_task(string title, string body, i64? due_at);
+    [Throws=FfiCoreError]
+    FfiTask get_task(string task_id);
+    [Throws=FfiCoreError]
+    FfiTask update_task(string task_id, FfiTaskPatch patch);
+    [Throws=FfiCoreError]
+    void delete_task(string task_id);
+    [Throws=FfiCoreError]
+    sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
+    [Throws=FfiCoreError]
+    sequence<FfiTask> search_tasks(string query);
   };
 
-  FfiBlob encrypt_task_blob(FfiTask task, sequence<u8> key) throws FfiCoreError;
-  FfiTask decrypt_task_blob(FfiBlob blob, sequence<u8> key) throws FfiCoreError;
+namespace taskmanager_core {
+  [Throws=FfiCoreError]
+  FfiBlob encrypt_task_blob(FfiTask task, sequence<u8> key);
+  [Throws=FfiCoreError]
+  FfiTask decrypt_task_blob(FfiBlob blob, sequence<u8> key);
   sequence<u8> generate_account_data_key();
 };
