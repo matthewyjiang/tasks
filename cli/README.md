@@ -14,7 +14,13 @@ cargo test -p taskmanager-cli
 cargo clippy -p taskmanager-cli --all-targets
 ```
 
-Run locally:
+Install locally so `taskmanager` is available on your `PATH`:
+
+```sh
+make cli-install
+```
+
+Run without installing:
 
 ```sh
 cargo run -p taskmanager-cli -- --help
