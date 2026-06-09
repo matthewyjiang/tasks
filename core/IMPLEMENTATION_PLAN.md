@@ -76,39 +76,39 @@ Implement local-first task persistence.
 
 TODO:
 
-- [ ] Add `core/src/db.rs`.
-- [ ] Create schema initialization for:
-  - [ ] `tasks`
-  - [ ] `tasks_fts`
-  - [ ] `sync_cursor`
-  - [ ] `sync_queue`
-- [ ] Add task row serialization helpers for status, tags, UUIDs, and booleans.
-- [ ] Implement local CRUD:
-  - [ ] create task
-  - [ ] get task
-  - [ ] update task
-  - [ ] tombstone delete
-  - [ ] list tasks
-  - [ ] search tasks
+- [x] Add `core/src/db.rs`.
+- [x] Create schema initialization for:
+  - [x] `tasks`
+  - [x] `tasks_fts`
+  - [x] `sync_cursor`
+  - [x] `sync_queue`
+- [x] Add task row serialization helpers for status, tags, UUIDs, and booleans.
+- [x] Implement local CRUD:
+  - [x] create task
+  - [x] get task
+  - [x] update task
+  - [x] tombstone delete
+  - [x] list tasks
+  - [x] search tasks
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Opening a new DB initializes all required tables and indexes.
-- [ ] Opening an already-initialized DB is idempotent.
-- [ ] `create_task` writes a task with generated UUID, timestamps, and `dirty=true`.
-- [ ] `get_task` returns exactly the created task.
-- [ ] `update_task` changes only patched fields, bumps `updated_at`, and sets `dirty=true`.
-- [ ] `delete_task` tombstones instead of hard deleting.
-- [ ] `list_tasks` excludes deleted tasks by default unless explicitly requested.
-- [ ] `list_tasks` filters by status.
-- [ ] `list_tasks` filters by project.
-- [ ] `list_tasks` filters by due-date range.
-- [ ] `list_tasks` sort modes are deterministic.
-- [ ] `search_tasks` finds title matches.
-- [ ] `search_tasks` finds body matches.
-- [ ] FTS rows stay updated after create, update, and delete.
-- [ ] Tags serialize and deserialize as JSON arrays.
-- [ ] Invalid UUID/status/tag JSON rows produce clear DB errors.
+- [x] Opening a new DB initializes all required tables and indexes.
+- [x] Opening an already-initialized DB is idempotent.
+- [x] `create_task` writes a task with generated UUID, timestamps, and `dirty=true`.
+- [x] `get_task` returns exactly the created task.
+- [x] `update_task` changes only patched fields, bumps `updated_at`, and sets `dirty=true`.
+- [x] `delete_task` tombstones instead of hard deleting.
+- [x] `list_tasks` excludes deleted tasks by default unless explicitly requested.
+- [x] `list_tasks` filters by status.
+- [x] `list_tasks` filters by project.
+- [x] `list_tasks` filters by due-date range.
+- [x] `list_tasks` sort modes are deterministic.
+- [x] `search_tasks` finds title matches.
+- [x] `search_tasks` finds body matches.
+- [x] FTS rows stay updated after create, update, and delete.
+- [x] Tags serialize and deserialize as JSON arrays.
+- [x] Invalid UUID/status/tag JSON rows produce clear DB errors.
 
 ## Milestone 4: Core facade
 

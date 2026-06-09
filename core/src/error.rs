@@ -18,6 +18,12 @@ pub enum CoreError {
     Serialization(#[from] serde_json::Error),
 }
 
+impl From<rusqlite::Error> for CoreError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Database(DbError::Sqlite(error))
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum CryptoError {
     #[error("decrypt failed")]
