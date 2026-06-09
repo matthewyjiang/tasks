@@ -7,10 +7,10 @@ pub mod platform;
 use std::path::PathBuf;
 
 use args::{
-    AccountCommands, AuthCommands, Cli, Commands, CryptoCommands, DeviceCommands, SettingsCommands,
-    SyncCommands, TaskCommands,
+    AccountCommands, AuthCommands, Cli, Commands, CryptoCommands, DeviceCommands, GenerateCommands,
+    SettingsCommands, SyncCommands, TaskCommands,
 };
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use error::{CliError, CliResult};
 use output::{
     AuthOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput,
@@ -68,12 +68,38 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
         Some(Commands::Task { command }) => {
             run_task(command, cli.output, ctx.db_path, &ctx.profile)
         }
+        Some(Commands::Generate { command }) => run_generate(command),
         None => Ok(None),
     }
 }
 
 const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
 const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
+
+fn run_generate(command: GenerateCommands) -> CliResult<Option<String>> {
+    match command {
+        GenerateCommands::Completion(args) => {
+            let mut command = Cli::command();
+            let mut buffer = Vec::new();
+            clap_complete::generate(args.shell, &mut command, "taskmanager", &mut buffer);
+            String::from_utf8(buffer).map(Some).map_err(|error| {
+                CliError::Input(format!("generated completion is not UTF-8: {error}"))
+            })
+        }
+        GenerateCommands::Man => {
+            let command = Cli::command();
+            let mut buffer = Vec::new();
+            clap_mangen::Man::new(command)
+                .render(&mut buffer)
+                .map_err(|error| {
+                    CliError::LocalStorage(format!("failed to render man page: {error}"))
+                })?;
+            String::from_utf8(buffer).map(Some).map_err(|error| {
+                CliError::Input(format!("generated man page is not UTF-8: {error}"))
+            })
+        }
+    }
+}
 
 fn run_account(
     command: AccountCommands,

@@ -175,6 +175,18 @@ taskmanager --dangerously-print-secrets --output json crypto unwrap-data-key \
   --nonce <hex>
 ```
 
+## Generated packaging artifacts
+
+Shell completions and the `taskmanager(1)` man page can be generated from the CLI definition:
+
+```sh
+taskmanager generate completion bash > taskmanager.bash
+taskmanager generate completion zsh > _taskmanager
+taskmanager generate completion fish > taskmanager.fish
+taskmanager generate completion powershell > taskmanager.ps1
+taskmanager generate man > taskmanager.1
+```
+
 ## Server status
 
 `--server` is accepted and stored in `CliContext`, but server connection UX is not implemented yet. The following remain future work:

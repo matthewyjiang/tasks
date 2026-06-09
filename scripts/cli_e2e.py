@@ -189,6 +189,10 @@ def main() -> int:
 
             version = parse_result(cli(env, profile_a, "version"))
             assert version["name"] == "taskmanager-cli"
+            completion = cli(env, profile_a, "generate", "completion", "bash")
+            assert "taskmanager" in completion.stdout
+            man_page = cli(env, profile_a, "generate", "man")
+            assert "taskmanager" in man_page.stdout
 
             account_a = parse_result(cli(env, profile_a, "account", "init"))
             assert account_a["public_key"]

@@ -9,6 +9,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 taskmanager-core = { path = "../core" }
