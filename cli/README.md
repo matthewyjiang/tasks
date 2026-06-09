@@ -74,7 +74,7 @@ Errors are written to stderr. With JSON/JSONL output selected, errors use:
 Task commands use `taskmanager_core::TaskManagerCore` against the local DB.
 
 ```sh
-taskmanager --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due 1717603200000 --tag work --tag urgent
+taskmanager --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due tomorrow --tag work --tag urgent
 
 taskmanager --db /tmp/tasks.db task list
 
@@ -115,14 +115,15 @@ Initialize only a device keypair:
 taskmanager --output json device init-keypair
 ```
 
-Store/remove already-issued auth tokens locally:
+Log in with email/password, or store/remove already-issued auth tokens locally:
 
 ```sh
+taskmanager --output json auth login --email you@example.com --server-url http://127.0.0.1:18080
 taskmanager --output json auth login --access-token <token> --refresh-token <token>
 taskmanager --output json auth logout
 ```
 
-For email/password authentication, use `taskmanager configure` instead of `auth login`.
+`configure` remains the recommended first-run command because it also creates local account/device keys and saves the server URL.
 
 Wrap the account data key for another device public key:
 
@@ -208,7 +209,7 @@ taskmanager configure \
 
 # 2. Work normally while offline/local-first.
 taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work
-taskmanager task create --title "Buy groceries" --due 1781200000000 --tag personal
+taskmanager task create --title "Buy groceries" --due tomorrow --tag personal
 
 # 3. Inspect what needs sync, then push encrypted blobs to the server.
 taskmanager sync status
@@ -236,8 +237,9 @@ Local sync diagnostics are available with `sync status` and `sync retry`. `--ser
 
 The following remain future work:
 
-- auth token refresh and a first-class email/password `auth login`
+- auth token refresh
 - device register/list against the server
+- friendly device pairing on top of low-level wrap/unwrap commands
 - conflict persistence/resolution commands (hidden from default help until implemented)
 - applying remote tombstones during pull
 

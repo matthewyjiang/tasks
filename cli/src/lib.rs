@@ -7,6 +7,8 @@ pub mod platform;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use chrono::{Duration, Local, NaiveDate, TimeZone};
+
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +60,14 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
             run_configure(args, cli.output, ctx.config_path, &ctx.profile, ctx.offline)
         }
         Some(Commands::Account { command }) => run_account(command, cli.output, ctx.offline),
-        Some(Commands::Auth { command }) => run_auth(command, cli.output, ctx.offline),
+        Some(Commands::Auth { command }) => run_auth(
+            command,
+            cli.output,
+            ctx.config_path,
+            &ctx.profile,
+            ctx.server_url,
+            ctx.offline,
+        ),
         Some(Commands::Device { command }) => run_device(command, cli.output, ctx.offline),
         Some(Commands::Sync { command }) => run_sync(
             command,
@@ -267,6 +276,12 @@ fn configure_server_auth(
         }
     }
 
+    login_server_auth(server_url, email, password)
+}
+
+fn login_server_auth(server_url: &str, email: &str, password: &str) -> CliResult<ConfigureTokens> {
+    let base_url = server_url.trim_end_matches('/');
+    let client = reqwest::blocking::Client::new();
     let login_request = AuthRequest {
         email,
         password,
@@ -346,15 +361,51 @@ fn run_account(
 fn run_auth(
     command: AuthCommands,
     output_format: OutputFormat,
+    config_path: Option<PathBuf>,
+    profile: &str,
+    server_url: Option<String>,
     offline: bool,
 ) -> CliResult<Option<String>> {
     let platform = platform::CliPlatform::new(offline);
     match command {
         AuthCommands::Login(args) => {
+            let (access_token, refresh_token) = match (args.email, args.access_token) {
+                (Some(email), None) => {
+                    if offline {
+                        return Err(CliError::Input(
+                            "auth login requires network access; remove --offline to authenticate with the server"
+                                .into(),
+                        ));
+                    }
+                    let password = match args.password {
+                        Some(value) => value,
+                        None => prompt_password("Password: ")?,
+                    };
+                    let server_url = args
+                        .server_url
+                        .or(server_url)
+                        .map(Ok)
+                        .unwrap_or_else(|| resolve_server_url(None, config_path, profile))?;
+                    let tokens = login_server_auth(&server_url, &email, &password)?;
+                    (tokens.jwt, Some(tokens.refresh_token))
+                }
+                (None, Some(access_token)) => (access_token, args.refresh_token),
+                (Some(_), Some(_)) => {
+                    return Err(CliError::Input(
+                        "use either --email/--password or --access-token, not both".into(),
+                    ));
+                }
+                (None, None) => {
+                    return Err(CliError::Input(
+                        "auth login requires --email or --access-token".into(),
+                    ));
+                }
+            };
+
             platform
-                .store_key(AUTH_ACCESS_TOKEN_ID, args.access_token.as_bytes())
+                .store_key(AUTH_ACCESS_TOKEN_ID, access_token.as_bytes())
                 .map_err(CliError::from)?;
-            if let Some(refresh_token) = args.refresh_token {
+            if let Some(refresh_token) = refresh_token {
                 platform
                     .store_key(AUTH_REFRESH_TOKEN_ID, refresh_token.as_bytes())
                     .map_err(CliError::from)?;
@@ -956,6 +1007,41 @@ fn parse_blob_file(contents: &str) -> CliResult<Blob> {
     }
 }
 
+fn parse_due_at(value: Option<&str>) -> CliResult<Option<i64>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(CliError::Input("due date cannot be empty".into()));
+    }
+    if let Ok(epoch_ms) = value.parse::<i64>() {
+        return Ok(Some(epoch_ms));
+    }
+
+    let lower = value.to_ascii_lowercase();
+    let date = match lower.as_str() {
+        "today" => Local::now().date_naive(),
+        "tomorrow" => Local::now().date_naive() + Duration::days(1),
+        _ => NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+            CliError::Input(format!(
+                "unsupported due date '{value}'; use epoch milliseconds, YYYY-MM-DD, today, or tomorrow"
+            ))
+        })?,
+    };
+    let due = date.and_hms_opt(0, 0, 0).ok_or_else(|| {
+        CliError::Input(format!(
+            "unsupported due date '{value}'; invalid midnight time"
+        ))
+    })?;
+    let local_due = Local.from_local_datetime(&due).single().ok_or_else(|| {
+        CliError::Input(format!(
+            "unsupported due date '{value}'; local time is ambiguous"
+        ))
+    })?;
+    Ok(Some(local_due.timestamp_millis()))
+}
+
 fn run_task(
     command: TaskCommands,
     output_format: OutputFormat,
@@ -970,8 +1056,9 @@ fn run_task(
                 .title
                 .or(args.title_arg)
                 .ok_or_else(|| CliError::Input("task title is required".into()))?;
+            let due_at = parse_due_at(args.due_at.as_deref())?;
             let mut task = core
-                .create_task(title, args.body, args.due_at)
+                .create_task(title, args.body, due_at)
                 .map_err(CliError::from)?;
 
             if args.project_id.is_some() || !args.tags.is_empty() {
@@ -1005,7 +1092,7 @@ fn run_task(
                 due_at: if args.clear_due_at {
                     Some(None)
                 } else {
-                    args.due_at.map(Some)
+                    parse_due_at(args.due_at.as_deref())?.map(Some)
                 },
                 status: args.status.map(Into::into),
                 project_id: if args.clear_project_id {
@@ -1036,8 +1123,8 @@ fn run_task(
                 status: args.status.map(Into::into),
                 project_id: args.project_id,
                 tags: args.tags,
-                due_after: args.due_after,
-                due_before: args.due_before,
+                due_after: parse_due_at(args.due_after.as_deref())?,
+                due_before: parse_due_at(args.due_before.as_deref())?,
                 include_deleted: args.include_deleted,
             };
             core.list_tasks(filter, args.sort.into())

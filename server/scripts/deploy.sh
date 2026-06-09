@@ -56,14 +56,23 @@ random_secret() {
   fi
 }
 
+url_encode() {
+  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+}
+
 write_env() {
+  local db_user_encoded db_password_encoded db_name_encoded
+  db_user_encoded="$(url_encode "$POSTGRES_USER")"
+  db_password_encoded="$(url_encode "$POSTGRES_PASSWORD")"
+  db_name_encoded="$(url_encode "$POSTGRES_DB")"
+
   cat > "$ENV_FILE" <<EOF_ENV
 HOST_PORT=$HOST_PORT
 PORT=8080
 POSTGRES_DB=$POSTGRES_DB
 POSTGRES_USER=$POSTGRES_USER
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-DATABASE_URL=postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB?sslmode=disable
+DATABASE_URL=postgres://$db_user_encoded:$db_password_encoded@postgres:5432/$db_name_encoded?sslmode=disable
 JWT_SECRET=$JWT_SECRET
 JWT_ISSUER=$JWT_ISSUER
 ACCESS_TOKEN_TTL=$ACCESS_TOKEN_TTL
@@ -87,6 +96,7 @@ main() {
 
   need_cmd docker
   need_cmd curl
+  need_cmd python3
   docker compose version >/dev/null
 
   load_existing
