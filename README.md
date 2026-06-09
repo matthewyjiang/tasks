@@ -6,6 +6,7 @@ A local-first, end-to-end encrypted task manager.
 
 - `server/` — Go zero-knowledge sync server
 - `core/` — Rust client core library
+- `cli/` — Rust command-line client
 - `ios/` — iOS app shell
 - `android/` — Android app shell
 - `windows/` — Windows app shell
