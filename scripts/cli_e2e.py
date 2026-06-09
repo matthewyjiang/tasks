@@ -233,6 +233,15 @@ def main() -> int:
             parse_result(cli(env, profile_a, "settings", "migrate"))
             invalid_setting = cli(env, profile_a, "settings", "set", "server_url", "ftp://bad", expect=1)
             assert_error(invalid_setting, "input_error")
+            invalid_pushed_settings = cli(
+                env,
+                profile_a,
+                "settings",
+                "push-plaintext",
+                '{"schema_version":1,"server_url":"ftp://bad","auth_method":"password","language":""}',
+                expect=1,
+            )
+            assert_error(invalid_pushed_settings, "input_error")
 
             created = parse_result(
                 cli(

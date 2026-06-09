@@ -259,10 +259,7 @@ fn run_settings(
             let payload: PlaintextSettingsSyncPayload =
                 serde_json::from_str(&args.json).map_err(CliError::from)?;
             let mut settings = PlaintextSettings::read_from_file(&path).map_err(CliError::from)?;
-            settings.schema_version = payload.schema_version;
-            settings.server_url = payload.server_url;
-            settings.auth_method = payload.auth_method;
-            settings.language = payload.language;
+            apply_plaintext_sync_payload(&mut settings, payload)?;
             settings.write_to_file(&path).map_err(CliError::from)?;
             output::format_command_result(output_format, &settings).map(Some)
         }
@@ -404,6 +401,22 @@ fn key_exists(platform: &dyn Platform, id: &str) -> CliResult<bool> {
         Err(CoreError::Platform(PlatformError::KeyNotFound(_))) => Ok(false),
         Err(error) => Err(CliError::from(error)),
     }
+}
+
+fn apply_plaintext_sync_payload(
+    settings: &mut PlaintextSettings,
+    payload: PlaintextSettingsSyncPayload,
+) -> CliResult<()> {
+    if payload.schema_version != taskmanager_core::PLAINTEXT_SETTINGS_SCHEMA_VERSION {
+        return Err(CliError::Input(format!(
+            "unsupported plaintext settings schema_version: {}",
+            payload.schema_version
+        )));
+    }
+    set_plaintext_setting(settings, "server_url", &payload.server_url)?;
+    settings.auth_method = payload.auth_method;
+    set_plaintext_setting(settings, "language", &payload.language)?;
+    Ok(())
 }
 
 fn plaintext_setting_value(

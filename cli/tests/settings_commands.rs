@@ -127,6 +127,28 @@ fn settings_plaintext_sync_excludes_device_local_cursor() {
 }
 
 #[test]
+fn settings_push_plaintext_rejects_invalid_synced_values() {
+    let cli = SettingsCli::new();
+
+    for payload in [
+        r#"{"schema_version":1,"server_url":"ftp://bad","auth_method":"password","language":"en"}"#,
+        r#"{"schema_version":1,"server_url":"https://api.example.com","auth_method":"password","language":""}"#,
+        r#"{"schema_version":99,"server_url":"https://api.example.com","auth_method":"password","language":"en"}"#,
+    ] {
+        cli.command()
+            .args(["settings", "push-plaintext", payload])
+            .assert()
+            .failure()
+            .code(1)
+            .stderr(predicate::str::contains("input error"));
+    }
+
+    let settings = cli.json(&["settings", "get"]);
+    assert_eq!(settings["result"]["server_url"], "");
+    assert_eq!(settings["result"]["language"], "en");
+}
+
+#[test]
 fn settings_migrate_writes_default_file() {
     let cli = SettingsCli::new();
 
