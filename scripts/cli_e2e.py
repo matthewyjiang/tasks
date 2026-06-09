@@ -53,6 +53,7 @@ def require(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     return result
 
 
+
 def wait_for_http(url: str, timeout: float = 30.0) -> None:
     deadline = time.time() + timeout
     last_error: Exception | None = None
@@ -117,14 +118,13 @@ def cli(
     *args: str,
     expect: int = 0,
     output: str = "json",
+    include_server: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = base_env.copy()
     env["TASKMANAGER_INSECURE_KEY_DIR"] = str(profile_dir / "keys")
     env["TASKMANAGER_REMINDER_DIR"] = str(profile_dir / "reminders")
     cmd = [
         str(ROOT / "target" / "debug" / "taskmanager"),
-        "--server",
-        SERVER_URL,
         "--db",
         str(profile_dir / "tasks.db"),
         "--config",
@@ -133,6 +133,8 @@ def cli(
         output,
         *args,
     ]
+    if include_server:
+        cmd[1:1] = ["--server", SERVER_URL]
     result = run(cmd, env=env)
     if result.returncode != expect:
         print(result.stdout)
@@ -219,23 +221,26 @@ def main() -> int:
             rerun = cli(env, profile_a, "account", "init", expect=5)
             assert_error(rerun, "conflict")
 
-            login = parse_result(
+            configured = parse_result(
                 cli(
                     env,
                     profile_a,
-                    "auth",
-                    "login",
-                    "--access-token",
-                    "test-access",
-                    "--refresh-token",
-                    "test-refresh",
+                    "configure",
+                    "--server-url",
+                    SERVER_URL,
+                    "--email",
+                    "cli-e2e@example.com",
+                    "--password",
+                    "correct horse battery staple",
                 )
             )
-            assert login["stored"] is True
+            assert configured["account_initialized"] is False
+            assert configured["server_url"] == SERVER_URL
+            assert configured["access_token_stored"] is True
+            assert configured["refresh_token_stored"] is True
 
             settings_defaults = parse_result(cli(env, profile_a, "settings", "get"))
             assert settings_defaults["auth_method"] == "password"
-            parse_result(cli(env, profile_a, "settings", "set", "server_url", SERVER_URL))
             parse_result(cli(env, profile_a, "settings", "set", "auth_method", "pin"))
             parse_result(cli(env, profile_a, "settings", "set", "language", "en-US"))
             parse_result(cli(env, profile_a, "settings", "set", "last_sync_cursor", "123"))
@@ -446,14 +451,28 @@ def main() -> int:
             malformed = cli(env, profile_a, "device", "wrap-key", "--target", "éé", expect=1)
             assert_error(malformed, "input_error")
 
+            parse_result(cli(env, profile_a, "settings", "set", "server_url", SERVER_URL))
+
             retry_again = parse_result(cli(env, profile_a, "sync", "retry", task_id))
             assert retry_again["attempt"] == 2
             status_after_retry = parse_result(cli(env, profile_a, "sync", "status"))
             assert status_after_retry["retry_queue_depth"] == 1
 
-            for sync_command in ["push", "pull", "run", "conflicts"]:
-                unsupported = cli(env, profile_a, "sync", sync_command, expect=6)
-                assert_error(unsupported, "unsupported_platform")
+            pushed = parse_result(cli(env, profile_a, "sync", "push", include_server=False))
+            assert pushed["pushed"] >= 3
+            assert pushed["pulled"] == 0
+            status_after_push = parse_result(cli(env, profile_a, "sync", "status"))
+            assert status_after_push["dirty_count"] == 0
+
+            pulled = parse_result(cli(env, profile_a, "sync", "pull", include_server=False))
+            assert pulled["pulled"] >= 2
+            assert pulled["cursor"] is not None
+            ran = parse_result(cli(env, profile_a, "sync", "run", include_server=False))
+            assert ran["pushed"] == 0
+            assert ran["cursor"] is not None
+
+            unsupported = cli(env, profile_a, "sync", "conflicts", expect=6)
+            assert_error(unsupported, "unsupported_platform")
             sync_resolve = cli(env, profile_a, "sync", "resolve", task_id, expect=6)
             assert_error(sync_resolve, "unsupported_platform")
 

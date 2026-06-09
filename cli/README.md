@@ -189,14 +189,55 @@ taskmanager generate man > taskmanager.1
 
 ## Server status
 
-`--server` is accepted and stored in `CliContext`, but server connection UX is not implemented yet. The following remain future work:
+`sync push`, `sync pull`, and `sync run` use `--server` plus a locally stored bearer token from `auth login` to call the server blob API.
 
-- persistent server URL settings
+A functional local-server workflow looks like this:
+
+```sh
+# 1. Run the setup wizard once. It creates local account keys, saves the
+#    server URL, and logs in/registers with the server using email + password.
+taskmanager configure
+
+# You can also provide everything non-interactively:
+taskmanager configure \
+  --server-url http://127.0.0.1:18080 \
+  --email you@example.com \
+  --password "$TASKMANAGER_PASSWORD"
+
+# 2. Work normally while offline/local-first.
+taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work
+taskmanager task create --title "Buy groceries" --due 1781200000000 --tag personal
+
+# 3. Inspect what needs sync, then push encrypted blobs to the server.
+taskmanager sync status
+taskmanager sync push
+
+# 4. Pull remote encrypted blobs and run a full pull-then-push cycle later.
+taskmanager sync pull
+taskmanager sync run
+```
+
+After a successful push, `taskmanager sync status` should report fewer dirty rows, and JSON output for `sync run` includes a deterministic summary such as:
+
+```json
+{
+  "result": {
+    "pushed": 0,
+    "pulled": 2,
+    "failed": 0,
+    "cursor": 1781039000
+  }
+}
+```
+
+Local sync diagnostics are available with `sync status` and `sync retry`. `--server` still overrides the configured `settings server_url` for one-off runs.
+
+The following remain future work:
+
 - server auth refresh/login integration
 - device register/list against the server
-- sync push/pull/run
-
-Local sync diagnostics are available with `sync status` and `sync retry`.
+- conflict persistence/resolution commands
+- applying remote tombstones during pull
 
 ## Headless reminders
 
@@ -222,9 +263,9 @@ The suite:
 2. Starts a fresh PostgreSQL container with `docker compose down -v && docker compose up -d postgres` under `server/`.
 3. Starts the Go server with test-only environment values on `http://127.0.0.1:18080`.
 4. Runs the compiled CLI with isolated temp profiles and `--server http://127.0.0.1:18080`.
-5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, and unsupported server-backed commands.
+5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, server-backed sync push/pull/run, and unsupported future commands.
 
-This test should be extended whenever new CLI features are added, especially once auth/device registration and sync push/pull start using the server.
+This test should be extended whenever new CLI features are added, especially for auth/device registration, conflict handling, sharing, and new sync behavior.
 
 Requirements:
 

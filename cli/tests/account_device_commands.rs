@@ -6,22 +6,30 @@ use tempfile::TempDir;
 struct KeyCli {
     _temp: TempDir,
     key_dir: std::path::PathBuf,
+    config: std::path::PathBuf,
 }
 
 impl KeyCli {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let key_dir = temp.path().join("keys");
+        let config = temp.path().join("settings.json");
         Self {
             _temp: temp,
             key_dir,
+            config,
         }
     }
 
     fn command(&self) -> Command {
         let mut cmd = Command::cargo_bin("taskmanager").unwrap();
-        cmd.args(["--output", "json"])
-            .env("TASKMANAGER_INSECURE_KEY_DIR", &self.key_dir);
+        cmd.args([
+            "--output",
+            "json",
+            "--config",
+            self.config.to_str().unwrap(),
+        ])
+        .env("TASKMANAGER_INSECURE_KEY_DIR", &self.key_dir);
         cmd
     }
 
@@ -36,6 +44,39 @@ impl KeyCli {
             .clone();
         serde_json::from_slice(&output).unwrap()
     }
+}
+
+#[test]
+fn configure_uses_email_password_server_auth_not_raw_tokens() {
+    let cli = KeyCli::new();
+
+    cli.command()
+        .args([
+            "configure",
+            "--server-url",
+            "http://127.0.0.1:9",
+            "--email",
+            "user@example.com",
+            "--password",
+            "password",
+        ])
+        .assert()
+        .failure()
+        .code(4)
+        .stderr(predicate::str::contains("server auth"));
+}
+
+#[test]
+fn configure_accepts_interactive_email_password_input_on_stdin() {
+    let cli = KeyCli::new();
+
+    cli.command()
+        .args(["configure"])
+        .write_stdin("http://127.0.0.1:9\nuser@example.com\npassword\n")
+        .assert()
+        .failure()
+        .code(4)
+        .stderr(predicate::str::contains("server auth"));
 }
 
 #[test]

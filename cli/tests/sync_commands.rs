@@ -6,17 +6,25 @@ use tempfile::TempDir;
 struct SyncCli {
     _temp: TempDir,
     db: std::path::PathBuf,
+    config: std::path::PathBuf,
 }
 
 impl SyncCli {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let db = temp.path().join("tasks.db");
-        Self { _temp: temp, db }
+        let config = temp.path().join("settings.json");
+        Self {
+            _temp: temp,
+            db,
+            config,
+        }
     }
 
     fn command(&self) -> Command {
-        Self::command_with_db(&self.db)
+        let mut cmd = Self::command_with_db(&self.db);
+        cmd.args(["--config", self.config.to_str().unwrap()]);
+        cmd
     }
 
     fn command_with_db(db: &std::path::Path) -> Command {
@@ -89,19 +97,32 @@ fn sync_retry_rejects_unknown_tasks_without_queuing_orphan_entries() {
 }
 
 #[test]
-fn unwired_sync_network_commands_return_clear_errors() {
+fn server_sync_commands_require_server_url() {
     let cli = SyncCli::new();
 
     cli.command()
         .args(["sync", "push"])
         .assert()
         .failure()
-        .code(6)
-        .stderr(predicate::str::contains("HTTP sync client"));
+        .code(1)
+        .stderr(predicate::str::contains("--server is required"));
 }
 
 #[test]
-fn unwired_sync_network_commands_do_not_open_or_create_database() {
+fn server_sync_commands_use_configured_server_url() {
+    let cli = SyncCli::new();
+    cli.json(&["settings", "set", "server_url", "http://127.0.0.1:9"]);
+
+    cli.command()
+        .args(["sync", "push"])
+        .assert()
+        .failure()
+        .code(6)
+        .stderr(predicate::str::contains("key store configured"));
+}
+
+#[test]
+fn server_sync_commands_without_server_do_not_open_or_create_database() {
     let temp = tempfile::tempdir().unwrap();
     let blocked_parent = temp.path().join("not-a-directory");
     std::fs::write(&blocked_parent, b"file").unwrap();
@@ -111,6 +132,6 @@ fn unwired_sync_network_commands_do_not_open_or_create_database() {
         .args(["sync", "push"])
         .assert()
         .failure()
-        .code(6)
-        .stderr(predicate::str::contains("HTTP sync client"));
+        .code(1)
+        .stderr(predicate::str::contains("--server is required"));
 }

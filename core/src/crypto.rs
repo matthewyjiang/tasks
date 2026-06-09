@@ -48,6 +48,15 @@ pub fn generate_device_keypair() -> DeviceKeypair {
     }
 }
 
+pub fn public_key_from_private_key(private_key: &[u8]) -> CoreResult<Vec<u8>> {
+    let private_key = secret_key_from_bytes(private_key)?;
+    Ok(private_key
+        .public_key()
+        .to_encoded_point(false)
+        .as_bytes()
+        .to_vec())
+}
+
 pub fn encrypt_blob(task: &Task, key: &[u8]) -> CoreResult<Blob> {
     let plaintext = serde_json::to_vec(task)?;
     encrypt_bytes(&plaintext, key)

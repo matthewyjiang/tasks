@@ -52,6 +52,8 @@ pub struct Cli {
 pub enum Commands {
     /// Print machine-readable version information.
     Version,
+    /// Interactively configure local keys, server URL, and auth tokens.
+    Configure(ConfigureArgs),
     /// Manage account bootstrap.
     Account {
         #[command(subcommand)]
@@ -92,6 +94,25 @@ pub enum Commands {
         #[command(subcommand)]
         command: GenerateCommands,
     },
+}
+
+#[derive(Debug, Args)]
+pub struct ConfigureArgs {
+    /// Server base URL to save in plaintext settings.
+    #[arg(long)]
+    pub server_url: Option<String>,
+
+    /// Account email for server login/register.
+    #[arg(long)]
+    pub email: Option<String>,
+
+    /// Account password for server login/register. If omitted, configure prompts for it.
+    #[arg(long)]
+    pub password: Option<String>,
+
+    /// Try server registration first, then fall back to login if the account already exists.
+    #[arg(long, default_value_t = true)]
+    pub register: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -157,11 +178,11 @@ pub enum SyncCommands {
     Status,
     /// Queue a task for sync retry.
     Retry(TaskIdArgs),
-    /// Push local changes to server. Not implemented until HTTP sync client is wired.
+    /// Push local encrypted changes to the server.
     Push,
-    /// Pull remote changes from server. Not implemented until HTTP sync client is wired.
+    /// Pull remote encrypted changes from the server.
     Pull,
-    /// Run pull then push. Not implemented until HTTP sync client is wired.
+    /// Pull remote changes, then push remaining local changes.
     Run,
     /// List conflicts. Not implemented until conflict persistence is wired.
     Conflicts,

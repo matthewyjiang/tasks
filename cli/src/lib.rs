@@ -4,23 +4,29 @@ pub mod error;
 pub mod output;
 pub mod platform;
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+
 use args::{
-    AccountCommands, AuthCommands, Cli, Commands, CryptoCommands, DeviceCommands, GenerateCommands,
-    SettingsCommands, SyncCommands, TaskCommands,
+    AccountCommands, AuthCommands, Cli, Commands, ConfigureArgs, CryptoCommands, DeviceCommands,
+    GenerateCommands, SettingsCommands, SyncCommands, TaskCommands,
 };
 use clap::{CommandFactory, Parser};
 use error::{CliError, CliResult};
 use output::{
-    AuthOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput,
-    SecretBytesOutput, UnwrappedKeyOutput, VersionOutput, WrappedKeyOutput,
+    AuthOutput, ConfigureOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat,
+    PublicKeyOutput, SecretBytesOutput, SyncResultOutput, UnwrappedKeyOutput, VersionOutput,
+    WrappedKeyOutput,
 };
 use taskmanager_core::{
-    decrypt_blob, encrypt_blob, init_account, init_device_keypair, unwrap_data_key, wrap_data_key,
-    AuthMethod, Blob, CoreError, PlaintextSettings, PlaintextSettingsSyncPayload, Platform,
-    PlatformError, TaskFilter, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    decrypt_blob, encrypt_blob, init_account, init_device_keypair, public_key_from_private_key,
+    sync_pull, sync_push, unwrap_data_key, wrap_data_key, AuthMethod, Blob, BlobPush, CoreError,
+    LocalDatabase, PlaintextSettings, PlaintextSettingsSyncPayload, Platform, PlatformError,
+    PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError, TaskFilter, TaskManagerCore,
+    TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -48,12 +54,21 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
             },
         )
         .map(Some),
+        Some(Commands::Configure(args)) => {
+            run_configure(args, cli.output, ctx.config_path, &ctx.profile, ctx.offline)
+        }
         Some(Commands::Account { command }) => run_account(command, cli.output, ctx.offline),
         Some(Commands::Auth { command }) => run_auth(command, cli.output, ctx.offline),
         Some(Commands::Device { command }) => run_device(command, cli.output, ctx.offline),
-        Some(Commands::Sync { command }) => {
-            run_sync(command, cli.output, ctx.db_path, &ctx.profile)
-        }
+        Some(Commands::Sync { command }) => run_sync(
+            command,
+            cli.output,
+            ctx.db_path,
+            &ctx.profile,
+            ctx.config_path,
+            ctx.server_url,
+            ctx.offline,
+        ),
         Some(Commands::Settings { command }) => {
             run_settings(command, cli.output, ctx.config_path, &ctx.profile)
         }
@@ -75,6 +90,17 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
 
 const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
 const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
+
+impl From<taskmanager_core::SyncResult> for SyncResultOutput {
+    fn from(result: taskmanager_core::SyncResult) -> Self {
+        Self {
+            pushed: result.pushed,
+            pulled: result.pulled,
+            failed: result.failed,
+            cursor: result.cursor,
+        }
+    }
+}
 
 fn run_generate(command: GenerateCommands) -> CliResult<Option<String>> {
     match command {
@@ -98,6 +124,175 @@ fn run_generate(command: GenerateCommands) -> CliResult<Option<String>> {
                 CliError::Input(format!("generated man page is not UTF-8: {error}"))
             })
         }
+    }
+}
+
+fn run_configure(
+    args: ConfigureArgs,
+    output_format: OutputFormat,
+    config_path: Option<PathBuf>,
+    profile: &str,
+    offline: bool,
+) -> CliResult<Option<String>> {
+    let platform = platform::CliPlatform::new(offline);
+    let (account_initialized, public_key) = if key_exists(&platform, DEVICE_PRIVATE_KEY_ID)?
+        && key_exists(&platform, ACCOUNT_DATA_KEY_ID)?
+    {
+        let private_key = platform
+            .load_key(DEVICE_PRIVATE_KEY_ID)
+            .map_err(CliError::from)?;
+        (
+            false,
+            public_key_from_private_key(&private_key).map_err(CliError::from)?,
+        )
+    } else {
+        (true, init_account(&platform).map_err(CliError::from)?)
+    };
+
+    let server_url = match args.server_url {
+        Some(value) => value,
+        None => prompt("Server URL (for example http://127.0.0.1:18080): ")?,
+    };
+    let email = match args.email {
+        Some(value) => value,
+        None => prompt("Email: ")?,
+    };
+    let password = match args.password {
+        Some(value) => value,
+        None => prompt("Password: ")?,
+    };
+    let tokens = configure_server_auth(&server_url, &email, &password, &public_key, args.register)?;
+
+    let settings_path = resolve_config_path(config_path, profile)?;
+    let mut settings = PlaintextSettings::read_from_file(&settings_path).map_err(CliError::from)?;
+    set_plaintext_setting(&mut settings, "server_url", &server_url)?;
+    settings
+        .write_to_file(&settings_path)
+        .map_err(CliError::from)?;
+
+    platform
+        .store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())
+        .map_err(CliError::from)?;
+    platform
+        .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
+        .map_err(CliError::from)?;
+
+    output::format_command_result(
+        output_format,
+        &ConfigureOutput {
+            account_initialized,
+            server_url,
+            access_token_stored: true,
+            refresh_token_stored: true,
+            auth_method: tokens.method,
+        },
+    )
+    .map(Some)
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    jwt: String,
+    refresh_token: String,
+}
+
+struct ConfigureTokens {
+    jwt: String,
+    refresh_token: String,
+    method: &'static str,
+}
+
+#[derive(Serialize)]
+struct AuthRequest<'a> {
+    email: &'a str,
+    password: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub_key: Option<String>,
+}
+
+fn configure_server_auth(
+    server_url: &str,
+    email: &str,
+    password: &str,
+    public_key: &[u8],
+    register: bool,
+) -> CliResult<ConfigureTokens> {
+    let base_url = server_url.trim_end_matches('/');
+    let client = reqwest::blocking::Client::new();
+    if register {
+        let register_request = AuthRequest {
+            email,
+            password,
+            pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
+        };
+        match client
+            .post(format!("{base_url}/auth/register"))
+            .json(&register_request)
+            .send()
+        {
+            Ok(response) if response.status().is_success() => {
+                let tokens: TokenResponse = response.json().map_err(|error| {
+                    CliError::Network(format!("failed to decode auth register response: {error}"))
+                })?;
+                return Ok(ConfigureTokens {
+                    jwt: tokens.jwt,
+                    refresh_token: tokens.refresh_token,
+                    method: "register",
+                });
+            }
+            Ok(response) if response.status().is_client_error() => {
+                // Existing account or validation mismatch: try normal login below.
+            }
+            Ok(response) => {
+                return Err(CliError::Network(format!(
+                    "server auth register failed: HTTP {}",
+                    response.status()
+                )));
+            }
+            Err(error) => {
+                return Err(CliError::Network(format!(
+                    "server auth register failed: {error}"
+                )))
+            }
+        }
+    }
+
+    let login_request = AuthRequest {
+        email,
+        password,
+        pub_key: None,
+    };
+    let response = client
+        .post(format!("{base_url}/auth/login"))
+        .json(&login_request)
+        .send()
+        .map_err(|error| CliError::Network(format!("server auth login failed: {error}")))?
+        .error_for_status()
+        .map_err(|error| CliError::Network(format!("server auth login failed: {error}")))?;
+    let tokens: TokenResponse = response.json().map_err(|error| {
+        CliError::Network(format!("failed to decode auth login response: {error}"))
+    })?;
+    Ok(ConfigureTokens {
+        jwt: tokens.jwt,
+        refresh_token: tokens.refresh_token,
+        method: "login",
+    })
+}
+
+fn prompt(label: &str) -> CliResult<String> {
+    eprint!("{label}");
+    io::stderr()
+        .flush()
+        .map_err(|error| CliError::LocalStorage(format!("failed to write prompt: {error}")))?;
+    let mut value = String::new();
+    io::stdin()
+        .read_line(&mut value)
+        .map_err(|error| CliError::Input(format!("failed to read input: {error}")))?;
+    let value = value.trim().to_owned();
+    if value.is_empty() {
+        Err(CliError::Input("required configure value was empty".into()))
+    } else {
+        Ok(value)
     }
 }
 
@@ -233,6 +428,9 @@ fn run_sync(
     output_format: OutputFormat,
     db_path: Option<PathBuf>,
     profile: &str,
+    config_path: Option<PathBuf>,
+    server_url: Option<String>,
+    offline: bool,
 ) -> CliResult<Option<String>> {
     match command {
         SyncCommands::Status => open_core(db_path, profile)?
@@ -245,21 +443,317 @@ fn run_sync(
             .map_err(CliError::from)
             .and_then(|entry| output::format_command_result(output_format, &entry))
             .map(Some),
-        SyncCommands::Push => Err(CliError::UnsupportedPlatform(
-            "sync push is not implemented until the HTTP sync client is wired".into(),
-        )),
-        SyncCommands::Pull => Err(CliError::UnsupportedPlatform(
-            "sync pull is not implemented until the HTTP sync client is wired".into(),
-        )),
-        SyncCommands::Run => Err(CliError::UnsupportedPlatform(
-            "sync run is not implemented until the HTTP sync client is wired".into(),
-        )),
+        SyncCommands::Push => {
+            let (database, platform, client, data_key) =
+                sync_runtime(db_path, profile, config_path.clone(), server_url, offline)?;
+            sync_push(&database, &platform, &client, &data_key)
+                .map(SyncResultOutput::from)
+                .map_err(CliError::from)
+                .and_then(|result| output::format_command_result(output_format, &result))
+                .map(Some)
+        }
+        SyncCommands::Pull => {
+            let (database, _platform, client, data_key) =
+                sync_runtime(db_path, profile, config_path.clone(), server_url, offline)?;
+            sync_pull(&database, &client, &data_key)
+                .map(SyncResultOutput::from)
+                .map_err(CliError::from)
+                .and_then(|result| output::format_command_result(output_format, &result))
+                .map(Some)
+        }
+        SyncCommands::Run => {
+            let (database, platform, client, data_key) =
+                sync_runtime(db_path, profile, config_path, server_url, offline)?;
+            let pull = sync_pull(&database, &client, &data_key).map_err(CliError::from)?;
+            let push =
+                sync_push(&database, &platform, &client, &data_key).map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &SyncResultOutput {
+                    pushed: push.pushed,
+                    pulled: pull.pulled,
+                    failed: push.failed + pull.failed,
+                    cursor: pull.cursor,
+                },
+            )
+            .map(Some)
+        }
         SyncCommands::Conflicts => Err(CliError::UnsupportedPlatform(
             "sync conflicts is not implemented until conflict persistence is wired".into(),
         )),
         SyncCommands::Resolve(_) => Err(CliError::UnsupportedPlatform(
             "sync resolve is not implemented until conflict persistence is wired".into(),
         )),
+    }
+}
+
+fn resolve_server_url(
+    server_url: Option<String>,
+    config_path: Option<PathBuf>,
+    profile: &str,
+) -> CliResult<String> {
+    if let Some(server_url) = server_url {
+        return Ok(server_url);
+    }
+
+    let settings_path = resolve_config_path(config_path, profile)?;
+    let settings = PlaintextSettings::read_from_file(&settings_path).map_err(CliError::from)?;
+    if settings.server_url.is_empty() {
+        Err(CliError::Input(
+            "--server is required for sync push/pull/run until settings server_url is configured"
+                .into(),
+        ))
+    } else {
+        Ok(settings.server_url)
+    }
+}
+
+fn sync_runtime(
+    db_path: Option<PathBuf>,
+    profile: &str,
+    config_path: Option<PathBuf>,
+    server_url: Option<String>,
+    offline: bool,
+) -> CliResult<(
+    LocalDatabase,
+    platform::CliPlatform,
+    HttpSyncClient,
+    Vec<u8>,
+)> {
+    let server_url = resolve_server_url(server_url, config_path, profile)?;
+    let platform = platform::CliPlatform::new(offline);
+    let token = String::from_utf8(
+        platform
+            .load_key(AUTH_ACCESS_TOKEN_ID)
+            .map_err(CliError::from)?,
+    )
+    .map_err(|error| {
+        CliError::LocalStorage(format!("stored access token is not UTF-8: {error}"))
+    })?;
+    let data_key = platform
+        .load_key(ACCOUNT_DATA_KEY_ID)
+        .map_err(CliError::from)?;
+    let db_path = resolve_db_path(db_path, profile)?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            CliError::LocalStorage(format!("failed to create DB directory: {error}"))
+        })?;
+    }
+    let database = LocalDatabase::open(&db_path).map_err(CliError::from)?;
+    Ok((
+        database,
+        platform,
+        HttpSyncClient::new(server_url, token),
+        data_key,
+    ))
+}
+
+struct HttpSyncClient {
+    base_url: String,
+    token: String,
+    client: reqwest::blocking::Client,
+}
+
+impl HttpSyncClient {
+    fn new(base_url: String, token: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            token,
+            client: reqwest::blocking::Client::new(),
+        }
+    }
+
+    fn auth(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        request.bearer_auth(&self.token)
+    }
+}
+
+impl SyncClient for HttpSyncClient {
+    fn push_blobs(&self, blobs: Vec<BlobPush>) -> taskmanager_core::CoreResult<PushResponse> {
+        let request = BatchRequest {
+            blobs: blobs.into_iter().map(BlobRequest::from).collect(),
+        };
+        let response: BatchResponse = self
+            .auth(self.client.post(format!("{}/blobs/batch", self.base_url)))
+            .json(&request)
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(push_response_from_batch(response))
+    }
+
+    fn delete_blobs(&self, task_ids: Vec<Uuid>) -> taskmanager_core::CoreResult<PushResponse> {
+        let mut accepted_task_ids = Vec::new();
+        for task_id in task_ids {
+            self.auth(
+                self.client
+                    .delete(format!("{}/blobs/{}", self.base_url, task_id)),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(http_error)?;
+            accepted_task_ids.push(task_id);
+        }
+        Ok(PushResponse {
+            accepted_task_ids,
+            failed_task_ids: Vec::new(),
+        })
+    }
+
+    fn pull_blobs(&self, since: i64) -> taskmanager_core::CoreResult<PullResponse> {
+        let response: PullWireResponse = self
+            .auth(
+                self.client
+                    .get(format!("{}/blobs", self.base_url))
+                    .query(&[("since", since)]),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(PullResponse {
+            blobs: response
+                .blobs
+                .into_iter()
+                .filter_map(remote_blob_from_wire)
+                .collect(),
+            cursor: response.cursor,
+        })
+    }
+}
+
+fn http_error(error: reqwest::Error) -> SyncError {
+    if error.status() == Some(reqwest::StatusCode::UNAUTHORIZED) {
+        SyncError::AuthExpired
+    } else {
+        SyncError::ServerError {
+            status: error.status().map_or(0, |status| status.as_u16()),
+            body: error.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct BatchRequest {
+    blobs: Vec<BlobRequest>,
+}
+
+#[derive(Serialize)]
+struct BlobRequest {
+    task_id: Uuid,
+    #[serde(with = "base64_bytes")]
+    ciphertext: Vec<u8>,
+    #[serde(with = "base64_nonce")]
+    nonce: [u8; 12],
+}
+
+impl From<BlobPush> for BlobRequest {
+    fn from(push: BlobPush) -> Self {
+        Self {
+            task_id: push.task_id,
+            ciphertext: push.blob.ciphertext,
+            nonce: push.blob.nonce,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct BatchResponse {
+    results: Vec<BatchResult>,
+}
+
+#[derive(Deserialize)]
+struct BatchResult {
+    task_id: Uuid,
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct PullWireResponse {
+    blobs: Vec<PullWireBlob>,
+    cursor: i64,
+}
+
+#[derive(Deserialize)]
+struct PullWireBlob {
+    task_id: Uuid,
+    ciphertext: Option<String>,
+    nonce: Option<String>,
+    updated_at: i64,
+    deleted: bool,
+}
+
+fn remote_blob_from_wire(blob: PullWireBlob) -> Option<RemoteBlob> {
+    if blob.deleted {
+        return None;
+    }
+    let ciphertext = base64::engine::general_purpose::STANDARD
+        .decode(blob.ciphertext?)
+        .ok()?;
+    let nonce = base64::engine::general_purpose::STANDARD
+        .decode(blob.nonce?)
+        .ok()?
+        .try_into()
+        .ok()?;
+    Some(RemoteBlob {
+        task_id: blob.task_id,
+        blob: Blob { ciphertext, nonce },
+        updated_at: blob.updated_at,
+    })
+}
+
+mod base64_bytes {
+    use base64::Engine;
+    use serde::Serializer;
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+}
+
+mod base64_nonce {
+    use base64::Engine;
+    use serde::Serializer;
+
+    pub fn serialize<S>(nonce: &[u8; 12], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(nonce))
+    }
+}
+
+fn push_response_from_batch(response: BatchResponse) -> PushResponse {
+    let mut accepted_task_ids = Vec::new();
+    let mut failed_task_ids = Vec::new();
+    for result in response.results {
+        if result.status == "ok" {
+            accepted_task_ids.push(result.task_id);
+        } else {
+            failed_task_ids.push(result.task_id);
+        }
+    }
+    PushResponse {
+        accepted_task_ids,
+        failed_task_ids,
     }
 }
 
