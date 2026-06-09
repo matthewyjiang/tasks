@@ -75,20 +75,20 @@ Provide the desktop/headless `Platform` implementation required by `core`.
 TODO:
 
 - [ ] Implement OS key-store selection for supported desktop platforms.
-- [ ] Implement explicit insecure file-backed key store selected only by `TASKMANAGER_INSECURE_KEY_DIR` or a test-only flag.
-- [ ] Implement `store_key`, `load_key`, and `delete_key`.
-- [ ] Implement headless reminder persistence for `schedule_notification` and `cancel_notification`.
-- [ ] Implement `network_available` honoring `--offline` first.
-- [ ] Add clear errors for unsupported platform capabilities.
+- [x] Implement explicit insecure file-backed key store selected only by `TASKMANAGER_INSECURE_KEY_DIR` or a test-only flag.
+- [x] Implement `store_key`, `load_key`, and `delete_key`.
+- [x] Implement headless reminder persistence for `schedule_notification` and `cancel_notification`.
+- [x] Implement `network_available` honoring `--offline` first.
+- [x] Add clear errors for unsupported platform capabilities.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] File-backed test key store round-trips key bytes.
-- [ ] Missing key returns the expected key-store error.
-- [ ] `delete_key` removes only the selected key.
-- [ ] Insecure key store is never selected implicitly.
-- [ ] Reminder schedule/cancel persists expected records in headless mode.
-- [ ] `--offline` forces `network_available == false`.
+- [x] File-backed test key store round-trips key bytes.
+- [x] Missing key returns the expected key-store error.
+- [x] `delete_key` removes only the selected key.
+- [x] Insecure key store is never selected implicitly.
+- [x] Reminder schedule/cancel persists expected records in headless mode.
+- [x] `--offline` forces `network_available == false`.
 
 ## Milestone 4: Local task commands
 
