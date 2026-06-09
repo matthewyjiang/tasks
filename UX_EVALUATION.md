@@ -57,7 +57,7 @@ The deploy script interactively prompts for configuration, writes `.env`, starts
 - The README now connects server setup to CLI setup:
 
   ```sh
-  taskmanager configure --server-url http://localhost:8080
+  taskmanager configure --server-url http://localhost:18080
   ```
 
 - The deploy script is interactive and preserves existing `.env` defaults.
@@ -70,7 +70,7 @@ The deploy script interactively prompts for configuration, writes `.env`, starts
 
 1. **Port conflicts are not proactively diagnosed**
 
-   The docs mention ports, but `make dev` does not preflight-check whether `5432` or `8080` are already in use.
+   The docs mention ports, but `make dev` does not preflight-check whether `5432` or `18080` are already in use.
 
 2. **Self-hosting is still technical**
 
@@ -214,7 +214,7 @@ cd server
 make dev
 
 # Configure CLI profile and account.
-taskmanager configure --server-url http://localhost:8080
+taskmanager configure --server-url http://localhost:18080
 
 # Create a task.
 taskmanager task create "Buy milk" --due tomorrow
@@ -236,7 +236,7 @@ TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
   --config /tmp/taskmanager/settings.json \
   --output json \
   configure \
-  --server-url http://localhost:8080 \
+  --server-url http://localhost:18080 \
   --email ci@example.com \
   --password "$TASKMANAGER_TEST_PASSWORD"
 ```

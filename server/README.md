@@ -9,7 +9,7 @@ Go zero-knowledge sync backend for encrypted task blobs.
 - `curl` for health checks and deploy verification
 - Local ports:
   - `5432` for PostgreSQL in local development
-  - `8080` for the API by default
+  - `18080` for the API by default
 
 ## Local development
 
@@ -33,13 +33,13 @@ make run
 Health check:
 
 ```sh
-curl http://localhost:8080/healthz
+curl http://localhost:18080/healthz
 ```
 
 Then configure the CLI against the local server:
 
 ```sh
-taskmanager configure --server-url http://localhost:8080
+taskmanager configure --server-url http://localhost:18080
 ```
 
 Non-interactive CLI setup for tests/scripts:
@@ -50,7 +50,7 @@ TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
   --profile ci \
   --output json \
   configure \
-  --server-url http://localhost:8080 \
+  --server-url http://localhost:18080 \
   --email ci@example.com \
   --password "$TASKMANAGER_TEST_PASSWORD"
 ```
@@ -58,9 +58,9 @@ TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
 ## Sample API calls
 
 ```sh
-curl http://localhost:8080/healthz
+curl http://localhost:18080/healthz
 
-curl -sS http://localhost:8080/auth/register \
+curl -sS http://localhost:18080/auth/register \
   -H 'content-type: application/json' \
   -d '{"email":"dev@example.com","password":"correct horse battery staple","pub_key":"BASE64_DEVICE_PUBLIC_KEY"}'
 ```
@@ -76,7 +76,7 @@ cd server
 ./scripts/deploy.sh
 ```
 
-The script interactively asks for required settings, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the app container always listens on `PORT=8080`.
+The script interactively asks for required settings, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the deploy script keeps the app container on `PORT=8080` internally and exposes `HOST_PORT=18080` by default.
 
 The deploy script URL-encodes database URL components, so generated or user-provided Postgres passwords may contain reserved URL characters such as `@`, `:`, `/`, `#`, and `?`.
 

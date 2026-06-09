@@ -101,7 +101,7 @@ main() {
 
   load_existing
 
-  prompt HOST_PORT "Public HTTP port" "${HOST_PORT:-${PORT:-8080}}"
+  prompt HOST_PORT "Public HTTP port" "${HOST_PORT:-18080}"
   PORT=8080
   prompt POSTGRES_DB "Postgres database name" "${POSTGRES_DB:-tasks}"
   prompt POSTGRES_USER "Postgres user" "${POSTGRES_USER:-tasks}"
