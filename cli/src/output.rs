@@ -40,6 +40,32 @@ pub struct DeleteOutput {
     pub deleted: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PublicKeyOutput {
+    pub public_key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthOutput {
+    pub stored: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LogoutOutput {
+    pub logged_out: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WrappedKeyOutput {
+    pub ciphertext: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UnwrappedKeyOutput {
+    pub stored: bool,
+}
+
 pub trait TableOutput {
     fn to_table(&self) -> String;
 }
@@ -79,6 +105,36 @@ impl TableOutput for Vec<Task> {
 impl TableOutput for DeleteOutput {
     fn to_table(&self) -> String {
         format!("Deleted {}", self.id)
+    }
+}
+
+impl TableOutput for PublicKeyOutput {
+    fn to_table(&self) -> String {
+        self.public_key.clone()
+    }
+}
+
+impl TableOutput for AuthOutput {
+    fn to_table(&self) -> String {
+        "Auth tokens stored".to_string()
+    }
+}
+
+impl TableOutput for LogoutOutput {
+    fn to_table(&self) -> String {
+        "Logged out".to_string()
+    }
+}
+
+impl TableOutput for WrappedKeyOutput {
+    fn to_table(&self) -> String {
+        format!("ciphertext\t{}\nnonce\t{}", self.ciphertext, self.nonce)
+    }
+}
+
+impl TableOutput for UnwrappedKeyOutput {
+    fn to_table(&self) -> String {
+        "Data key stored".to_string()
     }
 }
 

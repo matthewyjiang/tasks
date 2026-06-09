@@ -125,24 +125,27 @@ Add bootstrap and device-pairing command coverage.
 
 TODO:
 
-- [ ] Add `account init`.
+- [x] Add `account init`.
 - [ ] Add `auth login`, `auth refresh`, and `auth logout`.
-- [ ] Add `device init-keypair`.
+  - Note: `auth login` and `auth logout` are implemented for local token storage; `auth refresh` remains blocked until server auth is wired.
+- [x] Add `device init-keypair`.
 - [ ] Add `device register`.
+  - Note: blocked until server auth/device directory commands are wired.
 - [ ] Add `device list`.
-- [ ] Add `device wrap-key --target <device_id>`.
-- [ ] Add `device unwrap-key --from <device_id>`.
+  - Note: blocked until server auth/device directory commands are wired.
+- [x] Add `device wrap-key --target <device_id>`.
+- [x] Add `device unwrap-key --from <device_id>`.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] `account init` initializes local state and returns a device public key.
-- [ ] Re-running `account init` is idempotent or returns a stable `already_exists` error.
-- [ ] Auth token storage uses the platform key store.
-- [ ] `auth logout` removes stored tokens without deleting local tasks.
-- [ ] Device keypair generation stores private key and prints only public key.
-- [ ] Device commands never print secret key material by default.
-- [ ] Wrap on profile A and unwrap on profile B recovers the same data key.
-- [ ] Malformed peer public key fails with a crypto error exit code.
+- [x] `account init` initializes local state and returns a device public key.
+- [x] Re-running `account init` is idempotent or returns a stable `already_exists` error.
+- [x] Auth token storage uses the platform key store.
+- [x] `auth logout` removes stored tokens without deleting local tasks.
+- [x] Device keypair generation stores private key and prints only public key.
+- [x] Device commands never print secret key material by default.
+- [x] Wrap on profile A and unwrap on profile B recovers the same data key.
+- [x] Malformed peer public key fails with a crypto error exit code.
 
 ## Milestone 6: Sync commands
 

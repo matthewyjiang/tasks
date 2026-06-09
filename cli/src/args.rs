@@ -48,11 +48,83 @@ pub struct Cli {
 pub enum Commands {
     /// Print machine-readable version information.
     Version,
+    /// Manage account bootstrap.
+    Account {
+        #[command(subcommand)]
+        command: AccountCommands,
+    },
+    /// Manage auth tokens.
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
+    },
+    /// Manage device keys and data-key wrapping.
+    Device {
+        #[command(subcommand)]
+        command: DeviceCommands,
+    },
     /// Manage local tasks.
     Task {
         #[command(subcommand)]
         command: TaskCommands,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AccountCommands {
+    /// Initialize account keys locally.
+    Init,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AuthCommands {
+    /// Store access and optional refresh tokens in the platform key store.
+    Login(AuthLoginArgs),
+    /// Refresh tokens are not implemented until server auth is wired.
+    Refresh,
+    /// Remove stored auth tokens from the platform key store.
+    Logout,
+}
+
+#[derive(Debug, Args)]
+pub struct AuthLoginArgs {
+    #[arg(long)]
+    pub access_token: String,
+
+    #[arg(long)]
+    pub refresh_token: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DeviceCommands {
+    /// Generate and store this device's private key, printing only the public key.
+    InitKeypair,
+    /// Register this device with the server. Not implemented until server auth is wired.
+    Register,
+    /// List registered devices. Not implemented until server auth is wired.
+    List,
+    /// Wrap the local account data key for a target device public key.
+    WrapKey(DeviceWrapKeyArgs),
+    /// Unwrap and store an account data key from another device.
+    UnwrapKey(DeviceUnwrapKeyArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DeviceWrapKeyArgs {
+    #[arg(long)]
+    pub target: String,
+}
+
+#[derive(Debug, Args)]
+pub struct DeviceUnwrapKeyArgs {
+    #[arg(long = "from")]
+    pub from_device: String,
+
+    #[arg(long)]
+    pub ciphertext: String,
+
+    #[arg(long)]
+    pub nonce: String,
 }
 
 #[derive(Debug, Subcommand)]
