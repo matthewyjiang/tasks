@@ -354,9 +354,13 @@ def main() -> int:
             assert crypto_verify["encrypt_decrypt_ok"] is True
             encrypted_blob = parse_result(cli(env, profile_a, "crypto", "encrypt-task", task_id))
             blob_path = profile_a / "task-blob.json"
-            blob_path.write_text(json.dumps(encrypted_blob), encoding="utf-8")
+            blob_path.write_text(json.dumps({"result": encrypted_blob}), encoding="utf-8")
             decrypted_blob = parse_result(cli(env, profile_a, "crypto", "decrypt-blob", str(blob_path)))
             assert decrypted_blob["id"] == task_id
+            raw_blob_path = profile_a / "raw-task-blob.json"
+            raw_blob_path.write_text(json.dumps(encrypted_blob), encoding="utf-8")
+            raw_decrypted_blob = parse_result(cli(env, profile_a, "crypto", "decrypt-blob", str(raw_blob_path)))
+            assert raw_decrypted_blob["id"] == task_id
             bad_blob_path = profile_a / "bad-blob.json"
             bad_blob_path.write_text("not json", encoding="utf-8")
             bad_blob = cli(env, profile_a, "crypto", "decrypt-blob", str(bad_blob_path), expect=1)

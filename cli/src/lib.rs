@@ -307,7 +307,7 @@ fn run_crypto(
             let contents = std::fs::read_to_string(&args.file).map_err(|error| {
                 CliError::LocalStorage(format!("failed to read {}: {error}", args.file.display()))
             })?;
-            let blob: Blob = serde_json::from_str(&contents).map_err(CliError::from)?;
+            let blob = parse_blob_file(&contents)?;
             let task = decrypt_blob(&blob, &data_key).map_err(CliError::from)?;
             output::format_command_result(output_format, &task).map(Some)
         }
@@ -403,6 +403,15 @@ fn run_crypto(
             )
             .map(Some)
         }
+    }
+}
+
+fn parse_blob_file(contents: &str) -> CliResult<Blob> {
+    let value: serde_json::Value = serde_json::from_str(contents).map_err(CliError::from)?;
+    if let Some(result) = value.get("result") {
+        serde_json::from_value(result.clone()).map_err(CliError::from)
+    } else {
+        serde_json::from_value(value).map_err(CliError::from)
     }
 }
 

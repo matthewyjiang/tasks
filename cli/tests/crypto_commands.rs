@@ -51,11 +51,20 @@ fn crypto_encrypt_and_decrypt_task_round_trip() {
     let blob = cli.json(&["crypto", "encrypt-task", task_id]);
     assert!(blob["result"]["ciphertext"].as_array().unwrap().len() > 16);
     let blob_path = cli._temp.path().join("blob.json");
-    std::fs::write(&blob_path, serde_json::to_string(&blob["result"]).unwrap()).unwrap();
+    std::fs::write(&blob_path, serde_json::to_string(&blob).unwrap()).unwrap();
 
     let decrypted = cli.json(&["crypto", "decrypt-blob", blob_path.to_str().unwrap()]);
     assert_eq!(decrypted["result"]["id"], task_id);
     assert_eq!(decrypted["result"]["title"], "encrypted fixture");
+
+    let raw_blob_path = cli._temp.path().join("raw-blob.json");
+    std::fs::write(
+        &raw_blob_path,
+        serde_json::to_string(&blob["result"]).unwrap(),
+    )
+    .unwrap();
+    let raw_decrypted = cli.json(&["crypto", "decrypt-blob", raw_blob_path.to_str().unwrap()]);
+    assert_eq!(raw_decrypted["result"]["id"], task_id);
 }
 
 #[test]

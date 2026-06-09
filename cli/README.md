@@ -167,7 +167,7 @@ The `crypto` namespace is intentionally exposed in help, but these are developer
 ```sh
 taskmanager crypto verify-local
 taskmanager --output json crypto encrypt-task <task_id> > blob.json
-taskmanager --output json crypto decrypt-blob blob.json
+taskmanager --output json crypto decrypt-blob blob.json  # accepts the CLI {"result": ...} wrapper or a raw blob
 taskmanager --output json crypto wrap-data-key --target <peer_public_key>
 taskmanager --dangerously-print-secrets --output json crypto unwrap-data-key \
   --from <peer_public_key> \
