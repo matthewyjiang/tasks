@@ -59,11 +59,34 @@ fn run_task(
     let core = TaskManagerCore::open(&db_path).map_err(CliError::from)?;
 
     match command {
-        TaskCommands::Create(args) => core
-            .create_task(args.title, args.body, args.due_at)
-            .map_err(CliError::from)
-            .and_then(|task| output::format_command_result(output_format, &task))
-            .map(Some),
+        TaskCommands::Create(args) => {
+            let title = args
+                .title
+                .or(args.title_arg)
+                .ok_or_else(|| CliError::Input("task title is required".into()))?;
+            let mut task = core
+                .create_task(title, args.body, args.due_at)
+                .map_err(CliError::from)?;
+
+            if args.project_id.is_some() || !args.tags.is_empty() {
+                task = core
+                    .update_task(
+                        task.id,
+                        TaskPatch {
+                            project_id: args.project_id.map(Some),
+                            tags: if args.tags.is_empty() {
+                                None
+                            } else {
+                                Some(args.tags)
+                            },
+                            ..TaskPatch::default()
+                        },
+                    )
+                    .map_err(CliError::from)?;
+            }
+
+            output::format_command_result(output_format, &task).map(Some)
+        }
         TaskCommands::Get(args) => core
             .get_task(args.id)
             .map_err(CliError::from)

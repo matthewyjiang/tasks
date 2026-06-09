@@ -41,10 +41,11 @@ fn creating_a_task_returns_generated_dirty_task() {
     let value = cli.json(&[
         "task",
         "create",
+        "--title",
         "write tests",
         "--body",
         "cover cli",
-        "--due-at",
+        "--due",
         "123",
     ]);
 
@@ -58,6 +59,42 @@ fn creating_a_task_returns_generated_dirty_task() {
     assert_eq!(value["result"]["due_at"], 123);
     assert_eq!(value["result"]["status"], "inbox");
     assert_eq!(value["result"]["dirty"], true);
+}
+
+#[test]
+fn creating_a_task_accepts_project_and_tags() {
+    let cli = TaskCli::new();
+    let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
+
+    let value = cli.json(&[
+        "task",
+        "create",
+        "--title",
+        "tagged",
+        "--project-id",
+        project_id,
+        "--tag",
+        "work",
+        "--tag",
+        "urgent",
+    ]);
+
+    assert_eq!(value["result"]["title"], "tagged");
+    assert_eq!(value["result"]["project_id"], project_id);
+    assert_eq!(
+        value["result"]["tags"],
+        serde_json::json!(["work", "urgent"])
+    );
+    assert_eq!(value["result"]["dirty"], true);
+}
+
+#[test]
+fn creating_a_task_keeps_positional_title_compatibility() {
+    let cli = TaskCli::new();
+
+    let value = cli.json(&["task", "create", "positional title"]);
+
+    assert_eq!(value["result"]["title"], "positional title");
 }
 
 #[test]
@@ -80,7 +117,9 @@ fn getting_a_missing_task_exits_with_not_found_error() {
         .assert()
         .failure()
         .code(1)
-        .stderr(predicate::str::contains("task not found"));
+        .stderr(
+            predicate::str::contains("\"error\"").and(predicate::str::contains("task not found")),
+        );
 }
 
 #[test]
@@ -118,6 +157,32 @@ fn updating_patchable_fields_persists_and_marks_dirty() {
         serde_json::json!(["work", "urgent"])
     );
     assert_eq!(updated["result"]["dirty"], true);
+}
+
+#[test]
+fn conflicting_update_flags_are_rejected() {
+    let cli = TaskCli::new();
+    let created = cli.json(&["task", "create", "draft"]);
+    let id = created["result"]["id"].as_str().unwrap();
+    let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
+
+    cli.command()
+        .args(["task", "update", id, "--due-at", "123", "--clear-due-at"])
+        .assert()
+        .failure()
+        .code(1);
+    cli.command()
+        .args([
+            "task",
+            "update",
+            id,
+            "--project-id",
+            project_id,
+            "--clear-project-id",
+        ])
+        .assert()
+        .failure()
+        .code(1);
 }
 
 #[test]

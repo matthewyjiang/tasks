@@ -77,13 +77,23 @@ pub enum TaskCommands {
 
 #[derive(Debug, Args)]
 pub struct TaskCreateArgs {
-    pub title: String,
+    #[arg(long, required_unless_present = "title_arg")]
+    pub title: Option<String>,
+
+    #[arg(value_name = "TITLE")]
+    pub title_arg: Option<String>,
 
     #[arg(long, default_value = "")]
     pub body: String,
 
-    #[arg(long)]
+    #[arg(long, alias = "due")]
     pub due_at: Option<i64>,
+
+    #[arg(long)]
+    pub project_id: Option<Uuid>,
+
+    #[arg(long = "tag")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -104,7 +114,7 @@ pub struct TaskUpdateArgs {
     #[arg(long)]
     pub due_at: Option<i64>,
 
-    #[arg(long)]
+    #[arg(long, conflicts_with = "due_at")]
     pub clear_due_at: bool,
 
     #[arg(long, value_enum)]
@@ -113,7 +123,7 @@ pub struct TaskUpdateArgs {
     #[arg(long)]
     pub project_id: Option<Uuid>,
 
-    #[arg(long)]
+    #[arg(long, conflicts_with = "project_id")]
     pub clear_project_id: bool,
 
     #[arg(long, value_delimiter = ',')]
