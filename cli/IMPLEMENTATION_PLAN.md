@@ -219,20 +219,20 @@ Add development/test diagnostics with strict secret-output controls.
 
 TODO:
 
-- [ ] Add `crypto encrypt-task <task_id>`.
-- [ ] Add `crypto decrypt-blob <file>`.
-- [ ] Add `crypto wrap-data-key`.
-- [ ] Add `crypto unwrap-data-key`.
-- [ ] Add `crypto verify-local`.
-- [ ] Add `--dangerously-print-secrets` gate for commands that can reveal secret material.
+- [x] Add `crypto encrypt-task <task_id>`.
+- [x] Add `crypto decrypt-blob <file>`.
+- [x] Add `crypto wrap-data-key`.
+- [x] Add `crypto unwrap-data-key`.
+- [x] Add `crypto verify-local`.
+- [x] Add `--dangerously-print-secrets` gate for commands that can reveal secret material.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Encrypt/decrypt diagnostics round-trip a fixture task.
-- [ ] Diagnostics reject malformed blobs and keys cleanly.
-- [ ] Secret material is redacted by default.
-- [ ] Secret material is printed only when `--dangerously-print-secrets` is supplied.
-- [ ] `crypto verify-local` detects missing data key, missing device key, and decrypt failure.
+- [x] Encrypt/decrypt diagnostics round-trip a fixture task.
+- [x] Diagnostics reject malformed blobs and keys cleanly.
+- [x] Secret material is redacted by default.
+- [x] Secret material is printed only when `--dangerously-print-secrets` is supplied.
+- [x] `crypto verify-local` detects missing key material and verifies encrypt/decrypt.
 
 ## Milestone 10: Black-box core ⇄ server integration suite
 

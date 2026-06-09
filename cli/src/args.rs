@@ -40,6 +40,9 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub trace: bool,
 
+    #[arg(long, global = true)]
+    pub dangerously_print_secrets: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -72,6 +75,11 @@ pub enum Commands {
     Settings {
         #[command(subcommand)]
         command: SettingsCommands,
+    },
+    /// Run developer crypto diagnostics for fixtures, troubleshooting, and E2E validation.
+    Crypto {
+        #[command(subcommand)]
+        command: CryptoCommands,
     },
     /// Manage local tasks.
     Task {
@@ -183,6 +191,25 @@ pub struct SettingsSetArgs {
 #[derive(Debug, Args)]
 pub struct SettingsPushPlaintextArgs {
     pub json: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CryptoCommands {
+    /// Dev diagnostic: encrypt a local task to inspect or fixture the sync blob shape.
+    EncryptTask(TaskIdArgs),
+    /// Dev diagnostic: decrypt a JSON blob fixture while debugging crypto/sync failures.
+    DecryptBlob(CryptoBlobFileArgs),
+    /// Dev diagnostic: wrap the local data key without registering or mutating devices.
+    WrapDataKey(DeviceWrapKeyArgs),
+    /// Dev diagnostic: print an unwrapped data key for troubleshooting; requires --dangerously-print-secrets.
+    UnwrapDataKey(DeviceUnwrapKeyArgs),
+    /// Dev diagnostic: verify stored local keys can encrypt/decrypt a fixture task.
+    VerifyLocal,
+}
+
+#[derive(Debug, Args)]
+pub struct CryptoBlobFileArgs {
+    pub file: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
