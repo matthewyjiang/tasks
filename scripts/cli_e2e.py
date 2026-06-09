@@ -67,6 +67,30 @@ def wait_for_http(url: str, timeout: float = 30.0) -> None:
     raise RuntimeError(f"timed out waiting for {url}: {last_error}")
 
 
+def wait_for_postgres(timeout: float = 30.0) -> None:
+    deadline = time.time() + timeout
+    last_stderr = ""
+    while time.time() < deadline:
+        result = run(
+            ["docker", "compose", "exec", "-T", "postgres", "pg_isready", "-U", "tasks", "-d", "tasks"],
+            cwd=ROOT / "server",
+        )
+        if result.returncode == 0:
+            return
+        last_stderr = result.stderr.strip() or result.stdout.strip()
+        time.sleep(0.5)
+    raise RuntimeError(f"timed out waiting for postgres: {last_stderr}")
+
+
+def read_process_output(process: subprocess.Popen[str]) -> str:
+    if process.stdout is None:
+        return ""
+    try:
+        return process.stdout.read() or ""
+    except Exception as error:  # noqa: BLE001 - best-effort diagnostics
+        return f"<failed to read process output: {error}>"
+
+
 def cli(base_env: dict[str, str], profile_dir: Path, *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
     env = base_env.copy()
     env["TASKMANAGER_INSECURE_KEY_DIR"] = str(profile_dir / "keys")
@@ -138,6 +162,7 @@ def main() -> int:
         try:
             require(["docker", "compose", "down", "-v"], cwd=ROOT / "server")
             require(["docker", "compose", "up", "-d", "postgres"], cwd=ROOT / "server")
+            wait_for_postgres()
             server_proc = subprocess.Popen(
                 ["go", "run", "./cmd/server"],
                 cwd=ROOT / "server",
@@ -146,7 +171,13 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
             )
-            wait_for_http(f"{SERVER_URL}/healthz")
+            try:
+                wait_for_http(f"{SERVER_URL}/healthz")
+            except Exception:
+                if server_proc.poll() is not None:
+                    print("\nserver exited before becoming healthy; output:", file=sys.stderr)
+                    print(read_process_output(server_proc), file=sys.stderr)
+                raise
 
             version = parse_result(cli(env, profile_a, "version"))
             assert version["name"] == "taskmanager-cli"
