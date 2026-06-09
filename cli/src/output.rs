@@ -87,6 +87,7 @@ pub struct ConfigureOutput {
     pub server_url: String,
     pub access_token_stored: bool,
     pub refresh_token_stored: bool,
+    pub auth_method: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,11 +179,12 @@ impl TableOutput for SecretBytesOutput {
 impl TableOutput for ConfigureOutput {
     fn to_table(&self) -> String {
         format!(
-            "Configured taskmanager\naccount_initialized\t{}\nserver_url\t{}\naccess_token_stored\t{}\nrefresh_token_stored\t{}",
+            "Configured taskmanager\naccount_initialized\t{}\nserver_url\t{}\naccess_token_stored\t{}\nrefresh_token_stored\t{}\nauth_method\t{}",
             self.account_initialized,
             self.server_url,
             self.access_token_stored,
-            self.refresh_token_stored
+            self.refresh_token_stored,
+            self.auth_method
         )
     }
 }

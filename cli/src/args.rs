@@ -102,13 +102,17 @@ pub struct ConfigureArgs {
     #[arg(long)]
     pub server_url: Option<String>,
 
-    /// Access token to store in the platform key store.
+    /// Account email for server login/register.
     #[arg(long)]
-    pub access_token: Option<String>,
+    pub email: Option<String>,
 
-    /// Refresh token to store in the platform key store.
+    /// Account password for server login/register. If omitted, configure prompts for it.
     #[arg(long)]
-    pub refresh_token: Option<String>,
+    pub password: Option<String>,
+
+    /// Try server registration first, then fall back to login if the account already exists.
+    #[arg(long, default_value_t = true)]
+    pub register: bool,
 }
 
 #[derive(Debug, Subcommand)]

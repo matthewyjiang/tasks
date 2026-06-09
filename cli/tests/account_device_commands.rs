@@ -47,56 +47,36 @@ impl KeyCli {
 }
 
 #[test]
-fn configure_initializes_account_settings_and_tokens_non_interactively() {
+fn configure_uses_email_password_server_auth_not_raw_tokens() {
     let cli = KeyCli::new();
 
-    let value = cli.json(&[
-        "configure",
-        "--server-url",
-        "https://api.example.com",
-        "--access-token",
-        "access",
-        "--refresh-token",
-        "refresh",
-    ]);
-
-    assert_eq!(value["result"]["account_initialized"], true);
-    assert_eq!(value["result"]["server_url"], "https://api.example.com");
-    assert_eq!(value["result"]["access_token_stored"], true);
-    assert_eq!(value["result"]["refresh_token_stored"], true);
-    assert_eq!(
-        cli.json(&["settings", "get", "server_url"])["result"],
-        "https://api.example.com"
-    );
-
-    let rerun = cli.json(&[
-        "configure",
-        "--server-url",
-        "https://next.example.com",
-        "--access-token",
-        "next-access",
-    ]);
-    assert_eq!(rerun["result"]["account_initialized"], false);
-    assert_eq!(rerun["result"]["refresh_token_stored"], false);
+    cli.command()
+        .args([
+            "configure",
+            "--server-url",
+            "http://127.0.0.1:9",
+            "--email",
+            "user@example.com",
+            "--password",
+            "password",
+        ])
+        .assert()
+        .failure()
+        .code(4)
+        .stderr(predicate::str::contains("server auth"));
 }
 
 #[test]
-fn configure_accepts_interactive_input_on_stdin() {
+fn configure_accepts_interactive_email_password_input_on_stdin() {
     let cli = KeyCli::new();
 
-    let output = cli
-        .command()
+    cli.command()
         .args(["configure"])
-        .write_stdin("https://api.example.com\naccess\n\n")
+        .write_stdin("http://127.0.0.1:9\nuser@example.com\npassword\n")
         .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: Value = serde_json::from_slice(&output).unwrap();
-
-    assert_eq!(value["result"]["server_url"], "https://api.example.com");
-    assert_eq!(value["result"]["refresh_token_stored"], false);
+        .failure()
+        .code(4)
+        .stderr(predicate::str::contains("server auth"));
 }
 
 #[test]

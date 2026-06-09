@@ -195,14 +195,14 @@ A functional local-server workflow looks like this:
 
 ```sh
 # 1. Run the setup wizard once. It creates local account keys, saves the
-#    server URL, and stores the tokens returned by the auth API.
+#    server URL, and logs in/registers with the server using email + password.
 taskmanager configure
 
 # You can also provide everything non-interactively:
 taskmanager configure \
   --server-url http://127.0.0.1:18080 \
-  --access-token "$JWT" \
-  --refresh-token "$REFRESH"
+  --email you@example.com \
+  --password "$TASKMANAGER_PASSWORD"
 
 # 2. Work normally while offline/local-first.
 taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work

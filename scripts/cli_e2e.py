@@ -9,7 +9,6 @@ isolated temp profiles.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import shutil
@@ -18,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -54,17 +52,6 @@ def require(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         raise SystemExit(result.returncode)
     return result
 
-
-def post_json(path: str, payload: dict) -> dict:
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        f"{SERVER_URL}{path}",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 
 def wait_for_http(url: str, timeout: float = 30.0) -> None:
@@ -234,14 +221,6 @@ def main() -> int:
             rerun = cli(env, profile_a, "account", "init", expect=5)
             assert_error(rerun, "conflict")
 
-            server_auth = post_json(
-                "/auth/register",
-                {
-                    "email": "cli-e2e@example.com",
-                    "password": "correct horse battery staple",
-                    "pub_key": base64.b64encode(bytes.fromhex(account_a["public_key"])).decode("ascii"),
-                },
-            )
             configured = parse_result(
                 cli(
                     env,
@@ -249,10 +228,10 @@ def main() -> int:
                     "configure",
                     "--server-url",
                     SERVER_URL,
-                    "--access-token",
-                    server_auth["jwt"],
-                    "--refresh-token",
-                    server_auth["refresh_token"],
+                    "--email",
+                    "cli-e2e@example.com",
+                    "--password",
+                    "correct horse battery staple",
                 )
             )
             assert configured["account_initialized"] is False

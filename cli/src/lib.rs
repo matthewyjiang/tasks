@@ -22,11 +22,11 @@ use output::{
     WrappedKeyOutput,
 };
 use taskmanager_core::{
-    decrypt_blob, encrypt_blob, init_account, init_device_keypair, sync_pull, sync_push,
-    unwrap_data_key, wrap_data_key, AuthMethod, Blob, BlobPush, CoreError, LocalDatabase,
-    PlaintextSettings, PlaintextSettingsSyncPayload, Platform, PlatformError, PullResponse,
-    PushResponse, RemoteBlob, SyncClient, SyncError, TaskFilter, TaskManagerCore, TaskPatch,
-    TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+    decrypt_blob, encrypt_blob, init_account, init_device_keypair, public_key_from_private_key,
+    sync_pull, sync_push, unwrap_data_key, wrap_data_key, AuthMethod, Blob, BlobPush, CoreError,
+    LocalDatabase, PlaintextSettings, PlaintextSettingsSyncPayload, Platform, PlatformError,
+    PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError, TaskFilter, TaskManagerCore,
+    TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -135,27 +135,33 @@ fn run_configure(
     offline: bool,
 ) -> CliResult<Option<String>> {
     let platform = platform::CliPlatform::new(offline);
-    let account_initialized = if key_exists(&platform, DEVICE_PRIVATE_KEY_ID)?
+    let (account_initialized, public_key) = if key_exists(&platform, DEVICE_PRIVATE_KEY_ID)?
         && key_exists(&platform, ACCOUNT_DATA_KEY_ID)?
     {
-        false
+        let private_key = platform
+            .load_key(DEVICE_PRIVATE_KEY_ID)
+            .map_err(CliError::from)?;
+        (
+            false,
+            public_key_from_private_key(&private_key).map_err(CliError::from)?,
+        )
     } else {
-        init_account(&platform).map_err(CliError::from)?;
-        true
+        (true, init_account(&platform).map_err(CliError::from)?)
     };
 
     let server_url = match args.server_url {
         Some(value) => value,
         None => prompt("Server URL (for example http://127.0.0.1:18080): ")?,
     };
-    let access_token = match args.access_token {
+    let email = match args.email {
         Some(value) => value,
-        None => prompt("Access token/JWT: ")?,
+        None => prompt("Email: ")?,
     };
-    let refresh_token = match args.refresh_token {
-        Some(value) => Some(value),
-        None => prompt_optional("Refresh token (optional, press Enter to skip): ")?,
+    let password = match args.password {
+        Some(value) => value,
+        None => prompt("Password: ")?,
     };
+    let tokens = configure_server_auth(&server_url, &email, &password, &public_key, args.register)?;
 
     let settings_path = resolve_config_path(config_path, profile)?;
     let mut settings = PlaintextSettings::read_from_file(&settings_path).map_err(CliError::from)?;
@@ -165,16 +171,11 @@ fn run_configure(
         .map_err(CliError::from)?;
 
     platform
-        .store_key(AUTH_ACCESS_TOKEN_ID, access_token.as_bytes())
+        .store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())
         .map_err(CliError::from)?;
-    let refresh_token_stored = if let Some(refresh_token) = refresh_token {
-        platform
-            .store_key(AUTH_REFRESH_TOKEN_ID, refresh_token.as_bytes())
-            .map_err(CliError::from)?;
-        true
-    } else {
-        false
-    };
+    platform
+        .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
+        .map_err(CliError::from)?;
 
     output::format_command_result(
         output_format,
@@ -182,10 +183,100 @@ fn run_configure(
             account_initialized,
             server_url,
             access_token_stored: true,
-            refresh_token_stored,
+            refresh_token_stored: true,
+            auth_method: tokens.method,
         },
     )
     .map(Some)
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    jwt: String,
+    refresh_token: String,
+}
+
+struct ConfigureTokens {
+    jwt: String,
+    refresh_token: String,
+    method: &'static str,
+}
+
+#[derive(Serialize)]
+struct AuthRequest<'a> {
+    email: &'a str,
+    password: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub_key: Option<String>,
+}
+
+fn configure_server_auth(
+    server_url: &str,
+    email: &str,
+    password: &str,
+    public_key: &[u8],
+    register: bool,
+) -> CliResult<ConfigureTokens> {
+    let base_url = server_url.trim_end_matches('/');
+    let client = reqwest::blocking::Client::new();
+    if register {
+        let register_request = AuthRequest {
+            email,
+            password,
+            pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
+        };
+        match client
+            .post(format!("{base_url}/auth/register"))
+            .json(&register_request)
+            .send()
+        {
+            Ok(response) if response.status().is_success() => {
+                let tokens: TokenResponse = response.json().map_err(|error| {
+                    CliError::Network(format!("failed to decode auth register response: {error}"))
+                })?;
+                return Ok(ConfigureTokens {
+                    jwt: tokens.jwt,
+                    refresh_token: tokens.refresh_token,
+                    method: "register",
+                });
+            }
+            Ok(response) if response.status().is_client_error() => {
+                // Existing account or validation mismatch: try normal login below.
+            }
+            Ok(response) => {
+                return Err(CliError::Network(format!(
+                    "server auth register failed: HTTP {}",
+                    response.status()
+                )));
+            }
+            Err(error) => {
+                return Err(CliError::Network(format!(
+                    "server auth register failed: {error}"
+                )))
+            }
+        }
+    }
+
+    let login_request = AuthRequest {
+        email,
+        password,
+        pub_key: None,
+    };
+    let response = client
+        .post(format!("{base_url}/auth/login"))
+        .json(&login_request)
+        .send()
+        .map_err(|error| CliError::Network(format!("server auth login failed: {error}")))?
+        .error_for_status()
+        .map_err(|error| CliError::Network(format!("server auth login failed: {error}")))?;
+    let tokens: TokenResponse = response.json().map_err(|error| {
+        CliError::Network(format!("failed to decode auth login response: {error}"))
+    })?;
+    Ok(ConfigureTokens {
+        jwt: tokens.jwt,
+        refresh_token: tokens.refresh_token,
+        method: "login",
+    })
 }
 
 fn prompt(label: &str) -> CliResult<String> {
@@ -202,23 +293,6 @@ fn prompt(label: &str) -> CliResult<String> {
         Err(CliError::Input("required configure value was empty".into()))
     } else {
         Ok(value)
-    }
-}
-
-fn prompt_optional(label: &str) -> CliResult<Option<String>> {
-    eprint!("{label}");
-    io::stderr()
-        .flush()
-        .map_err(|error| CliError::LocalStorage(format!("failed to write prompt: {error}")))?;
-    let mut value = String::new();
-    io::stdin()
-        .read_line(&mut value)
-        .map_err(|error| CliError::Input(format!("failed to read input: {error}")))?;
-    let value = value.trim().to_owned();
-    if value.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(value))
     }
 }
 
