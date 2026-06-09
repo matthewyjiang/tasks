@@ -240,11 +240,11 @@ Use the CLI as the autonomous end-to-end test harness.
 
 TODO:
 
-- [ ] Add test support to start a disposable server and database.
-- [ ] Add helpers to create multiple isolated CLI profiles.
+- [x] Add test support to start a disposable server and database.
+- [x] Add helpers to create multiple isolated CLI profiles.
 - [ ] Add `sync run --until-quiescent --timeout <duration>` if needed for reliable tests.
-- [ ] Add CI job or matrix entry for CLI integration tests against the server.
-- [ ] Store logs/artifacts on failure without leaking plaintext secrets unless explicitly configured.
+- [x] Add CI job or matrix entry for CLI integration tests against the server.
+- [x] Store logs/artifacts on failure without leaking plaintext secrets unless explicitly configured.
 
 Integration tests to add before leaving this milestone:
 
