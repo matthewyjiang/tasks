@@ -1,0 +1,88 @@
+name: core
+
+on:
+  push:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - ".github/workflows/core.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - ".github/workflows/core.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo test -p taskmanager-core
+      - run: cargo build -p taskmanager-core
+      - name: Verify UniFFI symbols are exported
+        run: |
+          nm -g target/debug/libtaskmanager_core.so | grep uniffi_taskmanager_core_fn_method_ffitaskmanagercore_create_task
+          nm -g target/debug/libtaskmanager_core.so | grep ffi_taskmanager_core_uniffi_contract_version
+
+  uniffi-swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install UniFFI bindgen
+        run: cargo install uniffi --version 0.31.1 --features cli --locked
+      - name: Generate Swift bindings
+        run: uniffi-bindgen generate core/uniffi/core.udl --language swift --out-dir /tmp/taskmanager-core-swift
+      - name: Typecheck generated Swift bindings
+        run: swiftc -parse /tmp/taskmanager-core-swift/taskmanager_core.swift
+
+  uniffi-kotlin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install UniFFI bindgen
+        run: cargo install uniffi --version 0.31.1 --features cli --locked
+      - name: Generate Kotlin bindings
+        run: uniffi-bindgen generate core/uniffi/core.udl --language kotlin --out-dir /tmp/taskmanager-core-kotlin --no-format
+      - name: Create Kotlin compile smoke project
+        run: |
+          mkdir -p /tmp/taskmanager-core-kotlin-smoke/src/main/kotlin
+          cp -R /tmp/taskmanager-core-kotlin/uniffi /tmp/taskmanager-core-kotlin-smoke/src/main/kotlin/
+          cat > /tmp/taskmanager-core-kotlin-smoke/settings.gradle.kts <<'GRADLE'
+          pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  mavenCentral()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { mavenCentral() }
+          }
+          rootProject.name = "taskmanager-core-kotlin-smoke"
+          GRADLE
+          cat > /tmp/taskmanager-core-kotlin-smoke/build.gradle.kts <<'GRADLE'
+          plugins {
+              kotlin("jvm") version "2.0.21"
+          }
+
+          dependencies {
+              implementation("net.java.dev.jna:jna:5.14.0")
+          }
+          GRADLE
+      - name: Compile generated Kotlin bindings
+        working-directory: /tmp/taskmanager-core-kotlin-smoke
+        run: gradle --no-daemon compileKotlin

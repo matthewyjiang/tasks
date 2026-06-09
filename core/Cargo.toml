@@ -19,4 +19,8 @@ serde_json = "1"
 sha2 = "0.10"
 thiserror = "1"
 time = { version = "0.3", features = ["formatting"] }
+uniffi = "=0.31.1"
 uuid = { version = "1", features = ["v4", "serde"] }
+
+[build-dependencies]
+uniffi = { version = "=0.31.1", features = ["build"] }

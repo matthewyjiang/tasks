@@ -1,0 +1,90 @@
+enum FfiTaskStatus {
+  "Inbox",
+  "InProgress",
+  "Done"
+};
+
+enum FfiTaskSort {
+  "UpdatedAtDesc",
+  "UpdatedAtAsc",
+  "DueAtAsc",
+  "DueAtDesc",
+  "CreatedAtAsc",
+  "CreatedAtDesc"
+};
+
+dictionary FfiTask {
+  string id;
+  string title;
+  string body;
+  i64? due_at;
+  FfiTaskStatus status;
+  string? project_id;
+  sequence<string> tags;
+  i64 created_at;
+  i64 updated_at;
+  boolean deleted;
+  boolean dirty;
+};
+
+dictionary FfiTaskPatch {
+  string? title;
+  string? body;
+  i64? due_at;
+  boolean clear_due_at;
+  FfiTaskStatus? status;
+  string? project_id;
+  boolean clear_project_id;
+  sequence<string>? tags;
+};
+
+dictionary FfiTaskFilter {
+  FfiTaskStatus? status;
+  string? project_id;
+  i64? due_after;
+  i64? due_before;
+  boolean include_deleted;
+};
+
+dictionary FfiBlob {
+  sequence<u8> ciphertext;
+  sequence<u8> nonce;
+};
+
+[Error]
+interface FfiCoreError {
+  CryptoError(string error_message);
+  DatabaseError(string error_message);
+  SyncError(string error_message);
+  PlatformError(string error_message);
+  SettingsError(string error_message);
+  SerializationError(string error_message);
+  InvalidUuid(string error_message);
+  InvalidNonce(string error_message);
+  InvalidPatch(string error_message);
+};
+
+interface FfiTaskManagerCore {
+  [Throws=FfiCoreError]
+  constructor(string database_path);
+  [Throws=FfiCoreError]
+  FfiTask create_task(string title, string body, i64? due_at);
+  [Throws=FfiCoreError]
+  FfiTask get_task(string task_id);
+  [Throws=FfiCoreError]
+  FfiTask update_task(string task_id, FfiTaskPatch patch);
+  [Throws=FfiCoreError]
+  void delete_task(string task_id);
+  [Throws=FfiCoreError]
+  sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
+  [Throws=FfiCoreError]
+  sequence<FfiTask> search_tasks(string query);
+};
+
+namespace taskmanager_core {
+  [Throws=FfiCoreError]
+  FfiBlob encrypt_task_blob(FfiTask task, sequence<u8> key);
+  [Throws=FfiCoreError]
+  FfiTask decrypt_task_blob(FfiBlob blob, sequence<u8> key);
+  sequence<u8> generate_account_data_key();
+};
