@@ -20,6 +20,8 @@ jobs:
             path: server
           - artifact: core
             path: core
+          - artifact: cli
+            path: cli
           - artifact: app
             path: android ios linux macos windows
     steps:
