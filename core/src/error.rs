@@ -14,6 +14,9 @@ pub enum CoreError {
     #[error(transparent)]
     Sync(#[from] SyncError),
 
+    #[error(transparent)]
+    Platform(#[from] PlatformError),
+
     #[error("serialization failed: {0}")]
     Serialization(#[from] serde_json::Error),
 }
@@ -52,6 +55,15 @@ pub enum DbError {
 
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum PlatformError {
+    #[error("key not found: {0}")]
+    KeyNotFound(String),
+
+    #[error("platform operation failed: {0}")]
+    OperationFailed(String),
 }
 
 #[derive(Debug, Error)]

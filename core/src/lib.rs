@@ -6,6 +6,7 @@ pub mod core;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod platform;
 pub mod types;
 
 pub use core::TaskManagerCore;
@@ -14,5 +15,9 @@ pub use crypto::{
     wrap_data_key, DeviceKeypair,
 };
 pub use db::LocalDatabase;
-pub use error::{CoreError, CoreResult, CryptoError, DbError, SyncError};
+pub use error::{CoreError, CoreResult, CryptoError, DbError, PlatformError, SyncError};
+pub use platform::{
+    init_account, init_device_keypair, MockPlatform, Platform, ScheduledNotification,
+    ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+};
 pub use types::{Blob, SyncResult, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};
