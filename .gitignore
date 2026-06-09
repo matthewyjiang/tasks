@@ -1,1 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Rust
 target/
