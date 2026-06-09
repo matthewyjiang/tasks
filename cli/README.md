@@ -199,6 +199,7 @@ taskmanager account init
 taskmanager --server http://127.0.0.1:18080 auth login \
   --access-token "$JWT" \
   --refresh-token "$REFRESH"
+taskmanager settings set server_url http://127.0.0.1:18080
 
 # 2. Work normally while offline/local-first.
 taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work
@@ -206,11 +207,11 @@ taskmanager task create --title "Buy groceries" --due 1781200000000 --tag person
 
 # 3. Inspect what needs sync, then push encrypted blobs to the server.
 taskmanager sync status
-taskmanager --server http://127.0.0.1:18080 sync push
+taskmanager sync push
 
 # 4. Pull remote encrypted blobs and run a full pull-then-push cycle later.
-taskmanager --server http://127.0.0.1:18080 sync pull
-taskmanager --server http://127.0.0.1:18080 sync run
+taskmanager sync pull
+taskmanager sync run
 ```
 
 After a successful push, `taskmanager sync status` should report fewer dirty rows, and JSON output for `sync run` includes a deterministic summary such as:
@@ -226,11 +227,10 @@ After a successful push, `taskmanager sync status` should report fewer dirty row
 }
 ```
 
-Local sync diagnostics are available with `sync status` and `sync retry`.
+Local sync diagnostics are available with `sync status` and `sync retry`. `--server` still overrides the configured `settings server_url` for one-off runs.
 
 The following remain future work:
 
-- persistent server URL settings
 - server auth refresh/login integration
 - device register/list against the server
 - conflict persistence/resolution commands

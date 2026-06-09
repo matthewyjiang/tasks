@@ -131,14 +131,13 @@ def cli(
     *args: str,
     expect: int = 0,
     output: str = "json",
+    include_server: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = base_env.copy()
     env["TASKMANAGER_INSECURE_KEY_DIR"] = str(profile_dir / "keys")
     env["TASKMANAGER_REMINDER_DIR"] = str(profile_dir / "reminders")
     cmd = [
         str(ROOT / "target" / "debug" / "taskmanager"),
-        "--server",
-        SERVER_URL,
         "--db",
         str(profile_dir / "tasks.db"),
         "--config",
@@ -147,6 +146,8 @@ def cli(
         output,
         *args,
     ]
+    if include_server:
+        cmd[1:1] = ["--server", SERVER_URL]
     result = run(cmd, env=env)
     if result.returncode != expect:
         print(result.stdout)
@@ -468,21 +469,23 @@ def main() -> int:
             malformed = cli(env, profile_a, "device", "wrap-key", "--target", "éé", expect=1)
             assert_error(malformed, "input_error")
 
+            parse_result(cli(env, profile_a, "settings", "set", "server_url", SERVER_URL))
+
             retry_again = parse_result(cli(env, profile_a, "sync", "retry", task_id))
             assert retry_again["attempt"] == 2
             status_after_retry = parse_result(cli(env, profile_a, "sync", "status"))
             assert status_after_retry["retry_queue_depth"] == 1
 
-            pushed = parse_result(cli(env, profile_a, "sync", "push"))
+            pushed = parse_result(cli(env, profile_a, "sync", "push", include_server=False))
             assert pushed["pushed"] >= 3
             assert pushed["pulled"] == 0
             status_after_push = parse_result(cli(env, profile_a, "sync", "status"))
             assert status_after_push["dirty_count"] == 0
 
-            pulled = parse_result(cli(env, profile_a, "sync", "pull"))
+            pulled = parse_result(cli(env, profile_a, "sync", "pull", include_server=False))
             assert pulled["pulled"] >= 2
             assert pulled["cursor"] is not None
-            ran = parse_result(cli(env, profile_a, "sync", "run"))
+            ran = parse_result(cli(env, profile_a, "sync", "run", include_server=False))
             assert ran["pushed"] == 0
             assert ran["cursor"] is not None
 

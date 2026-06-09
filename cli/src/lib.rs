@@ -60,6 +60,7 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
             cli.output,
             ctx.db_path,
             &ctx.profile,
+            ctx.config_path,
             ctx.server_url,
             ctx.offline,
         ),
@@ -253,6 +254,7 @@ fn run_sync(
     output_format: OutputFormat,
     db_path: Option<PathBuf>,
     profile: &str,
+    config_path: Option<PathBuf>,
     server_url: Option<String>,
     offline: bool,
 ) -> CliResult<Option<String>> {
@@ -269,7 +271,7 @@ fn run_sync(
             .map(Some),
         SyncCommands::Push => {
             let (database, platform, client, data_key) =
-                sync_runtime(db_path, profile, server_url, offline)?;
+                sync_runtime(db_path, profile, config_path.clone(), server_url, offline)?;
             sync_push(&database, &platform, &client, &data_key)
                 .map(SyncResultOutput::from)
                 .map_err(CliError::from)
@@ -278,7 +280,7 @@ fn run_sync(
         }
         SyncCommands::Pull => {
             let (database, _platform, client, data_key) =
-                sync_runtime(db_path, profile, server_url, offline)?;
+                sync_runtime(db_path, profile, config_path.clone(), server_url, offline)?;
             sync_pull(&database, &client, &data_key)
                 .map(SyncResultOutput::from)
                 .map_err(CliError::from)
@@ -287,7 +289,7 @@ fn run_sync(
         }
         SyncCommands::Run => {
             let (database, platform, client, data_key) =
-                sync_runtime(db_path, profile, server_url, offline)?;
+                sync_runtime(db_path, profile, config_path, server_url, offline)?;
             let pull = sync_pull(&database, &client, &data_key).map_err(CliError::from)?;
             let push =
                 sync_push(&database, &platform, &client, &data_key).map_err(CliError::from)?;
@@ -311,9 +313,31 @@ fn run_sync(
     }
 }
 
+fn resolve_server_url(
+    server_url: Option<String>,
+    config_path: Option<PathBuf>,
+    profile: &str,
+) -> CliResult<String> {
+    if let Some(server_url) = server_url {
+        return Ok(server_url);
+    }
+
+    let settings_path = resolve_config_path(config_path, profile)?;
+    let settings = PlaintextSettings::read_from_file(&settings_path).map_err(CliError::from)?;
+    if settings.server_url.is_empty() {
+        Err(CliError::Input(
+            "--server is required for sync push/pull/run until settings server_url is configured"
+                .into(),
+        ))
+    } else {
+        Ok(settings.server_url)
+    }
+}
+
 fn sync_runtime(
     db_path: Option<PathBuf>,
     profile: &str,
+    config_path: Option<PathBuf>,
     server_url: Option<String>,
     offline: bool,
 ) -> CliResult<(
@@ -322,8 +346,7 @@ fn sync_runtime(
     HttpSyncClient,
     Vec<u8>,
 )> {
-    let server_url = server_url
-        .ok_or_else(|| CliError::Input("--server is required for sync push/pull/run".into()))?;
+    let server_url = resolve_server_url(server_url, config_path, profile)?;
     let platform = platform::CliPlatform::new(offline);
     let token = String::from_utf8(
         platform
