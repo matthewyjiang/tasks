@@ -25,6 +25,8 @@ run:
 # Start Postgres, load .env if present, and run the API with migrations.
 dev: docker-up
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	DATABASE_URL="$${DATABASE_URL:-postgres://tasks:tasks@localhost:5432/tasks?sslmode=disable}" \
+	JWT_SECRET="$${JWT_SECRET:-dev-only-insecure-jwt-secret-change-me}" \
 	go run ./cmd/server
 
 migrate:

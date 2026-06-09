@@ -19,7 +19,7 @@ One-command development startup:
 make dev
 ```
 
-`make dev` starts PostgreSQL with Docker Compose, loads `.env` if present, runs database migrations, and starts the API.
+`make dev` starts PostgreSQL with Docker Compose, loads `.env` if present, applies development defaults for `DATABASE_URL` and `JWT_SECRET` when they are missing, runs database migrations, and starts the API.
 
 Manual equivalent:
 
