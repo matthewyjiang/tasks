@@ -1,5 +1,8 @@
 use std::{env, fs, path::PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{CoreResult, Platform, PlatformError};
 use uuid::Uuid;
@@ -26,7 +29,7 @@ impl CliPlatform {
     pub fn with_insecure_stores(offline: bool, key_dir: PathBuf, reminder_dir: PathBuf) -> Self {
         Self {
             offline,
-            key_store: KeyStore::InsecureFile { dir: key_dir },
+            key_store: KeyStore::File { dir: key_dir },
             reminder_store: ReminderStore::File { dir: reminder_dir },
         }
     }
@@ -61,28 +64,37 @@ impl Platform for CliPlatform {
 
 #[derive(Debug, Clone)]
 enum KeyStore {
-    InsecureFile { dir: PathBuf },
+    File { dir: PathBuf },
     Unsupported { reason: &'static str },
 }
 
 impl KeyStore {
     fn from_env() -> Self {
         if let Some(dir) = env::var_os(INSECURE_KEY_DIR_ENV) {
-            return Self::InsecureFile {
+            return Self::File {
                 dir: PathBuf::from(dir),
             };
         }
 
+        if let Some(home) = env::var_os("HOME") {
+            return Self::File {
+                dir: PathBuf::from(home).join(".taskmanager").join("keys"),
+            };
+        }
+
         Self::Unsupported {
-            reason: "no CLI key store configured; set TASKMANAGER_INSECURE_KEY_DIR for explicit file-backed test storage",
+            reason: "no HOME directory found for CLI key store; set TASKMANAGER_INSECURE_KEY_DIR for explicit file-backed test storage",
         }
     }
 
     fn store_key(&self, id: &str, bytes: &[u8]) -> CoreResult<()> {
         match self {
-            Self::InsecureFile { dir } => {
-                fs::create_dir_all(dir).map_err(key_store_io_error)?;
-                fs::write(key_path(dir, id), bytes).map_err(key_store_io_error)
+            Self::File { dir } => {
+                ensure_private_dir(dir)?;
+                let path = key_path(dir, id);
+                fs::write(&path, bytes).map_err(key_store_io_error)?;
+                set_private_file_permissions(&path)?;
+                Ok(())
             }
             Self::Unsupported { reason } => {
                 Err(PlatformError::OperationFailed((*reason).into()).into())
@@ -92,7 +104,7 @@ impl KeyStore {
 
     fn load_key(&self, id: &str) -> CoreResult<Vec<u8>> {
         match self {
-            Self::InsecureFile { dir } => fs::read(key_path(dir, id)).map_err(|error| {
+            Self::File { dir } => fs::read(key_path(dir, id)).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     PlatformError::KeyNotFound(id.to_string()).into()
                 } else {
@@ -107,7 +119,7 @@ impl KeyStore {
 
     fn delete_key(&self, id: &str) -> CoreResult<()> {
         match self {
-            Self::InsecureFile { dir } => match fs::remove_file(key_path(dir, id)) {
+            Self::File { dir } => match fs::remove_file(key_path(dir, id)) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(key_store_io_error(error)),
@@ -187,6 +199,19 @@ struct StoredReminder {
 
 fn key_path(dir: &std::path::Path, id: &str) -> PathBuf {
     dir.join(format!("{}.key", hex_id(id)))
+}
+
+fn ensure_private_dir(dir: &std::path::Path) -> CoreResult<()> {
+    fs::create_dir_all(dir).map_err(key_store_io_error)?;
+    #[cfg(unix)]
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(key_store_io_error)?;
+    Ok(())
+}
+
+fn set_private_file_permissions(path: &std::path::Path) -> CoreResult<()> {
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(key_store_io_error)?;
+    Ok(())
 }
 
 fn reminder_path(dir: &std::path::Path, task_id: Uuid) -> PathBuf {

@@ -117,8 +117,8 @@ fn server_sync_commands_use_configured_server_url() {
         .args(["sync", "push"])
         .assert()
         .failure()
-        .code(6)
-        .stderr(predicate::str::contains("key store configured"));
+        .code(2)
+        .stderr(predicate::str::contains("key not found: auth_access_token"));
 }
 
 #[test]
