@@ -208,7 +208,15 @@ fn listing_supports_filters_and_sorting() {
     let second_id = second["result"]["id"].as_str().unwrap();
     let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
     cli.json(&["task", "complete", second_id]);
-    cli.json(&["task", "update", first_id, "--project-id", project_id]);
+    cli.json(&[
+        "task",
+        "update",
+        first_id,
+        "--project-id",
+        project_id,
+        "--tags",
+        "work,urgent",
+    ]);
 
     let done = cli.json(&["task", "list", "--status", "done"]);
     assert_eq!(done["result"].as_array().unwrap().len(), 1);
@@ -217,6 +225,13 @@ fn listing_supports_filters_and_sorting() {
     let project = cli.json(&["task", "list", "--project-id", project_id]);
     assert_eq!(project["result"].as_array().unwrap().len(), 1);
     assert_eq!(project["result"][0]["id"], first_id);
+
+    let tagged = cli.json(&["task", "list", "--tag", "work", "--tag", "urgent"]);
+    assert_eq!(tagged["result"].as_array().unwrap().len(), 1);
+    assert_eq!(tagged["result"][0]["id"], first_id);
+
+    let missing_tag = cli.json(&["task", "list", "--tag", "missing"]);
+    assert_eq!(missing_tag["result"].as_array().unwrap().len(), 0);
 
     let due = cli.json(&[
         "task",

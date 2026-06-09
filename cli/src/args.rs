@@ -315,6 +315,9 @@ pub struct TaskListArgs {
     #[arg(long)]
     pub project_id: Option<Uuid>,
 
+    #[arg(long = "tag")]
+    pub tags: Vec<String>,
+
     #[arg(long)]
     pub due_after: Option<i64>,
 

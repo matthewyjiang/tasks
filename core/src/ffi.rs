@@ -57,6 +57,7 @@ pub struct FfiTaskPatch {
 pub struct FfiTaskFilter {
     pub status: Option<FfiTaskStatus>,
     pub project_id: Option<String>,
+    pub tags: Vec<String>,
     pub due_after: Option<i64>,
     pub due_before: Option<i64>,
     pub include_deleted: bool,
@@ -351,6 +352,7 @@ impl TryFrom<FfiTaskFilter> for TaskFilter {
         Ok(Self {
             status: filter.status.map(TaskStatus::from),
             project_id: filter.project_id.as_deref().map(parse_uuid).transpose()?,
+            tags: filter.tags,
             due_after: filter.due_after,
             due_before: filter.due_before,
             include_deleted: filter.include_deleted,

@@ -520,6 +520,7 @@ fn run_task(
             let filter = TaskFilter {
                 status: args.status.map(Into::into),
                 project_id: args.project_id,
+                tags: args.tags,
                 due_after: args.due_after,
                 due_before: args.due_before,
                 include_deleted: args.include_deleted,

@@ -41,6 +41,7 @@ dictionary FfiTaskPatch {
 dictionary FfiTaskFilter {
   FfiTaskStatus? status;
   string? project_id;
+  sequence<string> tags;
   i64? due_after;
   i64? due_before;
   boolean include_deleted;
