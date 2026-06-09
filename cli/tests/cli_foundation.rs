@@ -55,6 +55,34 @@ fn invalid_output_exits_with_code_one() {
 }
 
 #[test]
+fn parse_error_uses_json_when_requested() {
+    Command::cargo_bin("taskmanager")
+        .unwrap()
+        .args(["--output", "json", "nope"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(
+            predicate::str::contains("\"error\"")
+                .and(predicate::str::contains("\"code\":\"input_error\"")),
+        );
+}
+
+#[test]
+fn parse_error_uses_json_when_requested_with_equals() {
+    Command::cargo_bin("taskmanager")
+        .unwrap()
+        .args(["--output=json", "nope"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(
+            predicate::str::contains("\"error\"")
+                .and(predicate::str::contains("\"code\":\"input_error\"")),
+        );
+}
+
+#[test]
 fn context_resolves_global_flags() {
     let cli = <Cli as clap::Parser>::try_parse_from([
         "taskmanager",

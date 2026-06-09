@@ -34,9 +34,8 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
 }
 
 pub fn print_error(error: &CliError, output: OutputFormat) {
-    if output == OutputFormat::Json {
-        eprintln!("{}", error.to_json_string());
-    } else {
-        eprintln!("{error}");
+    match output {
+        OutputFormat::Json | OutputFormat::Jsonl => eprintln!("{}", error.to_json_string()),
+        OutputFormat::Table => eprintln!("{error}"),
     }
 }
