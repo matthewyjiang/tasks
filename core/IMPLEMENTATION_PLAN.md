@@ -44,30 +44,31 @@ Implement encryption/decryption and ECDH wrapping from the spec.
 
 TODO:
 
-- [ ] Add `core/src/crypto.rs`.
-- [ ] Implement `generate_data_key() -> [u8; 32]`.
-- [ ] Implement `encrypt_blob(task, key) -> Result<Blob>`.
-- [ ] Implement `decrypt_blob(blob, key) -> Result<Task>`.
-- [ ] Implement device keypair generation.
-- [ ] Implement `wrap_data_key` with ECDH P-256 + HKDF-SHA256 + AES-256-GCM.
-- [ ] Implement `unwrap_data_key`.
+- [x] Add `core/src/crypto.rs`.
+- [x] Implement `generate_data_key() -> [u8; 32]`.
+- [x] Implement `encrypt_blob(task, key) -> Result<Blob>`.
+- [x] Implement `decrypt_blob(blob, key) -> Result<Task>`.
+- [x] Implement device keypair generation.
+- [x] Implement `wrap_data_key` with ECDH P-256 + HKDF-SHA256 + AES-256-GCM.
+- [x] Implement `unwrap_data_key`.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] `generate_data_key` returns exactly 32 bytes.
-- [ ] Consecutive generated data keys differ.
-- [ ] `encrypt_blob` returns non-empty ciphertext and exactly 12-byte nonce.
-- [ ] Encrypting the same task twice with the same key produces different nonces/ciphertext.
-- [ ] `decrypt_blob(encrypt_blob(task, key), key)` returns the original task.
-- [ ] `encrypt_blob` rejects keys that are not 32 bytes.
-- [ ] `decrypt_blob` rejects keys that are not 32 bytes.
-- [ ] Decrypting with the wrong key fails as `DecryptFailed`.
-- [ ] Tampered ciphertext fails as `DecryptFailed`.
-- [ ] Tampered nonce fails as `DecryptFailed`.
-- [ ] Device public keys are stable encoded bytes accepted by the peer unwrap path.
-- [ ] A data key wrapped by device A for device B unwraps correctly on device B.
-- [ ] Unwrap with the wrong private key fails.
-- [ ] Unwrap with malformed public key bytes fails cleanly.
+- [x] `generate_data_key` returns exactly 32 bytes.
+- [x] Consecutive generated data keys differ.
+- [x] `encrypt_blob` returns non-empty ciphertext and exactly 12-byte nonce.
+- [x] Encrypting the same task twice with the same key produces different nonces/ciphertext.
+- [x] `decrypt_blob(encrypt_blob(task, key), key)` returns the original task.
+- [x] `encrypt_blob` rejects keys that are not 32 bytes.
+- [x] `decrypt_blob` rejects keys that are not 32 bytes.
+- [x] Decrypting with the wrong key fails as `DecryptFailed`.
+- [x] Tampered ciphertext fails as `DecryptFailed`.
+- [x] Tampered nonce fails as `DecryptFailed`.
+- [x] Device public keys are stable encoded bytes accepted by the peer unwrap path.
+- [x] `DeviceKeypair` debug output redacts private key bytes.
+- [x] A data key wrapped by device A for device B unwraps correctly on device B.
+- [x] Unwrap with the wrong private key fails.
+- [x] Unwrap with malformed public key bytes fails cleanly.
 
 ## Milestone 3: Local SQLite database
 
