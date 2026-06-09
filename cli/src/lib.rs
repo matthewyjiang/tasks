@@ -6,11 +6,17 @@ pub mod platform;
 
 use std::path::PathBuf;
 
-use args::{Cli, Commands, TaskCommands};
+use args::{AccountCommands, AuthCommands, Cli, Commands, DeviceCommands, TaskCommands};
 use clap::Parser;
 use error::{CliError, CliResult};
-use output::{DeleteOutput, OutputFormat, VersionOutput};
-use taskmanager_core::{TaskFilter, TaskManagerCore, TaskPatch, TaskStatus};
+use output::{
+    AuthOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput, UnwrappedKeyOutput,
+    VersionOutput, WrappedKeyOutput,
+};
+use taskmanager_core::{
+    init_account, init_device_keypair, unwrap_data_key, wrap_data_key, Blob, Platform, TaskFilter,
+    TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+};
 use uuid::Uuid;
 
 pub fn run_from<I, T>(itr: I) -> CliResult<Option<String>>
@@ -37,10 +43,137 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
             },
         )
         .map(Some),
+        Some(Commands::Account { command }) => run_account(command, cli.output, ctx.offline),
+        Some(Commands::Auth { command }) => run_auth(command, cli.output, ctx.offline),
+        Some(Commands::Device { command }) => run_device(command, cli.output, ctx.offline),
         Some(Commands::Task { command }) => {
             run_task(command, cli.output, ctx.db_path, &ctx.profile)
         }
         None => Ok(None),
+    }
+}
+
+const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
+const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
+
+fn run_account(
+    command: AccountCommands,
+    output_format: OutputFormat,
+    offline: bool,
+) -> CliResult<Option<String>> {
+    match command {
+        AccountCommands::Init => {
+            let platform = platform::CliPlatform::new(offline);
+            let public_key = init_account(&platform).map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &PublicKeyOutput {
+                    public_key: to_hex(&public_key),
+                },
+            )
+            .map(Some)
+        }
+    }
+}
+
+fn run_auth(
+    command: AuthCommands,
+    output_format: OutputFormat,
+    offline: bool,
+) -> CliResult<Option<String>> {
+    let platform = platform::CliPlatform::new(offline);
+    match command {
+        AuthCommands::Login(args) => {
+            platform
+                .store_key(AUTH_ACCESS_TOKEN_ID, args.access_token.as_bytes())
+                .map_err(CliError::from)?;
+            if let Some(refresh_token) = args.refresh_token {
+                platform
+                    .store_key(AUTH_REFRESH_TOKEN_ID, refresh_token.as_bytes())
+                    .map_err(CliError::from)?;
+            }
+            output::format_command_result(output_format, &AuthOutput { stored: true }).map(Some)
+        }
+        AuthCommands::Refresh => Err(CliError::UnsupportedPlatform(
+            "auth refresh is not implemented until server auth is wired".into(),
+        )),
+        AuthCommands::Logout => {
+            platform
+                .delete_key(AUTH_ACCESS_TOKEN_ID)
+                .map_err(CliError::from)?;
+            platform
+                .delete_key(AUTH_REFRESH_TOKEN_ID)
+                .map_err(CliError::from)?;
+            output::format_command_result(output_format, &LogoutOutput { logged_out: true })
+                .map(Some)
+        }
+    }
+}
+
+fn run_device(
+    command: DeviceCommands,
+    output_format: OutputFormat,
+    offline: bool,
+) -> CliResult<Option<String>> {
+    let platform = platform::CliPlatform::new(offline);
+    match command {
+        DeviceCommands::InitKeypair => {
+            let public_key = init_device_keypair(&platform).map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &PublicKeyOutput {
+                    public_key: to_hex(&public_key),
+                },
+            )
+            .map(Some)
+        }
+        DeviceCommands::Register => Err(CliError::UnsupportedPlatform(
+            "device register is not implemented until server auth is wired".into(),
+        )),
+        DeviceCommands::List => Err(CliError::UnsupportedPlatform(
+            "device list is not implemented until server auth is wired".into(),
+        )),
+        DeviceCommands::WrapKey(args) => {
+            let target_public_key = from_hex(&args.target)?;
+            let data_key = platform
+                .load_key(ACCOUNT_DATA_KEY_ID)
+                .map_err(CliError::from)?;
+            let private_key = platform
+                .load_key(DEVICE_PRIVATE_KEY_ID)
+                .map_err(CliError::from)?;
+            let wrapped = wrap_data_key(&data_key, &target_public_key, &private_key)
+                .map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &WrappedKeyOutput {
+                    ciphertext: to_hex(&wrapped.ciphertext),
+                    nonce: to_hex(&wrapped.nonce),
+                },
+            )
+            .map(Some)
+        }
+        DeviceCommands::UnwrapKey(args) => {
+            let from_public_key = from_hex(&args.from_device)?;
+            let ciphertext = from_hex(&args.ciphertext)?;
+            let nonce_bytes = from_hex(&args.nonce)?;
+            let nonce: [u8; 12] = nonce_bytes.try_into().map_err(|bytes: Vec<u8>| {
+                CliError::Crypto(format!(
+                    "bad nonce length: expected 12 bytes, got {}",
+                    bytes.len()
+                ))
+            })?;
+            let private_key = platform
+                .load_key(DEVICE_PRIVATE_KEY_ID)
+                .map_err(CliError::from)?;
+            let data_key =
+                unwrap_data_key(&Blob { ciphertext, nonce }, &from_public_key, &private_key)
+                    .map_err(CliError::from)?;
+            platform
+                .store_key(ACCOUNT_DATA_KEY_ID, &data_key)
+                .map_err(CliError::from)?;
+            output::format_command_result(output_format, &UnwrappedKeyOutput { stored: true })
+                .map(Some)
+        }
     }
 }
 
@@ -172,6 +305,24 @@ fn update_status(
     .map_err(CliError::from)
     .and_then(|task| output::format_command_result(output_format, &task))
     .map(Some)
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn from_hex(value: &str) -> CliResult<Vec<u8>> {
+    if !value.len().is_multiple_of(2) {
+        return Err(CliError::Input("hex value must have an even length".into()));
+    }
+
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| CliError::Input("hex value contains invalid characters".into()))
+        })
+        .collect()
 }
 
 fn resolve_db_path(db_path: Option<PathBuf>, profile: &str) -> CliResult<PathBuf> {
