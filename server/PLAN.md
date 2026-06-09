@@ -133,25 +133,128 @@
    - Blob tombstones may have `NULL` ciphertext/nonce.
    - Nonce length is constrained to 12 bytes where present.
    - Device keys are stored per-device in `devices`, not as a single user key.
-6. ☐ Implement server startup path
-7. ☐ Define common API response helpers
-8. ☐ Implement auth domain
-9. ☐ Implement access tokens
-10. ☐ Implement refresh tokens
-11. ☐ Implement auth endpoints
-12. ☐ Implement wire encoding for binary fields
-13. ☐ Implement blob repository
-14. ☐ Implement blob validation
-15. ☐ Implement blob endpoints
-16. ☐ Implement key directory
-17. ☐ Implement multi-device key model
-18. ☐ Implement shared tasks
-19. ☐ Implement plaintext settings
-20. ☐ Add rate limiting
-21. ☐ Add tombstone cleanup job
-22. ☐ Security hardening
-23. ☐ Add tests in layers
-24. ☐ Add local development tooling
-25. ☐ Add CI for server
-26. ☐ Final implementation order
+6. ☑ Implement server startup path
+
+   Added a runnable `cmd/server` entrypoint that:
+
+   - loads environment configuration
+   - runs Goose migrations by default (`-migrate=false` to skip)
+   - opens and pings a PostgreSQL `pgxpool`
+   - builds the HTTP router
+   - serves with `ReadHeaderTimeout`
+   - handles SIGINT/SIGTERM graceful shutdown
+
+   Added `internal/db` helpers for PostgreSQL pool creation and Goose migration execution.
+
+7. ☑ Define common API response helpers
+
+   Added `internal/respond` with JSON response, JSON error, and strict request decode helpers.
+
+   Added initial router assembly in `internal/http` with standard middleware, `/healthz`, JSON 404, and JSON 405 responses.
+8. ☑ Implement auth domain
+
+   Added `internal/auth.Service` with registration and login flows backed by PostgreSQL. Passwords are normalized by email and stored using Argon2id hashes only.
+
+9. ☑ Implement access tokens
+
+   Added HS256 JWT access-token issuance with configured issuer and TTL. Tokens use the user UUID as `sub`.
+
+10. ☑ Implement refresh tokens
+
+   Added cryptographically random refresh tokens, SHA-256 token hashes in the database, expiry checks, revocation, and rotation-on-refresh semantics.
+
+11. ☑ Implement auth endpoints
+
+   Wired auth routes into the router:
+
+   - `POST /auth/register`
+   - `POST /auth/login`
+   - `POST /auth/refresh`
+   - `DELETE /auth/session`
+
+   Auth JSON uses base64 `pub_key` input and returns `{ jwt, refresh_token, user_id }` for registration.
+12. ☑ Implement wire encoding for binary fields
+
+   Added `internal/wire.Base64Bytes`, a JSON helper for standard base64 wire encoding/decoding of opaque binary fields such as `pub_key`, `ciphertext`, `nonce`, and `wrapped_dek`.
+
+   Added `internal/middleware.RequireAuth` to validate Bearer JWTs for upcoming protected routes and attach the authenticated user UUID to request context.
+13. ☑ Implement blob repository
+
+   Added `internal/blobs.Repository` with per-owner list, upsert, and tombstone operations over the `blobs` table.
+
+14. ☑ Implement blob validation
+
+   Added validation for non-empty task IDs, max task ID length, required ciphertext, max blob size, and 12-byte nonce length.
+
+15. ☑ Implement blob endpoints
+
+   Added protected blob routes:
+
+   - `GET /blobs?since=`
+   - `PUT /blobs/{task_id}`
+   - `DELETE /blobs/{task_id}`
+   - `POST /blobs/batch`
+
+   Endpoints use authenticated user ownership from JWT context and base64 JSON binary fields. Added tests for blob validation.
+16. ☑ Implement key directory
+
+   Added `internal/keys` repository and protected handlers for key directory operations:
+
+   - `GET /keys/{user_id}` returns all registered device public keys for a user
+   - `PUT /keys/me` registers another public key for the authenticated user
+
+   Public keys use base64 JSON encoding and validation rejects missing/oversized keys.
+
+17. ☑ Implement multi-device key model
+
+   Key registration stores one row per device in the existing `devices` table. The key lookup response returns a list of device keys so clients can wrap account/task keys for each target device.
+18. ☑ Implement shared tasks
+
+   Added `internal/share` repository and protected handlers:
+
+   - `POST /share/{task_id}` stores opaque wrapped task keys for recipients
+   - `GET /share/inbox` lists shares for the authenticated recipient
+   - `DELETE /share/{task_id}/{recipient_id}` revokes share metadata owned by the authenticated user
+
+   Share payload validation covers task ID, recipient UUID, wrapped key size, and 12-byte nonce.
+
+19. ☑ Implement plaintext settings
+
+   Added `internal/settings` repository and protected handlers:
+
+   - `GET /settings/plaintext`
+   - `PUT /settings/plaintext`
+
+   Settings are stored as JSONB, must be a JSON object, and reject `last_sync_cursor` so device-local cursors are not persisted.
+20. ☑ Add rate limiting
+
+   Added in-memory per-user write rate limiting middleware with the configured default of 60 writes/min/user. Applied it to mutating protected routes while leaving reads unrestricted.
+
+21. ☑ Add tombstone cleanup job
+
+   Added tombstone cleanup for deleted blobs older than the configured retention period and starts the periodic cleanup job from server startup.
+
+22. ☑ Security hardening
+
+   Current hardening includes strict JSON decoding, JWT issuer/signing-method validation, request `ReadHeaderTimeout`, per-user resource scoping on protected repositories, max blob/key/share payload sizes, refresh-token hashing at rest, and write rate limiting.
+23. ☑ Add tests in layers
+
+   Added package-level tests alongside each implemented layer: config, response helpers, auth primitives, auth middleware, wire encoding, blob validation, key validation, share validation, settings validation, rate limiting, router behavior, cleanup startup behavior, and tooling/CI file checks.
+
+24. ☑ Add local development tooling
+
+   Added local server tooling:
+
+   - `server/Makefile` with `tidy`, `fmt`, `test`, `build`, `check`, `run`, `migrate`, `docker-up`, and `docker-down`
+   - `server/docker-compose.yml` for local PostgreSQL
+   - `server/.env.example`
+   - `server/README.md`
+
+25. ☑ Add CI for server
+
+   Added `.github/workflows/server.yml` to run Go module tidiness checks, formatting checks, tests, and build for server changes.
+
+26. ☑ Final implementation order
+
+   Implemented the server in the planned dependency order: configuration and migrations first, startup/router foundations, auth, wire/auth middleware, blob sync, keys/devices, sharing, settings, safeguards, tests, tooling, and CI.
 27. ☐ Resolve remaining spec issues before coding

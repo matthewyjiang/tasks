@@ -1,0 +1,30 @@
+name: server
+
+on:
+  push:
+    paths:
+      - "server/**"
+      - ".github/workflows/server.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - run: go mod tidy
+      - run: test -z "$(git status --short server/go.mod server/go.sum)"
+      - run: gofmt -w ./cmd ./internal
+      - run: test -z "$(git status --short server)"
+      - run: go test ./...
+      - run: go build ./...
