@@ -8,6 +8,7 @@ Each independently shipped artifact has its own tag stream:
 
 - `server-vX.Y.Z` for `server/**`
 - `core-vX.Y.Z` for `core/**`
+- `cli-vX.Y.Z` for `cli/**`
 - `app-vX.Y.Z` for platform app shells: `android/**`, `ios/**`, `linux/**`, `macos/**`, `windows/**`
 
 ## How versions are chosen
@@ -33,6 +34,7 @@ For each artifact with releasable changes, the workflow creates:
 ```text
 fix(server): reject invalid blob nonces
 feat(core): add recurrence parser
+feat(cli): add sync status command
 feat(app): add command palette
 feat(server)!: change sync API response format
 ```
@@ -42,5 +44,6 @@ feat(server)!: change sync API response format
 ```sh
 python3 scripts/semantic_release.py --artifact server --path server --dry-run
 python3 scripts/semantic_release.py --artifact core --path core --dry-run
+python3 scripts/semantic_release.py --artifact cli --path cli --dry-run
 python3 scripts/semantic_release.py --artifact app --path "android ios linux macos windows" --dry-run
 ```

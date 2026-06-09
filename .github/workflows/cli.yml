@@ -1,0 +1,29 @@
+name: cli
+
+on:
+  push:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - "cli/**"
+      - ".github/workflows/cli.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - "cli/**"
+      - ".github/workflows/cli.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy -p taskmanager-cli --all-targets
+      - run: cargo test -p taskmanager-cli
+      - run: cargo build -p taskmanager-cli
