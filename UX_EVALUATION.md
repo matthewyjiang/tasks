@@ -1,18 +1,20 @@
-# Server setup and CLI UX evaluation
+# Server setup and CLI UX re-evaluation
 
 Date: 2026-06-09
 
-This document evaluates the current user experience of the server setup flow and the `taskmanager` CLI, based on the implementation and docs in this repository.
+This document re-evaluates the current user experience of the server setup flow and the `taskmanager` CLI after the first CLI UX fixes in PR #27 (`ux-evaluation-fixes`).
 
 ## Summary
 
-The project has a strong technical foundation, especially for developer and automated-test workflows. The server setup is workable for technical users, and the CLI has a clear command structure with good JSON support. However, the user-facing UX is not yet polished enough to call the CLI a 1.0-quality terminal product.
+The project remains technically strong, especially for deterministic tests and developer workflows. The latest CLI fixes remove several high-trust first-run problems: running `taskmanager` with no subcommand now shows help, `configure` hides password input on TTYs, `--offline configure` fails clearly, stale CLI docs were corrected, and developer/unsupported commands are no longer shown in default help.
 
 Recommended UX readiness call:
 
-- Server setup: **B-**
-- CLI as developer/test harness: **B+**
-- CLI as normal user product: **C+ / not yet 1.0-ready**
+- Server setup: **B-** unchanged
+- CLI as developer/test harness: **A-** improved from B+
+- CLI as normal user product: **B- / closer, but not 1.0-ready** improved from C+
+
+The CLI now feels much less unfinished on first contact. Remaining 1.0 blockers are mostly product-level workflows: real email/password `auth login`, friendly device pairing, human-readable due dates, and either implementing or fully retiring unsupported command surfaces.
 
 ## Server setup UX
 
@@ -45,11 +47,11 @@ Deployment is handled by `server/scripts/deploy.sh`, which interactively prompts
   - `TOMBSTONE_RETENTION=720h`
 - `make check` is easy to discover and currently passes.
 
-### Friction points
+### Remaining friction points
 
-1. **Local setup is too manual**
+1. **Local setup is still too manual**
 
-   The developer has to copy `.env`, start Postgres, source env vars, and then run the API. This is fine for contributors, but not ideal for a polished first-run experience.
+   A contributor still has to copy `.env`, start Postgres, source env vars, and then run the API. This is acceptable for contributors, but not ideal for a polished first-run experience.
 
 2. **No one-command local dev flow**
 
@@ -69,7 +71,7 @@ Deployment is handled by `server/scripts/deploy.sh`, which interactively prompts
 
 3. **`make check` mutates files**
 
-   The current `check` target runs `go mod tidy` and `gofmt -w`, which rewrite files. A command named `check` should usually verify without modifying the working tree. Consider splitting into:
+   The current `check` target runs `go mod tidy` and `gofmt -w`, which rewrite files. A command named `check` should verify without modifying the working tree. Split into:
 
    ```sh
    make fix
@@ -86,7 +88,7 @@ Deployment is handled by `server/scripts/deploy.sh`, which interactively prompts
 
    Passwords containing characters like `@`, `:`, `/`, `#`, or `?` may break the URL unless encoded.
 
-5. **Server docs do not connect to CLI setup**
+5. **Server docs still need a stronger CLI handoff**
 
    After starting the server, the README should show the next user action, for example:
 
@@ -96,7 +98,7 @@ Deployment is handled by `server/scripts/deploy.sh`, which interactively prompts
 
 6. **Runtime requirements are underdocumented**
 
-   `server/README.md` should mention required Go, Docker, and Docker Compose versions, plus the expected local ports.
+   `server/README.md` should mention required Go, Docker, and Docker Compose versions, plus expected local ports.
 
 ### Server UX recommendations
 
@@ -117,18 +119,24 @@ Nice-to-have:
 
 ### Current command surface
 
-The main CLI namespaces are:
+The normal visible CLI namespaces are now:
 
 - `version`
 - `configure`
 - `task create|get|update|delete|list|search|complete|reopen`
-- `sync status|retry|push|pull|run|conflicts|resolve`
+- `sync status|retry|push|pull|run`
 - `settings get|set|pull-plaintext|push-plaintext|migrate`
 - `account init`
-- `auth login|refresh|logout`
-- `device init-keypair|register|list|wrap-key|unwrap-key`
-- `crypto ...`
+- `auth login|logout`
+- `device init-keypair|wrap-key|unwrap-key`
 - `generate completion|man`
+
+Hidden but still callable for tests/diagnostics:
+
+- `crypto ...`
+- `auth refresh`
+- `device register|list`
+- `sync conflicts|resolve`
 
 Global flags include:
 
@@ -143,60 +151,88 @@ Global flags include:
 - `--trace`
 - `--dangerously-print-secrets`
 
-### What works well
+### Improvements since the original evaluation
 
-- The command hierarchy is understandable and maps well to the product concepts.
-- `--output json` and `--output jsonl` are strong features for scripts and tests.
+1. **No-command behavior is fixed**
+
+   Running `taskmanager` with no command now prints full help instead of returning silently. This is a major first-run UX improvement.
+
+2. **Password input is hidden on TTYs**
+
+   `configure` now uses hidden password input when a terminal is available. It falls back to stdin-compatible input for tests/headless flows, preserving automation support.
+
+3. **Unsupported commands are hidden from default help**
+
+   Developer/unfinished surfaces no longer appear in normal help:
+
+   - `crypto ...`
+   - `auth refresh`
+   - `device register|list`
+   - `sync conflicts|resolve`
+
+   Keeping them callable preserves E2E coverage and diagnostics without making the product look broken to normal users.
+
+4. **`--offline configure` semantics are explicit**
+
+   `configure` now fails clearly when invoked with `--offline`, instead of prompting and then trying server auth anyway.
+
+5. **CLI docs were reconciled with implementation**
+
+   `cli/README.md` now describes the current `configure`/auth/sync behavior more accurately, including configured server URL usage and the hidden crypto diagnostics surface.
+
+6. **Validation coverage improved**
+
+   Tests cover no-command help, hidden unsupported/developer commands, and offline configure behavior. The full CLI E2E suite still passes.
+
+### What works well now
+
+- The command hierarchy is understandable and maps well to product concepts.
+- First-run behavior is discoverable because no-command prints help.
+- `taskmanager configure` is the right main setup path. It initializes local keys, saves the server URL, registers/logs in, and stores tokens.
+- Password prompting is safer for interactive users.
+- Default help is cleaner and less alarming.
+- `--output json` and `--output jsonl` remain strong features for scripts and tests.
 - Path overrides are excellent for integration testing:
   - `--profile`
   - `--config`
   - `--db`
-- `taskmanager configure` is the right direction. It initializes local keys, saves the server URL, registers or logs in, and stores tokens.
 - Per-profile local state is a good default:
   - `~/.taskmanager/profiles/<profile>/tasks.db`
   - `~/.taskmanager/profiles/<profile>/settings.json`
 - Shell completion and man-page generation are available.
 - The insecure file-backed key store is explicitly opted in, which is good for safety.
 
-### Friction points
+### Remaining friction points
 
-1. **Running `taskmanager` with no command prints nothing**
+1. **`auth login` is still misleading**
 
-   Current behavior returns no output. Most users expect help text. `taskmanager` should behave like `taskmanager --help`.
-
-2. **Password prompt is not hidden**
-
-   `configure` currently prompts for passwords through normal stdin, so the password is echoed in the terminal. This is a significant UX and security issue.
-
-3. **`auth login` is misleading**
-
-   Users expect this to accept email/password credentials. Instead, it stores already-issued tokens:
+   Users expect email/password credentials. The current command stores already-issued tokens:
 
    ```sh
    taskmanager auth login --access-token ... --refresh-token ...
    ```
 
-   Actual email/password login is hidden inside `taskmanager configure`. Consider changing `auth login` to perform real login and renaming the token-storage command to something explicit, such as `auth store-token`.
+   Better options:
 
-4. **Visible unimplemented commands reduce trust**
+   - make `auth login` perform real email/password login, or
+   - rename the current command to `auth store-token` / `auth import-token`.
 
-   Several commands are visible but return unsupported errors:
+2. **Hidden unsupported commands still exist**
 
-   - `auth refresh`
-   - `device register`
-   - `device list`
-   - `sync conflicts`
-   - `sync resolve`
+   Hiding unsupported commands improves UX, but for a strict 1.0 product the hidden commands should either be implemented, renamed as internal/test-only, or removed from release builds.
 
-   For a 1.0 CLI, visible commands should work or be hidden/marked experimental.
+3. **Device pairing is too low-level**
 
-5. **Device pairing is too low-level**
+   Current key wrapping commands expose raw public keys, ciphertext, and nonces. This is useful for diagnostics, but normal users need a guided pairing flow such as:
 
-   Current key wrapping commands expose raw public keys, ciphertext, and nonces. That is useful for diagnostics, but not friendly for normal users. A better UX would guide users through pairing profiles/devices with a short code, URL, or explicit `device pair` flow.
+   ```sh
+   taskmanager device pair
+   taskmanager device pair --code ABCD-1234
+   ```
 
-6. **Due dates require epoch milliseconds**
+4. **Due dates require epoch milliseconds**
 
-   Examples use values like:
+   Examples still use values like:
 
    ```sh
    --due 1717603200000
@@ -210,51 +246,49 @@ Global flags include:
    --due "next friday"
    ```
 
-7. **Developer crypto commands are prominent**
+5. **Some global flags appear unused**
 
-   The `crypto` namespace is valuable for diagnostics and E2E tests, but it may distract or worry normal users. Consider hiding it from normal help or labeling it clearly as advanced/developer-only.
+   `--quiet` and `--yes` are accepted, but they do not appear to materially change command behavior yet. This can still make the CLI feel unfinished.
 
-8. **Docs contain stale/conflicting statements**
-
-   `cli/README.md` says server-backed auth/device registration is not wired yet, while `configure` now performs server register/login. This should be reconciled.
-
-9. **`--offline` behavior is surprising for `configure`**
-
-   `--offline` is global, but `configure` still attempts server auth. It should either:
-
-   - perform local-only setup, or
-   - fail clearly with a message like `configure requires network unless --local-only is supplied`.
-
-10. **Some global flags appear unused**
-
-   `--quiet` and `--yes` are accepted, but they do not appear to materially change command behavior yet. This can make the CLI feel unfinished.
-
-11. **Naming consistency could improve**
+6. **Naming consistency could improve**
 
    Status values and sort names should be consistent across help text, accepted arguments, table output, and JSON output. Mixed forms like `in-progress` vs `in_progress` can confuse users.
 
-### CLI UX recommendations
+7. **`configure` has no local-only setup mode**
 
-Must-fix before 1.0 UX:
+   The explicit `--offline configure` error is good, but users may reasonably want local-only setup. Consider adding:
+
+   ```sh
+   taskmanager configure --local-only
+   ```
+
+## CLI UX recommendations
+
+Resolved from the original must-fix list:
 
 - Print help when no command is supplied.
-- Hide password input in `configure`.
-- Make `auth login` perform real email/password login, or rename the current token-storage behavior.
-- Hide, remove, or clearly mark unimplemented commands.
+- Hide password input in `configure` for TTY users.
+- Hide unsupported/developer commands from default help.
 - Update `cli/README.md` to match current auth/configure behavior.
-- Define correct `--offline` semantics for `configure`.
+- Define `--offline configure` semantics clearly.
+
+Remaining must-fix before 1.0 UX:
+
+- Make `auth login` perform real email/password login, or rename the current token-storage behavior.
+- Provide a normal-user multi-device pairing workflow.
+- Add human-friendly date parsing for task due dates.
+- Decide whether hidden unsupported commands ship in 1.0, become internal-only, or get implemented.
+- Ensure `--quiet` and `--yes` either work or are removed until needed.
 
 Strongly recommended:
 
-- Add human-friendly date parsing for task due dates.
-- Add a friendly multi-device pairing workflow.
-- Move or hide developer crypto commands from default help.
-- Ensure `--quiet` and `--yes` either work or are removed until needed.
+- Add `configure --local-only` for offline/local-only first use.
 - Normalize naming across args and output.
+- Add more examples in CLI docs for the polished basic journey.
 
 ## Suggested first-run user journey
 
-A polished basic flow should be this simple:
+The intended polished basic flow is now closer to this:
 
 ```sh
 # Start local server for development.
@@ -274,7 +308,14 @@ taskmanager sync run
 taskmanager task list
 ```
 
-For CI or scripts, the equivalent should remain fully non-interactive:
+Current gaps in that journey:
+
+- `server/make dev` does not exist yet.
+- `--due "tomorrow"` is not supported yet.
+- First-class `auth login --email ...` is not available yet.
+- Multi-device setup still requires low-level key commands.
+
+For CI or scripts, the current non-interactive flow remains strong:
 
 ```sh
 TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
@@ -291,6 +332,6 @@ TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
 
 ## Overall conclusion
 
-The server setup is usable for developers and close to acceptable for a technical 1.0 audience, but it needs smoother local startup and clearer CLI handoff docs.
+The CLI improved materially after the first UX pass. It now has a much better first-run posture: help appears by default, password entry is safer, offline configure behavior is explicit, docs are more accurate, and normal help no longer advertises commands that immediately fail.
 
-The CLI is technically useful and especially strong as a deterministic test harness, but it is not yet a polished 1.0 user experience. The most important issues are the visible unimplemented commands, misleading `auth login`, unhidden password prompt, no-output no-command behavior, and low-level device-pairing flow.
+The server setup remains the larger setup-flow weakness. For the CLI, the remaining work is less about polish bugs and more about completing normal-user product workflows: email/password `auth login`, friendly device pairing, human-readable dates, meaningful `--quiet`/`--yes`, and a decision on hidden unsupported commands.
