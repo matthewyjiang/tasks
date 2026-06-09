@@ -350,7 +350,51 @@ def main() -> int:
             assert retry["attempt"] == 1
             assert retry["task_id"] == task_id
 
+            crypto_verify = parse_result(cli(env, profile_a, "crypto", "verify-local"))
+            assert crypto_verify["encrypt_decrypt_ok"] is True
+            encrypted_blob = parse_result(cli(env, profile_a, "crypto", "encrypt-task", task_id))
+            blob_path = profile_a / "task-blob.json"
+            blob_path.write_text(json.dumps(encrypted_blob), encoding="utf-8")
+            decrypted_blob = parse_result(cli(env, profile_a, "crypto", "decrypt-blob", str(blob_path)))
+            assert decrypted_blob["id"] == task_id
+            bad_blob_path = profile_a / "bad-blob.json"
+            bad_blob_path.write_text("not json", encoding="utf-8")
+            bad_blob = cli(env, profile_a, "crypto", "decrypt-blob", str(bad_blob_path), expect=1)
+            assert_error(bad_blob, "serialization_error")
+
             device_b = parse_result(cli(env, profile_b, "device", "init-keypair"))
+            crypto_wrapped = parse_result(cli(env, profile_a, "crypto", "wrap-data-key", "--target", device_b["public_key"]))
+            secret_blocked = cli(
+                env,
+                profile_b,
+                "crypto",
+                "unwrap-data-key",
+                "--from",
+                account_a["public_key"],
+                "--ciphertext",
+                crypto_wrapped["ciphertext"],
+                "--nonce",
+                crypto_wrapped["nonce"],
+                expect=1,
+            )
+            assert_error(secret_blocked, "input_error")
+            secret_unwrapped = parse_result(
+                cli(
+                    env,
+                    profile_b,
+                    "--dangerously-print-secrets",
+                    "crypto",
+                    "unwrap-data-key",
+                    "--from",
+                    account_a["public_key"],
+                    "--ciphertext",
+                    crypto_wrapped["ciphertext"],
+                    "--nonce",
+                    crypto_wrapped["nonce"],
+                )
+            )
+            assert len(secret_unwrapped["hex"]) == 64
+
             wrapped = parse_result(cli(env, profile_a, "device", "wrap-key", "--target", device_b["public_key"]))
             unwrapped = parse_result(
                 cli(

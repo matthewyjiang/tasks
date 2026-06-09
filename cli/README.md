@@ -160,6 +160,21 @@ taskmanager --config /tmp/settings.json --output json settings push-plaintext '{
 taskmanager --config /tmp/settings.json --output json settings migrate
 ```
 
+## Crypto diagnostics
+
+Development diagnostics use existing local account/device keys. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
+
+```sh
+taskmanager crypto verify-local
+taskmanager --output json crypto encrypt-task <task_id> > blob.json
+taskmanager --output json crypto decrypt-blob blob.json
+taskmanager --output json crypto wrap-data-key --target <peer_public_key>
+taskmanager --dangerously-print-secrets --output json crypto unwrap-data-key \
+  --from <peer_public_key> \
+  --ciphertext <hex> \
+  --nonce <hex>
+```
+
 ## Server status
 
 `--server` is accepted and stored in `CliContext`, but server connection UX is not implemented yet. The following remain future work:

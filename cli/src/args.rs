@@ -40,6 +40,9 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub trace: bool,
 
+    #[arg(long, global = true)]
+    pub dangerously_print_secrets: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -72,6 +75,11 @@ pub enum Commands {
     Settings {
         #[command(subcommand)]
         command: SettingsCommands,
+    },
+    /// Run development crypto diagnostics.
+    Crypto {
+        #[command(subcommand)]
+        command: CryptoCommands,
     },
     /// Manage local tasks.
     Task {
@@ -183,6 +191,25 @@ pub struct SettingsSetArgs {
 #[derive(Debug, Args)]
 pub struct SettingsPushPlaintextArgs {
     pub json: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CryptoCommands {
+    /// Encrypt a local task with the account data key and print the encrypted blob.
+    EncryptTask(TaskIdArgs),
+    /// Decrypt a JSON blob file with the account data key.
+    DecryptBlob(CryptoBlobFileArgs),
+    /// Wrap the local account data key for a target public key.
+    WrapDataKey(DeviceWrapKeyArgs),
+    /// Unwrap an account data key without storing it.
+    UnwrapDataKey(DeviceUnwrapKeyArgs),
+    /// Verify local crypto key material can encrypt/decrypt a fixture task.
+    VerifyLocal,
+}
+
+#[derive(Debug, Args)]
+pub struct CryptoBlobFileArgs {
+    pub file: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]

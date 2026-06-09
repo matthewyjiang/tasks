@@ -7,19 +7,20 @@ pub mod platform;
 use std::path::PathBuf;
 
 use args::{
-    AccountCommands, AuthCommands, Cli, Commands, DeviceCommands, SettingsCommands, SyncCommands,
-    TaskCommands,
+    AccountCommands, AuthCommands, Cli, Commands, CryptoCommands, DeviceCommands, SettingsCommands,
+    SyncCommands, TaskCommands,
 };
 use clap::Parser;
 use error::{CliError, CliResult};
 use output::{
-    AuthOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput, UnwrappedKeyOutput,
-    VersionOutput, WrappedKeyOutput,
+    AuthOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput,
+    SecretBytesOutput, UnwrappedKeyOutput, VersionOutput, WrappedKeyOutput,
 };
 use taskmanager_core::{
-    init_account, init_device_keypair, unwrap_data_key, wrap_data_key, AuthMethod, Blob, CoreError,
-    PlaintextSettings, PlaintextSettingsSyncPayload, Platform, PlatformError, TaskFilter,
-    TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+    decrypt_blob, encrypt_blob, init_account, init_device_keypair, unwrap_data_key, wrap_data_key,
+    AuthMethod, Blob, CoreError, PlaintextSettings, PlaintextSettingsSyncPayload, Platform,
+    PlatformError, TaskFilter, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
+    DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -56,6 +57,14 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
         Some(Commands::Settings { command }) => {
             run_settings(command, cli.output, ctx.config_path, &ctx.profile)
         }
+        Some(Commands::Crypto { command }) => run_crypto(
+            command,
+            cli.output,
+            ctx.db_path,
+            &ctx.profile,
+            ctx.offline,
+            cli.dangerously_print_secrets,
+        ),
         Some(Commands::Task { command }) => {
             run_task(command, cli.output, ctx.db_path, &ctx.profile)
         }
@@ -267,6 +276,132 @@ fn run_settings(
             let settings = PlaintextSettings::read_from_file(&path).map_err(CliError::from)?;
             settings.write_to_file(&path).map_err(CliError::from)?;
             output::format_command_result(output_format, &settings).map(Some)
+        }
+    }
+}
+
+fn run_crypto(
+    command: CryptoCommands,
+    output_format: OutputFormat,
+    db_path: Option<PathBuf>,
+    profile: &str,
+    offline: bool,
+    dangerously_print_secrets: bool,
+) -> CliResult<Option<String>> {
+    let platform = platform::CliPlatform::new(offline);
+    match command {
+        CryptoCommands::EncryptTask(args) => {
+            let task = open_core(db_path, profile)?
+                .get_task(args.id)
+                .map_err(CliError::from)?;
+            let data_key = platform
+                .load_key(ACCOUNT_DATA_KEY_ID)
+                .map_err(CliError::from)?;
+            let blob = encrypt_blob(&task, &data_key).map_err(CliError::from)?;
+            output::format_command_result(output_format, &blob).map(Some)
+        }
+        CryptoCommands::DecryptBlob(args) => {
+            let data_key = platform
+                .load_key(ACCOUNT_DATA_KEY_ID)
+                .map_err(CliError::from)?;
+            let contents = std::fs::read_to_string(&args.file).map_err(|error| {
+                CliError::LocalStorage(format!("failed to read {}: {error}", args.file.display()))
+            })?;
+            let blob: Blob = serde_json::from_str(&contents).map_err(CliError::from)?;
+            let task = decrypt_blob(&blob, &data_key).map_err(CliError::from)?;
+            output::format_command_result(output_format, &task).map(Some)
+        }
+        CryptoCommands::WrapDataKey(args) => {
+            let target_public_key = from_hex(&args.target)?;
+            let data_key = platform
+                .load_key(ACCOUNT_DATA_KEY_ID)
+                .map_err(CliError::from)?;
+            let private_key = platform
+                .load_key(DEVICE_PRIVATE_KEY_ID)
+                .map_err(CliError::from)?;
+            let wrapped = wrap_data_key(&data_key, &target_public_key, &private_key)
+                .map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &WrappedKeyOutput {
+                    ciphertext: to_hex(&wrapped.ciphertext),
+                    nonce: to_hex(&wrapped.nonce),
+                },
+            )
+            .map(Some)
+        }
+        CryptoCommands::UnwrapDataKey(args) => {
+            if !dangerously_print_secrets {
+                return Err(CliError::Input(
+                    "refusing to print data key without --dangerously-print-secrets".into(),
+                ));
+            }
+            let from_public_key = from_hex(&args.from_device)?;
+            let ciphertext = from_hex(&args.ciphertext)?;
+            let nonce_bytes = from_hex(&args.nonce)?;
+            let nonce: [u8; 12] = nonce_bytes.try_into().map_err(|bytes: Vec<u8>| {
+                CliError::Crypto(format!(
+                    "bad nonce length: expected 12 bytes, got {}",
+                    bytes.len()
+                ))
+            })?;
+            let private_key = platform
+                .load_key(DEVICE_PRIVATE_KEY_ID)
+                .map_err(CliError::from)?;
+            let data_key =
+                unwrap_data_key(&Blob { ciphertext, nonce }, &from_public_key, &private_key)
+                    .map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &SecretBytesOutput {
+                    hex: to_hex(&data_key),
+                },
+            )
+            .map(Some)
+        }
+        CryptoCommands::VerifyLocal => {
+            let data_key = platform
+                .load_key(ACCOUNT_DATA_KEY_ID)
+                .map_err(CliError::from)?;
+            let private_key = platform
+                .load_key(DEVICE_PRIVATE_KEY_ID)
+                .map_err(CliError::from)?;
+            if data_key.len() != 32 {
+                return Err(CliError::Crypto(format!(
+                    "bad account data key length: expected 32 bytes, got {}",
+                    data_key.len()
+                )));
+            }
+            if private_key.len() != 32 {
+                return Err(CliError::Crypto(format!(
+                    "bad device private key length: expected 32 bytes, got {}",
+                    private_key.len()
+                )));
+            }
+            let task = taskmanager_core::Task {
+                id: Uuid::nil(),
+                title: "crypto verify".to_owned(),
+                body: String::new(),
+                due_at: None,
+                status: TaskStatus::Inbox,
+                project_id: None,
+                tags: Vec::new(),
+                created_at: 0,
+                updated_at: 0,
+                deleted: false,
+                dirty: false,
+            };
+            let blob = encrypt_blob(&task, &data_key).map_err(CliError::from)?;
+            decrypt_blob(&blob, &data_key).map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &CryptoVerifyOutput {
+                    data_key_present: true,
+                    device_private_key_present: true,
+                    encrypt_decrypt_ok: true,
+                },
+            )
+            .map(Some)
         }
     }
 }

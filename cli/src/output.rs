@@ -1,6 +1,7 @@
 use serde::Serialize;
 use taskmanager_core::{
-    PlaintextSettings, PlaintextSettingsSyncPayload, RetryQueueEntry, SyncStatus, Task, TaskStatus,
+    Blob, PlaintextSettings, PlaintextSettingsSyncPayload, RetryQueueEntry, SyncStatus, Task,
+    TaskStatus,
 };
 use uuid::Uuid;
 
@@ -66,6 +67,18 @@ pub struct WrappedKeyOutput {
 #[derive(Debug, Serialize)]
 pub struct UnwrappedKeyOutput {
     pub stored: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SecretBytesOutput {
+    pub hex: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CryptoVerifyOutput {
+    pub data_key_present: bool,
+    pub device_private_key_present: bool,
+    pub encrypt_decrypt_ok: bool,
 }
 
 pub trait TableOutput {
@@ -140,6 +153,31 @@ impl TableOutput for UnwrappedKeyOutput {
     }
 }
 
+impl TableOutput for SecretBytesOutput {
+    fn to_table(&self) -> String {
+        self.hex.clone()
+    }
+}
+
+impl TableOutput for CryptoVerifyOutput {
+    fn to_table(&self) -> String {
+        format!(
+            "data_key_present\t{}\ndevice_private_key_present\t{}\nencrypt_decrypt_ok\t{}",
+            self.data_key_present, self.device_private_key_present, self.encrypt_decrypt_ok
+        )
+    }
+}
+
+impl TableOutput for Blob {
+    fn to_table(&self) -> String {
+        format!(
+            "ciphertext\t{}\nnonce\t{}",
+            hex_encode(&self.ciphertext),
+            hex_encode(&self.nonce)
+        )
+    }
+}
+
 impl TableOutput for SyncStatus {
     fn to_table(&self) -> String {
         format!(
@@ -194,6 +232,10 @@ where
         OutputFormat::Jsonl => Ok(serde_json::to_string(&CommandResult::new(value))?),
         OutputFormat::Table => Ok(value.to_table()),
     }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn status_label(status: TaskStatus) -> &'static str {
