@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+import shlex
 from typing import Iterable
 
 
@@ -58,10 +59,25 @@ def latest_tag(prefix: str) -> tuple[str | None, Version]:
     return best_tag, best
 
 
-def commits_since(tag: str | None, path: str) -> list[str]:
+def normalize_paths(paths: Iterable[str]) -> list[str]:
+    """Return pathspecs from one or more --path values.
+
+    Git accepts path filtering as ``-- <path>...``. The workflow matrix may pass
+    a space-separated value such as "android ios linux macos windows" as one
+    shell argument, so split each value into individual pathspecs before
+    forwarding them to git.
+    """
+    pathspecs: list[str] = []
+    for path in paths:
+        pathspecs.extend(shlex.split(path))
+    return pathspecs
+
+
+def commits_since(tag: str | None, paths: Iterable[str]) -> list[str]:
     rev = f"{tag}..HEAD" if tag else "HEAD"
-    fmt = "%H%x1f%B%x1e"
-    output = run(["git", "log", rev, f"--format={fmt}", "--", path], check=True)
+    fmt = "%B%x1e"
+    pathspecs = normalize_paths(paths)
+    output = run(["git", "log", rev, f"--format={fmt}", "--", *pathspecs], check=True)
     if not output:
         return []
     return [entry.strip("\n") for entry in output.split("\x1e") if entry.strip()]
@@ -96,16 +112,17 @@ def highest_bump(commits: Iterable[str]) -> str | None:
     return best
 
 
-def release_notes(tag: str, previous_tag: str | None, path: str) -> str:
+def release_notes(tag: str, previous_tag: str | None, paths: Iterable[str]) -> str:
     rev = f"{previous_tag}..HEAD" if previous_tag else "HEAD"
-    log = run(["git", "log", rev, "--pretty=format:- %s (%h)", "--", path], check=True)
+    pathspecs = normalize_paths(paths)
+    log = run(["git", "log", rev, "--pretty=format:- %s (%h)", "--", *pathspecs], check=True)
     return f"## {tag}\n\n" + (log or "No user-facing changes.") + "\n"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact", required=True, help="Artifact name used as tag prefix, e.g. server")
-    parser.add_argument("--path", required=True, help="Path to inspect for changes, e.g. server")
+    parser.add_argument("--path", required=True, nargs="+", help="Path(s) to inspect for changes, e.g. server or android ios")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
