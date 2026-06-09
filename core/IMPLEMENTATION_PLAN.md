@@ -116,18 +116,18 @@ Expose a simple high-level Rust API that platform shells can call.
 
 TODO:
 
-- [ ] Add `core/src/core.rs` with a `TaskManagerCore` struct.
-- [ ] Add constructor that accepts DB path and platform implementation.
-- [ ] Wire CRUD methods through the DB layer.
-- [ ] Keep network and sync as stubs for now.
+- [x] Add `core/src/core.rs` with a `TaskManagerCore` struct.
+- [x] Add constructor that accepts DB path.
+- [x] Wire CRUD methods through the DB layer.
+- [x] Keep network and sync out of the facade for now.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Constructor opens/creates the configured DB path.
-- [ ] Constructor fails clearly on invalid DB path.
-- [ ] Facade `create_task`, `get_task`, `update_task`, `delete_task`, `list_tasks`, and `search_tasks` delegate correctly.
-- [ ] Facade methods preserve the same error semantics as the DB layer.
-- [ ] Multiple facade instances over the same DB path observe consistent state.
+- [x] Constructor opens/creates the configured DB path.
+- [x] Constructor fails clearly on invalid DB path.
+- [x] Facade `create_task`, `get_task`, `update_task`, `delete_task`, `list_tasks`, and `search_tasks` delegate correctly.
+- [x] Facade methods preserve the same error semantics as the DB layer.
+- [x] Multiple facade instances over the same DB path observe consistent state.
 
 ## Milestone 5: Platform trait
 

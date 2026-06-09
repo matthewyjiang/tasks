@@ -2,11 +2,13 @@
 //!
 //! This crate owns domain types, local persistence, crypto, and sync logic.
 
+pub mod core;
 pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod types;
 
+pub use core::TaskManagerCore;
 pub use crypto::{
     decrypt_blob, encrypt_blob, generate_data_key, generate_device_keypair, unwrap_data_key,
     wrap_data_key, DeviceKeypair,
