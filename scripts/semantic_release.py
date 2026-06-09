@@ -75,7 +75,7 @@ def normalize_paths(paths: Iterable[str]) -> list[str]:
 
 def commits_since(tag: str | None, paths: Iterable[str]) -> list[str]:
     rev = f"{tag}..HEAD" if tag else "HEAD"
-    fmt = "%H%x1f%B%x1e"
+    fmt = "%B%x1e"
     pathspecs = normalize_paths(paths)
     output = run(["git", "log", rev, f"--format={fmt}", "--", *pathspecs], check=True)
     if not output:
