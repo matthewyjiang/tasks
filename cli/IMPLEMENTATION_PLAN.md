@@ -112,8 +112,7 @@ Interface tests to add before leaving this milestone:
 - [x] Getting a missing task exits with a not-found error.
 - [x] Updating each patchable field persists and marks `dirty=true`.
 - [x] Deleting a task creates a tombstone, not a hard delete.
-- [ ] Listing supports status, project, tag, due-range, deleted/include-deleted filters.
-  - Note: tag list filtering remains blocked until core `TaskFilter` exposes a tag filter.
+- [x] Listing supports status, project, tag, due-range, deleted/include-deleted filters.
 - [x] Sorting is stable for every supported sort variant.
 - [x] Search returns matches from title and body.
 - [x] Complete/reopen map to the correct status patches.

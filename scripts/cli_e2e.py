@@ -323,6 +323,9 @@ def main() -> int:
 
             inbox = parse_result(cli(env, profile_a, "task", "list", "--status", "inbox"))
             assert all(task["status"] == "inbox" for task in inbox)
+            tagged = parse_result(cli(env, profile_a, "task", "list", "--tag", "updated"))
+            assert any(task["id"] == task_id for task in tagged)
+            assert all("updated" in task["tags"] for task in tagged)
             due_sorted = parse_result(cli(env, profile_a, "task", "list", "--sort", "due-at-asc"))
             assert isinstance(due_sorted, list)
 

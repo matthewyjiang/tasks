@@ -116,6 +116,10 @@ impl LocalDatabase {
             sql.push_str(" AND project_id = ?");
             values.push(Value::Text(project_id.to_string()));
         }
+        for tag in filter.tags {
+            sql.push_str(" AND EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE value = ?)");
+            values.push(Value::Text(tag));
+        }
         if let Some(due_after) = filter.due_after {
             sql.push_str(" AND due_at IS NOT NULL AND due_at >= ?");
             values.push(Value::Integer(due_after));
@@ -572,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tasks_filters_by_status_project_and_due_range() {
+    fn list_tasks_filters_by_status_project_tags_and_due_range() {
         let database = db();
         let project_id = Uuid::new_v4();
         let matching = create_named(&database, "matching", "body", Some(50));
@@ -582,6 +586,19 @@ mod tests {
                 TaskPatch {
                     status: Some(TaskStatus::InProgress),
                     project_id: Some(Some(project_id)),
+                    tags: Some(vec!["work".to_owned(), "urgent".to_owned()]),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+        let wrong_tag = create_named(&database, "wrong tag", "body", Some(50));
+        database
+            .update_task(
+                wrong_tag.id,
+                TaskPatch {
+                    status: Some(TaskStatus::InProgress),
+                    project_id: Some(Some(project_id)),
+                    tags: Some(vec!["work".to_owned()]),
                     ..TaskPatch::default()
                 },
             )
@@ -594,6 +611,7 @@ mod tests {
                 TaskFilter {
                     status: Some(TaskStatus::InProgress),
                     project_id: Some(project_id),
+                    tags: vec!["work".to_owned(), "urgent".to_owned()],
                     due_after: Some(40),
                     due_before: Some(60),
                     include_deleted: false,

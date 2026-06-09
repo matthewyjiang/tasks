@@ -38,6 +38,7 @@ pub struct TaskPatch {
 pub struct TaskFilter {
     pub status: Option<TaskStatus>,
     pub project_id: Option<Uuid>,
+    pub tags: Vec<String>,
     pub due_after: Option<i64>,
     pub due_before: Option<i64>,
     pub include_deleted: bool,
@@ -203,6 +204,7 @@ mod tests {
             TaskFilter {
                 status: None,
                 project_id: None,
+                tags: Vec::new(),
                 due_after: None,
                 due_before: None,
                 include_deleted: false,
