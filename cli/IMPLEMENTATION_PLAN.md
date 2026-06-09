@@ -262,8 +262,8 @@ Prepare the CLI as an independently shipped artifact.
 TODO:
 
 - [ ] Add release build profile checks for the CLI binary.
-- [ ] Add generated shell completions for bash, zsh, fish, and PowerShell.
-- [ ] Add man page or markdown command reference generated from `clap`.
+- [x] Add generated shell completions for bash, zsh, fish, and PowerShell.
+- [x] Add man page or markdown command reference generated from `clap`.
 - [ ] Add install/archive steps to release workflow if binary artifacts are desired.
 - [ ] Confirm artifact-prefixed tags use only `cli-vX.Y.Z` for CLI releases.
 
@@ -271,5 +271,5 @@ Tests/checks to add before leaving this milestone:
 
 - [ ] Release dry-run creates only `cli-vX.Y.Z` for CLI-only releasable commits.
 - [ ] CLI-only commits do not trigger `server-v*`, `core-v*`, or `app-v*` releases.
-- [ ] Completion generation succeeds for every supported shell.
+- [x] Completion generation succeeds for every supported shell.
 - [ ] Packaged binary prints the same version as the release tag.

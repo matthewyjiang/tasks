@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use taskmanager_core::{TaskSort, TaskStatus};
 use uuid::Uuid;
 
@@ -85,6 +86,11 @@ pub enum Commands {
     Task {
         #[command(subcommand)]
         command: TaskCommands,
+    },
+    /// Generate packaging artifacts like shell completions and man pages.
+    Generate {
+        #[command(subcommand)]
+        command: GenerateCommands,
     },
 }
 
@@ -210,6 +216,20 @@ pub enum CryptoCommands {
 #[derive(Debug, Args)]
 pub struct CryptoBlobFileArgs {
     pub file: PathBuf,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenerateCommands {
+    /// Generate shell completions for bash, zsh, fish, PowerShell, or elvish.
+    Completion(GenerateCompletionArgs),
+    /// Generate a roff man page for taskmanager(1).
+    Man,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateCompletionArgs {
+    #[arg(value_enum)]
+    pub shell: Shell,
 }
 
 #[derive(Debug, Subcommand)]
