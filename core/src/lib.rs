@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod platform;
+pub mod settings;
 pub mod types;
 
 pub use core::TaskManagerCore;
@@ -15,9 +16,16 @@ pub use crypto::{
     wrap_data_key, DeviceKeypair,
 };
 pub use db::LocalDatabase;
-pub use error::{CoreError, CoreResult, CryptoError, DbError, PlatformError, SyncError};
+pub use error::{
+    CoreError, CoreResult, CryptoError, DbError, PlatformError, SettingsError, SyncError,
+};
 pub use platform::{
     init_account, init_device_keypair, MockPlatform, Platform, ScheduledNotification,
     ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+};
+pub use settings::{
+    AuthMethod, DefaultSort, DisplayDensity, PlaintextSettings, PlaintextSettingsSyncPayload,
+    Theme, VaultSettings, VaultSettingsBlob, PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID,
+    VAULT_SETTINGS_SCHEMA_VERSION,
 };
 pub use types::{Blob, SyncResult, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};

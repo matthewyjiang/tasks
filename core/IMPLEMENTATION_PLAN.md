@@ -158,24 +158,24 @@ Implement plaintext and encrypted vault settings locally.
 
 TODO:
 
-- [ ] Add `core/src/settings.rs`.
-- [ ] Define `PlaintextSettings`.
-- [ ] Define `VaultSettings`.
-- [ ] Implement local JSON file read/write for plaintext settings.
-- [ ] Implement vault settings as the reserved local blob/task id `vault_settings`.
-- [ ] Add migration hooks for future schema versions.
+- [x] Add `core/src/settings.rs`.
+- [x] Define `PlaintextSettings`.
+- [x] Define `VaultSettings`.
+- [x] Implement local JSON file read/write for plaintext settings.
+- [x] Implement vault settings as the reserved local blob/task id `vault_settings`.
+- [x] Add migration hooks for future schema versions.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Plaintext settings serialize to the documented JSON shape.
-- [ ] Plaintext settings deserialize from the documented JSON shape.
-- [ ] Missing plaintext settings file returns defaults or a clear first-run state.
-- [ ] Saving plaintext settings excludes device-local `last_sync_cursor` from server sync payloads.
-- [ ] Vault settings serialize to the documented JSON shape.
-- [ ] Vault settings encrypt/decrypt with the account data key.
-- [ ] Vault settings use reserved ID `vault_settings`.
-- [ ] Vault settings conflict resolution uses last-write-wins.
-- [ ] Unknown future schema version produces a migration/error path, not silent corruption.
+- [x] Plaintext settings serialize to the documented JSON shape.
+- [x] Plaintext settings deserialize from the documented JSON shape.
+- [x] Missing plaintext settings file returns defaults or a clear first-run state.
+- [x] Saving plaintext settings excludes device-local `last_sync_cursor` from server sync payloads.
+- [x] Vault settings serialize to the documented JSON shape.
+- [x] Vault settings encrypt/decrypt with the account data key.
+- [x] Vault settings use reserved ID `vault_settings`.
+- [x] Vault settings conflict resolution uses last-write-wins.
+- [x] Unknown future schema version produces a migration/error path, not silent corruption.
 
 ## Milestone 7: Sync interfaces
 

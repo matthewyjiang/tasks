@@ -17,6 +17,9 @@ pub enum CoreError {
     #[error(transparent)]
     Platform(#[from] PlatformError),
 
+    #[error(transparent)]
+    Settings(#[from] SettingsError),
+
     #[error("serialization failed: {0}")]
     Serialization(#[from] serde_json::Error),
 }
@@ -24,6 +27,12 @@ pub enum CoreError {
 impl From<rusqlite::Error> for CoreError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Database(DbError::Sqlite(error))
+    }
+}
+
+impl From<std::io::Error> for CoreError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Settings(SettingsError::Io(error))
     }
 }
 
@@ -64,6 +73,18 @@ pub enum PlatformError {
 
     #[error("platform operation failed: {0}")]
     OperationFailed(String),
+}
+
+#[derive(Debug, Error)]
+pub enum SettingsError {
+    #[error("settings I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("unsupported vault settings schema version: {0}")]
+    UnsupportedVaultSchemaVersion(i32),
+
+    #[error("unexpected vault settings id: {0}")]
+    UnexpectedVaultSettingsId(String),
 }
 
 #[derive(Debug, Error)]
