@@ -192,7 +192,19 @@ impl LocalDatabase {
                 queued_at   INTEGER NOT NULL,
                 attempt     INTEGER NOT NULL DEFAULT 0,
                 next_retry  INTEGER NOT NULL DEFAULT 0
-            );",
+            );
+
+            DELETE FROM sync_queue
+            WHERE rowid NOT IN (
+                SELECT keep.rowid
+                FROM sync_queue AS keep
+                WHERE keep.task_id = sync_queue.task_id
+                ORDER BY keep.attempt DESC, keep.next_retry DESC, keep.rowid DESC
+                LIMIT 1
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_task_id_unique
+            ON sync_queue(task_id);",
         )?;
         Ok(())
     }
@@ -409,6 +421,14 @@ mod tests {
         LocalDatabase::open_in_memory().unwrap()
     }
 
+    fn temporary_database_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "taskmanager-core-{name}-{}-{}.sqlite3",
+            std::process::id(),
+            Uuid::new_v4()
+        ))
+    }
+
     fn create_named(
         database: &LocalDatabase,
         title: &str,
@@ -441,6 +461,33 @@ mod tests {
         let database = db();
         database.initialize_schema().unwrap();
         database.initialize_schema().unwrap();
+    }
+
+    #[test]
+    fn sync_queue_migrates_old_non_unique_schema() {
+        let path = temporary_database_path("sync_queue_migrates_old_non_unique_schema");
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE sync_queue (
+                        task_id     TEXT NOT NULL,
+                        queued_at   INTEGER NOT NULL,
+                        attempt     INTEGER NOT NULL DEFAULT 0,
+                        next_retry  INTEGER NOT NULL DEFAULT 0
+                    );",
+                )
+                .unwrap();
+        }
+
+        let database = LocalDatabase::open(&path).unwrap();
+        let task_id = Uuid::new_v4();
+        database.queue_retry(task_id, 1_000).unwrap();
+        database.queue_retry(task_id, 2_000).unwrap();
+
+        let entries = database.retry_queue_entries().unwrap();
+        assert_eq!(entries, vec![(task_id, 2, 4_000)]);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
