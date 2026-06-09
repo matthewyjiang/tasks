@@ -135,22 +135,22 @@ Define platform boundary without importing platform SDKs.
 
 TODO:
 
-- [ ] Add `core/src/platform.rs`.
-- [ ] Define the `Platform` trait from the spec.
-- [ ] Add a test/mock platform implementation.
-- [ ] Implement `init_device_keypair` storing private key through `Platform`.
-- [ ] Implement `init_account` generating and storing the account data key.
+- [x] Add `core/src/platform.rs`.
+- [x] Define the `Platform` trait from the spec.
+- [x] Add a test/mock platform implementation.
+- [x] Implement `init_device_keypair` storing private key through `Platform`.
+- [x] Implement `init_account` generating and storing the account data key.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Mock platform can store, load, and delete keys.
-- [ ] Loading a missing key returns a clear error.
-- [ ] `init_device_keypair` stores private key and returns public key.
-- [ ] `init_device_keypair` does not expose private key bytes in its return value.
-- [ ] `init_account` stores the data key through the platform.
-- [ ] `init_account` returns the device public key.
-- [ ] Notification scheduling and cancellation calls are forwarded with correct task ID, time, and title.
-- [ ] `network_available` result is observable through facade/sync code where used.
+- [x] Mock platform can store, load, and delete keys.
+- [x] Loading a missing key returns a clear error.
+- [x] `init_device_keypair` stores private key and returns public key.
+- [x] `init_device_keypair` does not expose private key bytes in its return value.
+- [x] `init_account` stores the data key through the platform.
+- [x] `init_account` returns the device public key.
+- [x] Notification scheduling and cancellation calls are forwarded with correct task ID, time, and title.
+- [x] `network_available` result is observable through the platform interface.
 
 ## Milestone 6: Settings
 
