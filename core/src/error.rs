@@ -28,6 +28,9 @@ pub enum CryptoError {
 
     #[error("deserialization failed: {0}")]
     DeserFailed(serde_json::Error),
+
+    #[error("key agreement failed")]
+    KeyAgreementFailed,
 }
 
 #[derive(Debug, Error)]
