@@ -48,7 +48,7 @@ impl LocalDatabase {
             dirty: true,
         };
 
-        self.insert_or_replace_task(&task)?;
+        self.upsert_task(&task)?;
         Ok(task)
     }
 
@@ -87,7 +87,7 @@ impl LocalDatabase {
 
         task.updated_at = now_ms().max(task.updated_at + 1);
         task.dirty = true;
-        self.insert_or_replace_task(&task)?;
+        self.upsert_task(&task)?;
         Ok(task)
     }
 
@@ -96,7 +96,7 @@ impl LocalDatabase {
         task.deleted = true;
         task.dirty = true;
         task.updated_at = now_ms().max(task.updated_at + 1);
-        self.insert_or_replace_task(&task)
+        self.upsert_task(&task)
     }
 
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
@@ -197,11 +197,22 @@ impl LocalDatabase {
         Ok(())
     }
 
-    fn insert_or_replace_task(&self, task: &Task) -> CoreResult<()> {
+    fn upsert_task(&self, task: &Task) -> CoreResult<()> {
         self.connection.execute(
-            "INSERT OR REPLACE INTO tasks
+            "INSERT INTO tasks
              (id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                body = excluded.body,
+                due_at = excluded.due_at,
+                status = excluded.status,
+                project_id = excluded.project_id,
+                tags = excluded.tags,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                deleted = excluded.deleted,
+                dirty = excluded.dirty",
             params![
                 task.id.to_string(),
                 task.title,
@@ -525,6 +536,14 @@ mod tests {
             database.search_tasks("gamma".to_owned()).unwrap()[0].id,
             body_match.id
         );
+
+        database
+            .connection
+            .execute(
+                "INSERT INTO tasks_fts(tasks_fts) VALUES('integrity-check')",
+                [],
+            )
+            .unwrap();
 
         database.delete_task(title_match.id).unwrap();
         assert!(database
