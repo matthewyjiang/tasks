@@ -68,6 +68,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: SyncCommands,
     },
+    /// Manage plaintext settings.
+    Settings {
+        #[command(subcommand)]
+        command: SettingsCommands,
+    },
     /// Manage local tasks.
     Task {
         #[command(subcommand)]
@@ -148,6 +153,36 @@ pub enum SyncCommands {
     Conflicts,
     /// Resolve a conflict. Not implemented until conflict persistence is wired.
     Resolve(TaskIdArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SettingsCommands {
+    /// Get all settings or a single setting by key.
+    Get(SettingsGetArgs),
+    /// Set a plaintext setting.
+    Set(SettingsSetArgs),
+    /// Print syncable plaintext settings, excluding device-local cursor.
+    PullPlaintext,
+    /// Store syncable plaintext settings from JSON.
+    PushPlaintext(SettingsPushPlaintextArgs),
+    /// Migrate/create the plaintext settings file using the current schema.
+    Migrate,
+}
+
+#[derive(Debug, Args)]
+pub struct SettingsGetArgs {
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SettingsSetArgs {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Args)]
+pub struct SettingsPushPlaintextArgs {
+    pub json: String,
 }
 
 #[derive(Debug, Subcommand)]

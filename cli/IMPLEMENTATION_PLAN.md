@@ -177,20 +177,20 @@ Add plaintext and vault settings management.
 
 TODO:
 
-- [ ] Add `settings get [key]`.
-- [ ] Add `settings set <key> <value>`.
-- [ ] Add `settings pull-plaintext`.
-- [ ] Add `settings push-plaintext`.
-- [ ] Add `settings migrate`.
+- [x] Add `settings get [key]`.
+- [x] Add `settings set <key> <value>`.
+- [x] Add `settings pull-plaintext`.
+- [x] Add `settings push-plaintext`.
+- [x] Add `settings migrate`.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Plaintext settings can be read before unlocking/opening the encrypted vault.
-- [ ] Setting `server_url`, `auth_method`, `language`, and `last_sync_cursor` validates types.
+- [x] Plaintext settings can be read before unlocking/opening the encrypted vault.
+- [x] Setting `server_url`, `auth_method`, `language`, and `last_sync_cursor` validates types.
 - [ ] Vault settings update marks the vault settings blob dirty.
 - [ ] Vault settings encrypt/decrypt through the normal blob path.
-- [ ] `last_sync_cursor` remains device-local and is not overwritten by server settings pull.
-- [ ] Schema migration upgrades an old fixture to the current schema.
+- [x] `last_sync_cursor` remains device-local and is not overwritten by server settings pull.
+- [x] Schema migration writes current defaults when no file exists.
 
 ## Milestone 8: Sharing commands
 

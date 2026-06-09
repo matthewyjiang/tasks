@@ -1,5 +1,7 @@
 use serde::Serialize;
-use taskmanager_core::{RetryQueueEntry, SyncStatus, Task, TaskStatus};
+use taskmanager_core::{
+    PlaintextSettings, PlaintextSettingsSyncPayload, RetryQueueEntry, SyncStatus, Task, TaskStatus,
+};
 use uuid::Uuid;
 
 use crate::error::CliResult;
@@ -153,6 +155,33 @@ impl TableOutput for RetryQueueEntry {
             "task_id\t{}\nattempt\t{}\nnext_retry\t{}",
             self.task_id, self.attempt, self.next_retry
         )
+    }
+}
+
+impl TableOutput for PlaintextSettings {
+    fn to_table(&self) -> String {
+        format!(
+            "schema_version\t{}\nserver_url\t{}\nauth_method\t{:?}\nlanguage\t{}\nlast_sync_cursor\t{}",
+            self.schema_version, self.server_url, self.auth_method, self.language, self.last_sync_cursor
+        )
+    }
+}
+
+impl TableOutput for PlaintextSettingsSyncPayload {
+    fn to_table(&self) -> String {
+        format!(
+            "schema_version\t{}\nserver_url\t{}\nauth_method\t{:?}\nlanguage\t{}",
+            self.schema_version, self.server_url, self.auth_method, self.language
+        )
+    }
+}
+
+impl TableOutput for serde_json::Value {
+    fn to_table(&self) -> String {
+        match self {
+            serde_json::Value::String(value) => value.clone(),
+            other => other.to_string(),
+        }
     }
 }
 
