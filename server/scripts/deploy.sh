@@ -76,6 +76,7 @@ main() {
   echo
 
   need_cmd docker
+  need_cmd curl
   docker compose version >/dev/null
 
   load_existing
