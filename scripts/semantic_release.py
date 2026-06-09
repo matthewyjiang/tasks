@@ -14,6 +14,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 import shlex
+from pathlib import Path
 from typing import Iterable
 
 
@@ -119,6 +120,63 @@ def release_notes(tag: str, previous_tag: str | None, paths: Iterable[str]) -> s
     return f"## {tag}\n\n" + (log or "No user-facing changes.") + "\n"
 
 
+def replace_package_version(manifest: Path, version: Version) -> None:
+    text = manifest.read_text()
+    lines = text.splitlines(keepends=True)
+    in_package = False
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "[package]":
+            in_package = True
+            continue
+        if in_package and stripped.startswith("["):
+            break
+        if in_package and stripped.startswith("version = "):
+            newline = "\n" if line.endswith("\n") else ""
+            lines[idx] = f'version = "{version}"{newline}'
+            manifest.write_text("".join(lines))
+            return
+    raise RuntimeError(f"did not find [package] version in {manifest}")
+
+
+def update_cargo_lock_package(lockfile: Path, package: str, version: Version) -> None:
+    if not lockfile.exists():
+        return
+    text = lockfile.read_text()
+    blocks = text.split("\n[[package]]\n")
+    changed = False
+    for idx, block in enumerate(blocks):
+        if f'name = "{package}"' not in block:
+            continue
+        lines = block.splitlines(keepends=True)
+        for line_idx, line in enumerate(lines):
+            if line.startswith("version = "):
+                newline = "\n" if line.endswith("\n") else ""
+                lines[line_idx] = f'version = "{version}"{newline}'
+                blocks[idx] = "".join(lines)
+                changed = True
+                break
+    if changed:
+        lockfile.write_text("\n[[package]]\n".join(blocks))
+
+
+def update_artifact_version(artifact: str, version: Version) -> list[str]:
+    if artifact == "cli":
+        replace_package_version(Path("cli/Cargo.toml"), version)
+        update_cargo_lock_package(Path("Cargo.lock"), "taskmanager-cli", version)
+        return ["cli/Cargo.toml", "Cargo.lock"]
+    if artifact == "core":
+        replace_package_version(Path("core/Cargo.toml"), version)
+        update_cargo_lock_package(Path("Cargo.lock"), "taskmanager-core", version)
+        return ["core/Cargo.toml", "Cargo.lock"]
+    return []
+
+
+def has_staged_changes() -> bool:
+    proc = subprocess.run(["git", "diff", "--cached", "--quiet"], check=False)
+    return proc.returncode != 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact", required=True, help="Artifact name used as tag prefix, e.g. server")
@@ -141,6 +199,24 @@ def main() -> int:
     if args.dry_run:
         print(notes)
         return 0
+
+    updated_files = update_artifact_version(args.artifact, next_version)
+    if updated_files:
+        run(["git", "add", *updated_files])
+        if has_staged_changes():
+            run(
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    f"chore({args.artifact}): release {tag}",
+                    "-m",
+                    f"Update package metadata to {tag}.",
+                ]
+            )
+            branch = os.environ.get("GITHUB_REF_NAME", "main")
+            run(["git", "push", "origin", f"HEAD:{branch}"])
+            notes = release_notes(tag, previous_tag, args.path)
 
     # Equivalent shell command: git tag -a <tag> -m "Release <tag>"
     run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])
