@@ -96,26 +96,26 @@ Implement offline task management against the local DB through `core`.
 
 TODO:
 
-- [ ] Add `task create`.
-- [ ] Add `task get`.
-- [ ] Add `task update`.
-- [ ] Add `task delete` tombstone command.
-- [ ] Add `task list` with all `TaskFilter` and `TaskSort` variants.
-- [ ] Add `task search`.
-- [ ] Add `task complete` and `task reopen` status helpers.
+- [x] Add `task create`.
+- [x] Add `task get`.
+- [x] Add `task update`.
+- [x] Add `task delete` tombstone command.
+- [x] Add `task list` with all `TaskFilter` and `TaskSort` variants.
+- [x] Add `task search`.
+- [x] Add `task complete` and `task reopen` status helpers.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] Creating a task returns a JSON `Task` with generated UUID and `dirty=true`.
-- [ ] Getting an existing task returns the same task.
-- [ ] Getting a missing task exits with a not-found error.
-- [ ] Updating each patchable field persists and marks `dirty=true`.
-- [ ] Deleting a task creates a tombstone, not a hard delete.
+- [x] Creating a task returns a JSON `Task` with generated UUID and `dirty=true`.
+- [x] Getting an existing task returns the same task.
+- [x] Getting a missing task exits with a not-found error.
+- [x] Updating each patchable field persists and marks `dirty=true`.
+- [x] Deleting a task creates a tombstone, not a hard delete.
 - [ ] Listing supports status, project, tag, due-range, deleted/include-deleted filters.
-- [ ] Sorting is stable for every supported sort variant.
-- [ ] Search returns matches from title and body.
-- [ ] Complete/reopen map to the correct status patches.
-- [ ] All task commands work with `--offline`.
+- [x] Sorting is stable for every supported sort variant.
+- [x] Search returns matches from title and body.
+- [x] Complete/reopen map to the correct status patches.
+- [x] All task commands work with `--offline`.
 
 ## Milestone 5: Account, auth, and device commands
 
