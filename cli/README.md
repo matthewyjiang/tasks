@@ -139,6 +139,27 @@ taskmanager --output json device unwrap-key \
 
 Commands intentionally never print private key or account data key material.
 
+## Settings commands
+
+Plaintext settings are stored per profile, or at `--config <path>` when supplied. They can be read before opening the encrypted vault:
+
+```sh
+taskmanager --config /tmp/settings.json --output json settings get
+taskmanager --config /tmp/settings.json --output json settings get server_url
+taskmanager --config /tmp/settings.json --output json settings set server_url https://api.example.com
+taskmanager --config /tmp/settings.json --output json settings set auth_method pin
+taskmanager --config /tmp/settings.json --output json settings set language en
+taskmanager --config /tmp/settings.json --output json settings set last_sync_cursor 42
+```
+
+Syncable plaintext settings exclude the device-local `last_sync_cursor`:
+
+```sh
+taskmanager --config /tmp/settings.json --output json settings pull-plaintext
+taskmanager --config /tmp/settings.json --output json settings push-plaintext '{"schema_version":1,"server_url":"https://api.example.com","auth_method":"password","language":"en"}'
+taskmanager --config /tmp/settings.json --output json settings migrate
+```
+
 ## Server status
 
 `--server` is accepted and stored in `CliContext`, but server connection UX is not implemented yet. The following remain future work:

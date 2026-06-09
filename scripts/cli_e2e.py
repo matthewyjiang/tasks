@@ -107,6 +107,8 @@ def cli(
         SERVER_URL,
         "--db",
         str(profile_dir / "tasks.db"),
+        "--config",
+        str(profile_dir / "settings.json"),
         "--output",
         output,
         *args,
@@ -206,6 +208,31 @@ def main() -> int:
                 )
             )
             assert login["stored"] is True
+
+            settings_defaults = parse_result(cli(env, profile_a, "settings", "get"))
+            assert settings_defaults["auth_method"] == "password"
+            parse_result(cli(env, profile_a, "settings", "set", "server_url", SERVER_URL))
+            parse_result(cli(env, profile_a, "settings", "set", "auth_method", "pin"))
+            parse_result(cli(env, profile_a, "settings", "set", "language", "en-US"))
+            parse_result(cli(env, profile_a, "settings", "set", "last_sync_cursor", "123"))
+            assert parse_result(cli(env, profile_a, "settings", "get", "server_url")) == SERVER_URL
+            syncable_settings = parse_result(cli(env, profile_a, "settings", "pull-plaintext"))
+            assert syncable_settings["server_url"] == SERVER_URL
+            assert "last_sync_cursor" not in syncable_settings
+            pushed_settings = parse_result(
+                cli(
+                    env,
+                    profile_a,
+                    "settings",
+                    "push-plaintext",
+                    '{"schema_version":1,"server_url":"https://sync.example.com","auth_method":"biometric","language":"fr"}',
+                )
+            )
+            assert pushed_settings["server_url"] == "https://sync.example.com"
+            assert pushed_settings["last_sync_cursor"] == 123
+            parse_result(cli(env, profile_a, "settings", "migrate"))
+            invalid_setting = cli(env, profile_a, "settings", "set", "server_url", "ftp://bad", expect=1)
+            assert_error(invalid_setting, "input_error")
 
             created = parse_result(
                 cli(
