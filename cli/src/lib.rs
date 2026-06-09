@@ -116,7 +116,7 @@ fn run_task(
                 .map(Some)
         }
         TaskCommands::Search(args) => core
-            .search_tasks(args.query)
+            .search_tasks(fts_literal_query(&args.query))
             .map_err(CliError::from)
             .and_then(|tasks| output::format_command_result(output_format, &tasks))
             .map(Some),
@@ -127,6 +127,10 @@ fn run_task(
             update_status(core, args.id, TaskStatus::Inbox, output_format)
         }
     }
+}
+
+fn fts_literal_query(query: &str) -> String {
+    format!("\"{}\"", query.replace('"', "\"\""))
 }
 
 fn update_status(

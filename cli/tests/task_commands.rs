@@ -200,6 +200,31 @@ fn search_returns_matches_from_title_and_body() {
 }
 
 #[test]
+fn search_treats_punctuation_as_literal_text() {
+    let cli = TaskCli::new();
+    let cpp = cli.json(&["task", "create", "learn C++"]);
+    let hyphen = cli.json(&["task", "create", "foo-bar"]);
+
+    let cpp_found = cli.json(&["task", "search", "C++"]);
+    let cpp_ids: Vec<&str> = cpp_found["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| task["id"].as_str().unwrap())
+        .collect();
+    assert!(cpp_ids.contains(&cpp["result"]["id"].as_str().unwrap()));
+
+    let hyphen_found = cli.json(&["task", "search", "foo-bar"]);
+    let hyphen_ids: Vec<&str> = hyphen_found["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|task| task["id"].as_str().unwrap())
+        .collect();
+    assert!(hyphen_ids.contains(&hyphen["result"]["id"].as_str().unwrap()));
+}
+
+#[test]
 fn complete_and_reopen_map_to_status_patches() {
     let cli = TaskCli::new();
     let created = cli.json(&["task", "create", "toggle"]);
