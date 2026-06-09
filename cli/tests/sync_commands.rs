@@ -89,19 +89,19 @@ fn sync_retry_rejects_unknown_tasks_without_queuing_orphan_entries() {
 }
 
 #[test]
-fn unwired_sync_network_commands_return_clear_errors() {
+fn server_sync_commands_require_server_url() {
     let cli = SyncCli::new();
 
     cli.command()
         .args(["sync", "push"])
         .assert()
         .failure()
-        .code(6)
-        .stderr(predicate::str::contains("HTTP sync client"));
+        .code(1)
+        .stderr(predicate::str::contains("--server is required"));
 }
 
 #[test]
-fn unwired_sync_network_commands_do_not_open_or_create_database() {
+fn server_sync_commands_without_server_do_not_open_or_create_database() {
     let temp = tempfile::tempdir().unwrap();
     let blocked_parent = temp.path().join("not-a-directory");
     std::fs::write(&blocked_parent, b"file").unwrap();
@@ -111,6 +111,6 @@ fn unwired_sync_network_commands_do_not_open_or_create_database() {
         .args(["sync", "push"])
         .assert()
         .failure()
-        .code(6)
-        .stderr(predicate::str::contains("HTTP sync client"));
+        .code(1)
+        .stderr(predicate::str::contains("--server is required"));
 }

@@ -9,6 +9,7 @@ isolated temp profiles.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -51,6 +53,18 @@ def require(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         print(result.stderr, file=sys.stderr)
         raise SystemExit(result.returncode)
     return result
+
+
+def post_json(path: str, payload: dict) -> dict:
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{SERVER_URL}{path}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def wait_for_http(url: str, timeout: float = 30.0) -> None:
@@ -219,6 +233,14 @@ def main() -> int:
             rerun = cli(env, profile_a, "account", "init", expect=5)
             assert_error(rerun, "conflict")
 
+            server_auth = post_json(
+                "/auth/register",
+                {
+                    "email": "cli-e2e@example.com",
+                    "password": "correct horse battery staple",
+                    "pub_key": base64.b64encode(bytes.fromhex(account_a["public_key"])).decode("ascii"),
+                },
+            )
             login = parse_result(
                 cli(
                     env,
@@ -226,9 +248,9 @@ def main() -> int:
                     "auth",
                     "login",
                     "--access-token",
-                    "test-access",
+                    server_auth["jwt"],
                     "--refresh-token",
-                    "test-refresh",
+                    server_auth["refresh_token"],
                 )
             )
             assert login["stored"] is True
@@ -451,9 +473,21 @@ def main() -> int:
             status_after_retry = parse_result(cli(env, profile_a, "sync", "status"))
             assert status_after_retry["retry_queue_depth"] == 1
 
-            for sync_command in ["push", "pull", "run", "conflicts"]:
-                unsupported = cli(env, profile_a, "sync", sync_command, expect=6)
-                assert_error(unsupported, "unsupported_platform")
+            pushed = parse_result(cli(env, profile_a, "sync", "push"))
+            assert pushed["pushed"] >= 3
+            assert pushed["pulled"] == 0
+            status_after_push = parse_result(cli(env, profile_a, "sync", "status"))
+            assert status_after_push["dirty_count"] == 0
+
+            pulled = parse_result(cli(env, profile_a, "sync", "pull"))
+            assert pulled["pulled"] >= 2
+            assert pulled["cursor"] is not None
+            ran = parse_result(cli(env, profile_a, "sync", "run"))
+            assert ran["pushed"] == 0
+            assert ran["cursor"] is not None
+
+            unsupported = cli(env, profile_a, "sync", "conflicts", expect=6)
+            assert_error(unsupported, "unsupported_platform")
             sync_resolve = cli(env, profile_a, "sync", "resolve", task_id, expect=6)
             assert_error(sync_resolve, "unsupported_platform")
 

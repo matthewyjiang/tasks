@@ -189,14 +189,23 @@ taskmanager generate man > taskmanager.1
 
 ## Server status
 
-`--server` is accepted and stored in `CliContext`, but server connection UX is not implemented yet. The following remain future work:
+`sync push`, `sync pull`, and `sync run` use `--server` plus a locally stored bearer token from `auth login` to call the server blob API. Example:
+
+```sh
+taskmanager --server http://127.0.0.1:18080 auth login --access-token "$JWT" --refresh-token "$REFRESH"
+taskmanager --server http://127.0.0.1:18080 sync push
+taskmanager --server http://127.0.0.1:18080 sync pull
+```
+
+Local sync diagnostics are available with `sync status` and `sync retry`.
+
+The following remain future work:
 
 - persistent server URL settings
 - server auth refresh/login integration
 - device register/list against the server
-- sync push/pull/run
-
-Local sync diagnostics are available with `sync status` and `sync retry`.
+- conflict persistence/resolution commands
+- applying remote tombstones during pull
 
 ## Headless reminders
 

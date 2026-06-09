@@ -81,6 +81,14 @@ pub struct CryptoVerifyOutput {
     pub encrypt_decrypt_ok: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SyncResultOutput {
+    pub pushed: usize,
+    pub pulled: usize,
+    pub failed: usize,
+    pub cursor: Option<i64>,
+}
+
 pub trait TableOutput {
     fn to_table(&self) -> String;
 }
@@ -156,6 +164,20 @@ impl TableOutput for UnwrappedKeyOutput {
 impl TableOutput for SecretBytesOutput {
     fn to_table(&self) -> String {
         self.hex.clone()
+    }
+}
+
+impl TableOutput for SyncResultOutput {
+    fn to_table(&self) -> String {
+        format!(
+            "pushed\t{}\npulled\t{}\nfailed\t{}\ncursor\t{}",
+            self.pushed,
+            self.pulled,
+            self.failed,
+            self.cursor
+                .map(|cursor| cursor.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        )
     }
 }
 

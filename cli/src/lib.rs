@@ -6,6 +6,9 @@ pub mod platform;
 
 use std::path::PathBuf;
 
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+
 use args::{
     AccountCommands, AuthCommands, Cli, Commands, CryptoCommands, DeviceCommands, GenerateCommands,
     SettingsCommands, SyncCommands, TaskCommands,
@@ -14,13 +17,14 @@ use clap::{CommandFactory, Parser};
 use error::{CliError, CliResult};
 use output::{
     AuthOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat, PublicKeyOutput,
-    SecretBytesOutput, UnwrappedKeyOutput, VersionOutput, WrappedKeyOutput,
+    SecretBytesOutput, SyncResultOutput, UnwrappedKeyOutput, VersionOutput, WrappedKeyOutput,
 };
 use taskmanager_core::{
-    decrypt_blob, encrypt_blob, init_account, init_device_keypair, unwrap_data_key, wrap_data_key,
-    AuthMethod, Blob, CoreError, PlaintextSettings, PlaintextSettingsSyncPayload, Platform,
-    PlatformError, TaskFilter, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    decrypt_blob, encrypt_blob, init_account, init_device_keypair, sync_pull, sync_push,
+    unwrap_data_key, wrap_data_key, AuthMethod, Blob, BlobPush, CoreError, LocalDatabase,
+    PlaintextSettings, PlaintextSettingsSyncPayload, Platform, PlatformError, PullResponse,
+    PushResponse, RemoteBlob, SyncClient, SyncError, TaskFilter, TaskManagerCore, TaskPatch,
+    TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -51,9 +55,14 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
         Some(Commands::Account { command }) => run_account(command, cli.output, ctx.offline),
         Some(Commands::Auth { command }) => run_auth(command, cli.output, ctx.offline),
         Some(Commands::Device { command }) => run_device(command, cli.output, ctx.offline),
-        Some(Commands::Sync { command }) => {
-            run_sync(command, cli.output, ctx.db_path, &ctx.profile)
-        }
+        Some(Commands::Sync { command }) => run_sync(
+            command,
+            cli.output,
+            ctx.db_path,
+            &ctx.profile,
+            ctx.server_url,
+            ctx.offline,
+        ),
         Some(Commands::Settings { command }) => {
             run_settings(command, cli.output, ctx.config_path, &ctx.profile)
         }
@@ -75,6 +84,17 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
 
 const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
 const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
+
+impl From<taskmanager_core::SyncResult> for SyncResultOutput {
+    fn from(result: taskmanager_core::SyncResult) -> Self {
+        Self {
+            pushed: result.pushed,
+            pulled: result.pulled,
+            failed: result.failed,
+            cursor: result.cursor,
+        }
+    }
+}
 
 fn run_generate(command: GenerateCommands) -> CliResult<Option<String>> {
     match command {
@@ -233,6 +253,8 @@ fn run_sync(
     output_format: OutputFormat,
     db_path: Option<PathBuf>,
     profile: &str,
+    server_url: Option<String>,
+    offline: bool,
 ) -> CliResult<Option<String>> {
     match command {
         SyncCommands::Status => open_core(db_path, profile)?
@@ -245,21 +267,300 @@ fn run_sync(
             .map_err(CliError::from)
             .and_then(|entry| output::format_command_result(output_format, &entry))
             .map(Some),
-        SyncCommands::Push => Err(CliError::UnsupportedPlatform(
-            "sync push is not implemented until the HTTP sync client is wired".into(),
-        )),
-        SyncCommands::Pull => Err(CliError::UnsupportedPlatform(
-            "sync pull is not implemented until the HTTP sync client is wired".into(),
-        )),
-        SyncCommands::Run => Err(CliError::UnsupportedPlatform(
-            "sync run is not implemented until the HTTP sync client is wired".into(),
-        )),
+        SyncCommands::Push => {
+            let (database, platform, client, data_key) =
+                sync_runtime(db_path, profile, server_url, offline)?;
+            sync_push(&database, &platform, &client, &data_key)
+                .map(SyncResultOutput::from)
+                .map_err(CliError::from)
+                .and_then(|result| output::format_command_result(output_format, &result))
+                .map(Some)
+        }
+        SyncCommands::Pull => {
+            let (database, _platform, client, data_key) =
+                sync_runtime(db_path, profile, server_url, offline)?;
+            sync_pull(&database, &client, &data_key)
+                .map(SyncResultOutput::from)
+                .map_err(CliError::from)
+                .and_then(|result| output::format_command_result(output_format, &result))
+                .map(Some)
+        }
+        SyncCommands::Run => {
+            let (database, platform, client, data_key) =
+                sync_runtime(db_path, profile, server_url, offline)?;
+            let push =
+                sync_push(&database, &platform, &client, &data_key).map_err(CliError::from)?;
+            let pull = sync_pull(&database, &client, &data_key).map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &SyncResultOutput {
+                    pushed: push.pushed,
+                    pulled: pull.pulled,
+                    failed: push.failed + pull.failed,
+                    cursor: pull.cursor,
+                },
+            )
+            .map(Some)
+        }
         SyncCommands::Conflicts => Err(CliError::UnsupportedPlatform(
             "sync conflicts is not implemented until conflict persistence is wired".into(),
         )),
         SyncCommands::Resolve(_) => Err(CliError::UnsupportedPlatform(
             "sync resolve is not implemented until conflict persistence is wired".into(),
         )),
+    }
+}
+
+fn sync_runtime(
+    db_path: Option<PathBuf>,
+    profile: &str,
+    server_url: Option<String>,
+    offline: bool,
+) -> CliResult<(
+    LocalDatabase,
+    platform::CliPlatform,
+    HttpSyncClient,
+    Vec<u8>,
+)> {
+    let server_url = server_url
+        .ok_or_else(|| CliError::Input("--server is required for sync push/pull/run".into()))?;
+    let platform = platform::CliPlatform::new(offline);
+    let token = String::from_utf8(
+        platform
+            .load_key(AUTH_ACCESS_TOKEN_ID)
+            .map_err(CliError::from)?,
+    )
+    .map_err(|error| {
+        CliError::LocalStorage(format!("stored access token is not UTF-8: {error}"))
+    })?;
+    let data_key = platform
+        .load_key(ACCOUNT_DATA_KEY_ID)
+        .map_err(CliError::from)?;
+    let db_path = resolve_db_path(db_path, profile)?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            CliError::LocalStorage(format!("failed to create DB directory: {error}"))
+        })?;
+    }
+    let database = LocalDatabase::open(&db_path).map_err(CliError::from)?;
+    Ok((
+        database,
+        platform,
+        HttpSyncClient::new(server_url, token),
+        data_key,
+    ))
+}
+
+struct HttpSyncClient {
+    base_url: String,
+    token: String,
+    client: reqwest::blocking::Client,
+}
+
+impl HttpSyncClient {
+    fn new(base_url: String, token: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            token,
+            client: reqwest::blocking::Client::new(),
+        }
+    }
+
+    fn auth(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        request.bearer_auth(&self.token)
+    }
+}
+
+impl SyncClient for HttpSyncClient {
+    fn push_blobs(&self, blobs: Vec<BlobPush>) -> taskmanager_core::CoreResult<PushResponse> {
+        let request = BatchRequest {
+            blobs: blobs.into_iter().map(BlobRequest::from).collect(),
+        };
+        let response: BatchResponse = self
+            .auth(self.client.post(format!("{}/blobs/batch", self.base_url)))
+            .json(&request)
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(push_response_from_batch(response))
+    }
+
+    fn delete_blobs(&self, task_ids: Vec<Uuid>) -> taskmanager_core::CoreResult<PushResponse> {
+        let mut accepted_task_ids = Vec::new();
+        let mut failed_task_ids = Vec::new();
+        for task_id in task_ids {
+            let result = self
+                .auth(
+                    self.client
+                        .delete(format!("{}/blobs/{}", self.base_url, task_id)),
+                )
+                .send()
+                .map_err(|_| SyncError::NetworkUnavailable)
+                .and_then(|response| response.error_for_status().map_err(http_error));
+            match result {
+                Ok(_) => accepted_task_ids.push(task_id),
+                Err(_) => failed_task_ids.push(task_id),
+            }
+        }
+        Ok(PushResponse {
+            accepted_task_ids,
+            failed_task_ids,
+        })
+    }
+
+    fn pull_blobs(&self, since: i64) -> taskmanager_core::CoreResult<PullResponse> {
+        let response: PullWireResponse = self
+            .auth(
+                self.client
+                    .get(format!("{}/blobs", self.base_url))
+                    .query(&[("since", since)]),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(PullResponse {
+            blobs: response
+                .blobs
+                .into_iter()
+                .filter_map(remote_blob_from_wire)
+                .collect(),
+            cursor: response.cursor,
+        })
+    }
+}
+
+fn http_error(error: reqwest::Error) -> SyncError {
+    if error.status() == Some(reqwest::StatusCode::UNAUTHORIZED) {
+        SyncError::AuthExpired
+    } else {
+        SyncError::ServerError {
+            status: error.status().map_or(0, |status| status.as_u16()),
+            body: error.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct BatchRequest {
+    blobs: Vec<BlobRequest>,
+}
+
+#[derive(Serialize)]
+struct BlobRequest {
+    task_id: Uuid,
+    #[serde(with = "base64_bytes")]
+    ciphertext: Vec<u8>,
+    #[serde(with = "base64_nonce")]
+    nonce: [u8; 12],
+}
+
+impl From<BlobPush> for BlobRequest {
+    fn from(push: BlobPush) -> Self {
+        Self {
+            task_id: push.task_id,
+            ciphertext: push.blob.ciphertext,
+            nonce: push.blob.nonce,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct BatchResponse {
+    results: Vec<BatchResult>,
+}
+
+#[derive(Deserialize)]
+struct BatchResult {
+    task_id: Uuid,
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct PullWireResponse {
+    blobs: Vec<PullWireBlob>,
+    cursor: i64,
+}
+
+#[derive(Deserialize)]
+struct PullWireBlob {
+    task_id: Uuid,
+    ciphertext: Option<String>,
+    nonce: Option<String>,
+    updated_at: i64,
+    deleted: bool,
+}
+
+fn remote_blob_from_wire(blob: PullWireBlob) -> Option<RemoteBlob> {
+    if blob.deleted {
+        return None;
+    }
+    let ciphertext = base64::engine::general_purpose::STANDARD
+        .decode(blob.ciphertext?)
+        .ok()?;
+    let nonce = base64::engine::general_purpose::STANDARD
+        .decode(blob.nonce?)
+        .ok()?
+        .try_into()
+        .ok()?;
+    Some(RemoteBlob {
+        task_id: blob.task_id,
+        blob: Blob { ciphertext, nonce },
+        updated_at: blob.updated_at,
+    })
+}
+
+mod base64_bytes {
+    use base64::Engine;
+    use serde::Serializer;
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+}
+
+mod base64_nonce {
+    use base64::Engine;
+    use serde::Serializer;
+
+    pub fn serialize<S>(nonce: &[u8; 12], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(nonce))
+    }
+}
+
+fn push_response_from_batch(response: BatchResponse) -> PushResponse {
+    let mut accepted_task_ids = Vec::new();
+    let mut failed_task_ids = Vec::new();
+    for result in response.results {
+        if result.status == "ok" {
+            accepted_task_ids.push(result.task_id);
+        } else {
+            failed_task_ids.push(result.task_id);
+        }
+    }
+    PushResponse {
+        accepted_task_ids,
+        failed_task_ids,
     }
 }
 

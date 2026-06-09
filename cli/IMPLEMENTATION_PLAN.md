@@ -152,9 +152,10 @@ Expose the sync engine and local sync diagnostics.
 
 TODO:
 
-- [ ] Add `sync push`.
-- [ ] Add `sync pull [--since <cursor>]`.
-- [ ] Add `sync run`.
+- [x] Add `sync push`.
+- [x] Add `sync pull [--since <cursor>]`.
+  - Note: initial HTTP pull applies encrypted non-deleted blobs; remote tombstone application still needs a core API for synced deletes.
+- [x] Add `sync run`.
 - [x] Add `sync status`.
 - [x] Add `sync retry <task_id>`.
 - [ ] Add `sync conflicts`.
@@ -163,10 +164,10 @@ TODO:
 Interface tests to add before leaving this milestone:
 
 - [x] `sync status` reports dirty row count, retry queue depth, and cursor.
-- [ ] `sync push` clears `dirty` only for server-confirmed blobs.
-- [ ] Network failure preserves dirty rows and queues retries.
-- [ ] `sync pull` advances cursor only after successful decrypt/upsert.
-- [ ] `sync run` produces deterministic JSON summary.
+- [x] `sync push` clears `dirty` only for server-confirmed blobs.
+- [x] Network failure preserves dirty rows and queues retries.
+- [x] `sync pull` advances cursor only after successful decrypt/upsert.
+- [x] `sync run` produces deterministic JSON summary.
 - [x] `sync retry` updates queue state for the selected task.
 - [ ] Conflict commands report and resolve conflicts through core APIs.
 
