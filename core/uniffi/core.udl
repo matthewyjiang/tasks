@@ -1,83 +1,85 @@
-  enum FfiTaskStatus {
-    "inbox",
-    "in_progress",
-    "done"
-  };
+enum FfiTaskStatus {
+  "Inbox",
+  "InProgress",
+  "Done"
+};
 
-  enum FfiTaskSort {
-    "updated_at_desc",
-    "updated_at_asc",
-    "due_at_asc",
-    "due_at_desc",
-    "created_at_asc",
-    "created_at_desc"
-  };
+enum FfiTaskSort {
+  "UpdatedAtDesc",
+  "UpdatedAtAsc",
+  "DueAtAsc",
+  "DueAtDesc",
+  "CreatedAtAsc",
+  "CreatedAtDesc"
+};
 
-  dictionary FfiTask {
-    string id;
-    string title;
-    string body;
-    i64? due_at;
-    FfiTaskStatus status;
-    string? project_id;
-    sequence<string> tags;
-    i64 created_at;
-    i64 updated_at;
-    boolean deleted;
-    boolean dirty;
-  };
+dictionary FfiTask {
+  string id;
+  string title;
+  string body;
+  i64? due_at;
+  FfiTaskStatus status;
+  string? project_id;
+  sequence<string> tags;
+  i64 created_at;
+  i64 updated_at;
+  boolean deleted;
+  boolean dirty;
+};
 
-  dictionary FfiTaskPatch {
-    string? title;
-    string? body;
-    i64? due_at;
-    boolean clear_due_at;
-    FfiTaskStatus? status;
-    string? project_id;
-    boolean clear_project_id;
-    sequence<string>? tags;
-  };
+dictionary FfiTaskPatch {
+  string? title;
+  string? body;
+  i64? due_at;
+  boolean clear_due_at;
+  FfiTaskStatus? status;
+  string? project_id;
+  boolean clear_project_id;
+  sequence<string>? tags;
+};
 
-  dictionary FfiTaskFilter {
-    FfiTaskStatus? status;
-    string? project_id;
-    i64? due_after;
-    i64? due_before;
-    boolean include_deleted;
-  };
+dictionary FfiTaskFilter {
+  FfiTaskStatus? status;
+  string? project_id;
+  i64? due_after;
+  i64? due_before;
+  boolean include_deleted;
+};
 
-  dictionary FfiBlob {
-    sequence<u8> ciphertext;
-    sequence<u8> nonce;
-  };
+dictionary FfiBlob {
+  sequence<u8> ciphertext;
+  sequence<u8> nonce;
+};
 
-  [Error]
-  interface FfiCoreError {
-    crypto_error(string message);
-    database_error(string message);
-    sync_error(string message);
-    platform_error(string message);
-    settings_error(string message);
-    serialization_error(string message);
-    invalid_uuid(string message);
-    invalid_nonce(string message);
-  };
+[Error]
+interface FfiCoreError {
+  CryptoError(string error_message);
+  DatabaseError(string error_message);
+  SyncError(string error_message);
+  PlatformError(string error_message);
+  SettingsError(string error_message);
+  SerializationError(string error_message);
+  InvalidUuid(string error_message);
+  InvalidNonce(string error_message);
+  InvalidPatch(string error_message);
+};
 
-  interface FfiTaskManagerCore {
-    constructor(string database_path);
-    [Throws=FfiCoreError]
-    FfiTask create_task(string title, string body, i64? due_at);
-    [Throws=FfiCoreError]
-    FfiTask get_task(string task_id);
-    [Throws=FfiCoreError]
-    FfiTask update_task(string task_id, FfiTaskPatch patch);
-    [Throws=FfiCoreError]
-    void delete_task(string task_id);
-    [Throws=FfiCoreError]
-    sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
-    [Throws=FfiCoreError]
-    sequence<FfiTask> search_tasks(string query);
-  };
+interface FfiTaskManagerCore {
+  [Throws=FfiCoreError]
+  constructor(string database_path);
+  [Throws=FfiCoreError]
+  FfiTask create_task(string title, string body, i64? due_at);
+  [Throws=FfiCoreError]
+  FfiTask get_task(string task_id);
+  [Throws=FfiCoreError]
+  FfiTask update_task(string task_id, FfiTaskPatch patch);
+  [Throws=FfiCoreError]
+  void delete_task(string task_id);
+  [Throws=FfiCoreError]
+  sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
+  [Throws=FfiCoreError]
+  sequence<FfiTask> search_tasks(string query);
+};
 
 namespace taskmanager_core {
   [Throws=FfiCoreError]

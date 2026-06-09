@@ -12,6 +12,8 @@ pub mod settings;
 pub mod sync;
 pub mod types;
 
+uniffi::include_scaffolding!("core");
+
 pub use core::TaskManagerCore;
 pub use crypto::{
     decrypt_blob, encrypt_blob, generate_data_key, generate_device_keypair, unwrap_data_key,

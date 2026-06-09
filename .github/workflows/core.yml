@@ -23,6 +23,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo test -p taskmanager-core
+      - run: cargo build -p taskmanager-core
+      - name: Verify UniFFI symbols are exported
+        run: |
+          nm -g target/debug/libtaskmanager_core.so | grep uniffi_taskmanager_core_fn_method_ffitaskmanagercore_create_task
+          nm -g target/debug/libtaskmanager_core.so | grep ffi_taskmanager_core_uniffi_contract_version
 
   uniffi-swift:
     runs-on: macos-latest

@@ -1,5 +1,6 @@
 use std::fmt;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 
 use uuid::Uuid;
 
@@ -77,18 +78,20 @@ pub enum FfiCoreErrorKind {
     SerializationError,
     InvalidUuid,
     InvalidNonce,
+    InvalidPatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FfiCoreError {
-    CryptoError { message: String },
-    DatabaseError { message: String },
-    SyncError { message: String },
-    PlatformError { message: String },
-    SettingsError { message: String },
-    SerializationError { message: String },
-    InvalidUuid { message: String },
-    InvalidNonce { message: String },
+    CryptoError { error_message: String },
+    DatabaseError { error_message: String },
+    SyncError { error_message: String },
+    PlatformError { error_message: String },
+    SettingsError { error_message: String },
+    SerializationError { error_message: String },
+    InvalidUuid { error_message: String },
+    InvalidNonce { error_message: String },
+    InvalidPatch { error_message: String },
 }
 
 impl FfiCoreError {
@@ -102,19 +105,21 @@ impl FfiCoreError {
             Self::SerializationError { .. } => FfiCoreErrorKind::SerializationError,
             Self::InvalidUuid { .. } => FfiCoreErrorKind::InvalidUuid,
             Self::InvalidNonce { .. } => FfiCoreErrorKind::InvalidNonce,
+            Self::InvalidPatch { .. } => FfiCoreErrorKind::InvalidPatch,
         }
     }
 
     pub fn message(&self) -> &str {
         match self {
-            Self::CryptoError { message }
-            | Self::DatabaseError { message }
-            | Self::SyncError { message }
-            | Self::PlatformError { message }
-            | Self::SettingsError { message }
-            | Self::SerializationError { message }
-            | Self::InvalidUuid { message }
-            | Self::InvalidNonce { message } => message,
+            Self::CryptoError { error_message }
+            | Self::DatabaseError { error_message }
+            | Self::SyncError { error_message }
+            | Self::PlatformError { error_message }
+            | Self::SettingsError { error_message }
+            | Self::SerializationError { error_message }
+            | Self::InvalidUuid { error_message }
+            | Self::InvalidNonce { error_message }
+            | Self::InvalidPatch { error_message } => error_message,
         }
     }
 }
@@ -128,13 +133,15 @@ impl fmt::Display for FfiCoreError {
 impl std::error::Error for FfiCoreError {}
 
 pub struct FfiTaskManagerCore {
-    inner: TaskManagerCore,
+    inner: Mutex<TaskManagerCore>,
 }
 
 impl FfiTaskManagerCore {
     pub fn new(database_path: String) -> Result<Self, FfiCoreError> {
         let inner = TaskManagerCore::open(Path::new(&database_path)).map_err(FfiCoreError::from)?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner: Mutex::new(inner),
+        })
     }
 
     pub fn create_task(
@@ -143,14 +150,14 @@ impl FfiTaskManagerCore {
         body: String,
         due_at: Option<i64>,
     ) -> Result<FfiTask, FfiCoreError> {
-        self.inner
+        self.inner()?
             .create_task(title, body, due_at)
             .map(FfiTask::from)
             .map_err(FfiCoreError::from)
     }
 
     pub fn get_task(&self, task_id: String) -> Result<FfiTask, FfiCoreError> {
-        self.inner
+        self.inner()?
             .get_task(parse_uuid(&task_id)?)
             .map(FfiTask::from)
             .map_err(FfiCoreError::from)
@@ -161,14 +168,14 @@ impl FfiTaskManagerCore {
         task_id: String,
         patch: FfiTaskPatch,
     ) -> Result<FfiTask, FfiCoreError> {
-        self.inner
+        self.inner()?
             .update_task(parse_uuid(&task_id)?, patch.try_into()?)
             .map(FfiTask::from)
             .map_err(FfiCoreError::from)
     }
 
     pub fn delete_task(&self, task_id: String) -> Result<(), FfiCoreError> {
-        self.inner
+        self.inner()?
             .delete_task(parse_uuid(&task_id)?)
             .map_err(FfiCoreError::from)
     }
@@ -178,17 +185,23 @@ impl FfiTaskManagerCore {
         filter: FfiTaskFilter,
         sort: FfiTaskSort,
     ) -> Result<Vec<FfiTask>, FfiCoreError> {
-        self.inner
+        self.inner()?
             .list_tasks(filter.try_into()?, sort.into())
             .map(|tasks| tasks.into_iter().map(FfiTask::from).collect())
             .map_err(FfiCoreError::from)
     }
 
     pub fn search_tasks(&self, query: String) -> Result<Vec<FfiTask>, FfiCoreError> {
-        self.inner
+        self.inner()?
             .search_tasks(query)
             .map(|tasks| tasks.into_iter().map(FfiTask::from).collect())
             .map_err(FfiCoreError::from)
+    }
+
+    fn inner(&self) -> Result<MutexGuard<'_, TaskManagerCore>, FfiCoreError> {
+        self.inner.lock().map_err(|_| FfiCoreError::DatabaseError {
+            error_message: "task manager core lock poisoned".to_owned(),
+        })
     }
 }
 
@@ -296,6 +309,17 @@ impl TryFrom<FfiTaskPatch> for TaskPatch {
     type Error = FfiCoreError;
 
     fn try_from(patch: FfiTaskPatch) -> Result<Self, Self::Error> {
+        if patch.clear_due_at && patch.due_at.is_some() {
+            return Err(FfiCoreError::InvalidPatch {
+                error_message: "due_at cannot be set and cleared in the same patch".to_owned(),
+            });
+        }
+        if patch.clear_project_id && patch.project_id.is_some() {
+            return Err(FfiCoreError::InvalidPatch {
+                error_message: "project_id cannot be set and cleared in the same patch".to_owned(),
+            });
+        }
+
         Ok(Self {
             title: patch.title,
             body: patch.body,
@@ -351,7 +375,7 @@ impl TryFrom<FfiBlob> for Blob {
             blob.nonce
                 .try_into()
                 .map_err(|nonce: Vec<u8>| FfiCoreError::InvalidNonce {
-                    message: format!(
+                    error_message: format!(
                         "invalid nonce length: expected 12 bytes, got {}",
                         nonce.len()
                     ),
@@ -365,21 +389,21 @@ impl TryFrom<FfiBlob> for Blob {
 
 impl From<CoreError> for FfiCoreError {
     fn from(error: CoreError) -> Self {
-        let message = error.to_string();
+        let error_message = error.to_string();
         match error {
-            CoreError::Crypto(_) => Self::CryptoError { message },
-            CoreError::Database(_) => Self::DatabaseError { message },
-            CoreError::Sync(_) => Self::SyncError { message },
-            CoreError::Platform(_) => Self::PlatformError { message },
-            CoreError::Settings(_) => Self::SettingsError { message },
-            CoreError::Serialization(_) => Self::SerializationError { message },
+            CoreError::Crypto(_) => Self::CryptoError { error_message },
+            CoreError::Database(_) => Self::DatabaseError { error_message },
+            CoreError::Sync(_) => Self::SyncError { error_message },
+            CoreError::Platform(_) => Self::PlatformError { error_message },
+            CoreError::Settings(_) => Self::SettingsError { error_message },
+            CoreError::Serialization(_) => Self::SerializationError { error_message },
         }
     }
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, FfiCoreError> {
     Uuid::parse_str(value).map_err(|error| FfiCoreError::InvalidUuid {
-        message: format!("invalid UUID '{value}': {error}"),
+        error_message: format!("invalid UUID '{value}': {error}"),
     })
 }
 
@@ -449,6 +473,25 @@ mod tests {
     }
 
     #[test]
+    fn ffi_patch_rejects_conflicting_nullable_field_operations() {
+        let due_at_error = TaskPatch::try_from(FfiTaskPatch {
+            due_at: Some(10),
+            clear_due_at: true,
+            ..FfiTaskPatch::default()
+        })
+        .unwrap_err();
+        assert_eq!(due_at_error.kind(), FfiCoreErrorKind::InvalidPatch);
+
+        let project_id_error = TaskPatch::try_from(FfiTaskPatch {
+            project_id: Some(Uuid::new_v4().to_string()),
+            clear_project_id: true,
+            ..FfiTaskPatch::default()
+        })
+        .unwrap_err();
+        assert_eq!(project_id_error.kind(), FfiCoreErrorKind::InvalidPatch);
+    }
+
+    #[test]
     fn ffi_crypto_maps_byte_arrays_and_nonce_lengths() {
         let key = generate_account_data_key();
         let task = FfiTask {
@@ -494,6 +537,7 @@ mod tests {
             "encrypt_task_blob",
             "decrypt_task_blob",
             "generate_account_data_key",
+            "InvalidPatch",
         ] {
             assert!(udl.contains(expected), "UDL missing {expected}");
         }
