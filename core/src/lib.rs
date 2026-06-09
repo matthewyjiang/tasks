@@ -25,7 +25,7 @@ pub use platform::{
 };
 pub use settings::{
     AuthMethod, DefaultSort, DisplayDensity, PlaintextSettings, PlaintextSettingsSyncPayload,
-    Theme, VaultSettings, PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID,
+    Theme, VaultSettings, VaultSettingsBlob, PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID,
     VAULT_SETTINGS_SCHEMA_VERSION,
 };
 pub use types::{Blob, SyncResult, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};

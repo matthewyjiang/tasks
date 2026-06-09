@@ -2,12 +2,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use crate::crypto::{decrypt_blob, encrypt_blob};
 use crate::error::{CoreResult, SettingsError};
 use crate::types::{Blob, Task, TaskStatus};
+use serde::{Deserialize, Serialize};
 
 pub const PLAINTEXT_SETTINGS_SCHEMA_VERSION: i32 = 1;
 pub const VAULT_SETTINGS_SCHEMA_VERSION: i32 = 1;
@@ -49,6 +47,12 @@ pub struct VaultSettings {
     pub display_density: DisplayDensity,
     pub first_day_of_week: i32,
     pub notification_sound: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VaultSettingsBlob {
+    pub id: String,
+    pub blob: Blob,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,17 +140,20 @@ impl Default for VaultSettings {
 }
 
 impl VaultSettings {
-    pub fn encrypt(&self, key: &[u8]) -> CoreResult<Blob> {
+    pub fn encrypt(&self, key: &[u8]) -> CoreResult<VaultSettingsBlob> {
         let task = self.to_reserved_task()?;
-        encrypt_blob(&task, key)
+        Ok(VaultSettingsBlob {
+            id: VAULT_SETTINGS_ID.to_owned(),
+            blob: encrypt_blob(&task, key)?,
+        })
     }
 
-    pub fn decrypt(blob: &Blob, key: &[u8]) -> CoreResult<Self> {
-        let task = decrypt_blob(blob, key)?;
-        if task.id != vault_settings_uuid() {
-            return Err(SettingsError::UnexpectedVaultSettingsId(task.id.to_string()).into());
+    pub fn decrypt(encrypted: &VaultSettingsBlob, key: &[u8]) -> CoreResult<Self> {
+        if encrypted.id != VAULT_SETTINGS_ID {
+            return Err(SettingsError::UnexpectedVaultSettingsId(encrypted.id.clone()).into());
         }
 
+        let task = decrypt_blob(&encrypted.blob, key)?;
         let settings: Self = serde_json::from_str(&task.body)?;
         settings.validate_schema_version()?;
         Ok(settings)
@@ -164,7 +171,7 @@ impl VaultSettings {
         self.validate_schema_version()?;
 
         Ok(Task {
-            id: vault_settings_uuid(),
+            id: uuid::Uuid::nil(),
             title: VAULT_SETTINGS_ID.to_owned(),
             body: serde_json::to_string(self)?,
             due_at: None,
@@ -184,10 +191,6 @@ impl VaultSettings {
         }
         Ok(())
     }
-}
-
-fn vault_settings_uuid() -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_URL, VAULT_SETTINGS_ID.as_bytes())
 }
 
 #[cfg(test)]
@@ -318,18 +321,34 @@ mod tests {
         let key = generate_data_key();
         let settings = VaultSettings::default();
 
-        let blob = settings.encrypt(&key).unwrap();
-        let decrypted = VaultSettings::decrypt(&blob, &key).unwrap();
+        let encrypted = settings.encrypt(&key).unwrap();
+        let decrypted = VaultSettings::decrypt(&encrypted, &key).unwrap();
 
         assert_eq!(decrypted, settings);
     }
 
     #[test]
-    fn vault_settings_use_reserved_id() {
-        let task = VaultSettings::default().to_reserved_task().unwrap();
+    fn vault_settings_use_literal_reserved_blob_id() {
+        let encrypted = VaultSettings::default()
+            .encrypt(&generate_data_key())
+            .unwrap();
 
-        assert_eq!(task.id, vault_settings_uuid());
-        assert_eq!(task.title, VAULT_SETTINGS_ID);
+        assert_eq!(encrypted.id, VAULT_SETTINGS_ID);
+    }
+
+    #[test]
+    fn vault_settings_reject_unexpected_blob_id() {
+        let key = generate_data_key();
+        let mut encrypted = VaultSettings::default().encrypt(&key).unwrap();
+        encrypted.id = "not_vault_settings".to_owned();
+
+        let error = VaultSettings::decrypt(&encrypted, &key).unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Settings(SettingsError::UnexpectedVaultSettingsId(id))
+                if id == "not_vault_settings"
+        ));
     }
 
     #[test]
