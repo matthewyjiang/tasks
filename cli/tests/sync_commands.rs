@@ -16,8 +16,12 @@ impl SyncCli {
     }
 
     fn command(&self) -> Command {
+        Self::command_with_db(&self.db)
+    }
+
+    fn command_with_db(db: &std::path::Path) -> Command {
         let mut cmd = Command::cargo_bin("taskmanager").unwrap();
-        cmd.args(["--db", self.db.to_str().unwrap(), "--output", "json"]);
+        cmd.args(["--db", db.to_str().unwrap(), "--output", "json"]);
         cmd
     }
 
@@ -69,10 +73,41 @@ fn sync_retry_updates_queue_state_for_selected_task() {
 }
 
 #[test]
+fn sync_retry_rejects_unknown_tasks_without_queuing_orphan_entries() {
+    let cli = SyncCli::new();
+    cli.json(&["task", "create", "known task"]);
+
+    cli.command()
+        .args(["sync", "retry", "00000000-0000-0000-0000-000000000000"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("task not found"));
+
+    let status = cli.json(&["sync", "status"]);
+    assert_eq!(status["result"]["retry_queue_depth"], 0);
+}
+
+#[test]
 fn unwired_sync_network_commands_return_clear_errors() {
     let cli = SyncCli::new();
 
     cli.command()
+        .args(["sync", "push"])
+        .assert()
+        .failure()
+        .code(6)
+        .stderr(predicate::str::contains("HTTP sync client"));
+}
+
+#[test]
+fn unwired_sync_network_commands_do_not_open_or_create_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let blocked_parent = temp.path().join("not-a-directory");
+    std::fs::write(&blocked_parent, b"file").unwrap();
+    let invalid_db = blocked_parent.join("tasks.db");
+
+    SyncCli::command_with_db(&invalid_db)
         .args(["sync", "push"])
         .assert()
         .failure()

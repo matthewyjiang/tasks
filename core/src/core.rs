@@ -74,6 +74,7 @@ impl TaskManagerCore {
     }
 
     pub fn queue_sync_retry(&self, task_id: Uuid, now: i64) -> CoreResult<RetryQueueEntry> {
+        self.database.get_task(task_id)?;
         self.database.queue_retry(task_id, now)?;
         self.retry_queue_entries()?
             .into_iter()

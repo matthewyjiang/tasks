@@ -195,14 +195,13 @@ fn run_sync(
     db_path: Option<PathBuf>,
     profile: &str,
 ) -> CliResult<Option<String>> {
-    let core = open_core(db_path, profile)?;
     match command {
-        SyncCommands::Status => core
+        SyncCommands::Status => open_core(db_path, profile)?
             .sync_status()
             .map_err(CliError::from)
             .and_then(|status| output::format_command_result(output_format, &status))
             .map(Some),
-        SyncCommands::Retry(args) => core
+        SyncCommands::Retry(args) => open_core(db_path, profile)?
             .queue_sync_retry(args.id, now_ms())
             .map_err(CliError::from)
             .and_then(|entry| output::format_command_result(output_format, &entry))
