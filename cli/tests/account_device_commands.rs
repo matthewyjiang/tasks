@@ -50,13 +50,17 @@ fn account_init_initializes_local_keys_and_returns_public_key() {
 }
 
 #[test]
-fn account_init_can_be_rerun_and_returns_a_public_key() {
+fn account_init_rerun_returns_stable_already_exists_error() {
     let cli = KeyCli::new();
 
     cli.json(&["account", "init"]);
-    let second = cli.json(&["account", "init"]);
 
-    assert!(!second["result"]["public_key"].as_str().unwrap().is_empty());
+    cli.command()
+        .args(["account", "init"])
+        .assert()
+        .failure()
+        .code(5)
+        .stderr(predicate::str::contains("account already exists"));
 }
 
 #[test]
@@ -155,4 +159,17 @@ fn malformed_peer_public_key_fails_with_crypto_exit_code() {
         .failure()
         .code(3)
         .stderr(predicate::str::contains("crypto error"));
+}
+
+#[test]
+fn non_ascii_hex_fails_without_panicking() {
+    let cli = KeyCli::new();
+    cli.json(&["account", "init"]);
+
+    cli.command()
+        .args(["device", "wrap-key", "--target", "éé"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("hex value must contain ASCII"));
 }

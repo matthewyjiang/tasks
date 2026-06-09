@@ -14,8 +14,9 @@ use output::{
     VersionOutput, WrappedKeyOutput,
 };
 use taskmanager_core::{
-    init_account, init_device_keypair, unwrap_data_key, wrap_data_key, Blob, Platform, TaskFilter,
-    TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+    init_account, init_device_keypair, unwrap_data_key, wrap_data_key, Blob, CoreError, Platform,
+    PlatformError, TaskFilter, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
+    DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -64,6 +65,12 @@ fn run_account(
     match command {
         AccountCommands::Init => {
             let platform = platform::CliPlatform::new(offline);
+            if key_exists(&platform, DEVICE_PRIVATE_KEY_ID)?
+                || key_exists(&platform, ACCOUNT_DATA_KEY_ID)?
+            {
+                return Err(CliError::Conflict("account already exists".into()));
+            }
+
             let public_key = init_account(&platform).map_err(CliError::from)?;
             output::format_command_result(
                 output_format,
@@ -307,19 +314,35 @@ fn update_status(
     .map(Some)
 }
 
+fn key_exists(platform: &dyn Platform, id: &str) -> CliResult<bool> {
+    match platform.load_key(id) {
+        Ok(_) => Ok(true),
+        Err(CoreError::Platform(PlatformError::KeyNotFound(_))) => Ok(false),
+        Err(error) => Err(CliError::from(error)),
+    }
+}
+
 fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn from_hex(value: &str) -> CliResult<Vec<u8>> {
+    if !value.is_ascii() {
+        return Err(CliError::Input(
+            "hex value must contain ASCII characters only".into(),
+        ));
+    }
     if !value.len().is_multiple_of(2) {
         return Err(CliError::Input("hex value must have an even length".into()));
     }
 
-    (0..value.len())
-        .step_by(2)
-        .map(|index| {
-            u8::from_str_radix(&value[index..index + 2], 16)
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|chunk| {
+            let text = std::str::from_utf8(chunk)
+                .map_err(|_| CliError::Input("hex value contains invalid characters".into()))?;
+            u8::from_str_radix(text, 16)
                 .map_err(|_| CliError::Input("hex value contains invalid characters".into()))
         })
         .collect()
