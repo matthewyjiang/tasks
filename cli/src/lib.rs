@@ -19,9 +19,9 @@ use args::{
 use clap::{CommandFactory, Parser};
 use error::{CliError, CliResult};
 use output::{
-    AuthOutput, ConfigureOutput, CryptoVerifyOutput, DeleteOutput, LogoutOutput, OutputFormat,
-    PublicKeyOutput, SecretBytesOutput, SyncResultOutput, UnwrappedKeyOutput, VersionOutput,
-    WrappedKeyOutput,
+    AccountClearOutput, AuthOutput, ConfigureOutput, CryptoVerifyOutput, DeleteOutput,
+    LogoutOutput, OutputFormat, PublicKeyOutput, SecretBytesOutput, SyncResultOutput,
+    UnwrappedKeyOutput, VersionOutput, WrappedKeyOutput,
 };
 use taskmanager_core::{
     decrypt_blob, encrypt_blob, init_account, init_device_keypair, public_key_from_private_key,
@@ -351,6 +351,30 @@ fn run_account(
                 output_format,
                 &PublicKeyOutput {
                     public_key: to_hex(&public_key),
+                },
+            )
+            .map(Some)
+        }
+        AccountCommands::Clear => {
+            let platform = platform::CliPlatform::new(offline);
+            platform
+                .delete_key(AUTH_ACCESS_TOKEN_ID)
+                .map_err(CliError::from)?;
+            platform
+                .delete_key(AUTH_REFRESH_TOKEN_ID)
+                .map_err(CliError::from)?;
+            platform
+                .delete_key(DEVICE_PRIVATE_KEY_ID)
+                .map_err(CliError::from)?;
+            platform
+                .delete_key(ACCOUNT_DATA_KEY_ID)
+                .map_err(CliError::from)?;
+            output::format_command_result(
+                output_format,
+                &AccountClearOutput {
+                    auth_tokens_cleared: true,
+                    device_private_key_cleared: true,
+                    account_data_key_cleared: true,
                 },
             )
             .map(Some)

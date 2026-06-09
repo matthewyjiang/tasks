@@ -7,6 +7,7 @@ struct SyncCli {
     _temp: TempDir,
     db: std::path::PathBuf,
     config: std::path::PathBuf,
+    key_dir: std::path::PathBuf,
 }
 
 impl SyncCli {
@@ -14,16 +15,19 @@ impl SyncCli {
         let temp = tempfile::tempdir().unwrap();
         let db = temp.path().join("tasks.db");
         let config = temp.path().join("settings.json");
+        let key_dir = temp.path().join("keys");
         Self {
             _temp: temp,
             db,
             config,
+            key_dir,
         }
     }
 
     fn command(&self) -> Command {
         let mut cmd = Self::command_with_db(&self.db);
-        cmd.args(["--config", self.config.to_str().unwrap()]);
+        cmd.args(["--config", self.config.to_str().unwrap()])
+            .env("TASKMANAGER_INSECURE_KEY_DIR", &self.key_dir);
         cmd
     }
 
@@ -128,8 +132,10 @@ fn server_sync_commands_without_server_do_not_open_or_create_database() {
     std::fs::write(&blocked_parent, b"file").unwrap();
     let invalid_db = blocked_parent.join("tasks.db");
 
+    let config = temp.path().join("settings.json");
     SyncCli::command_with_db(&invalid_db)
-        .args(["sync", "push"])
+        .args(["--config", config.to_str().unwrap(), "sync", "push"])
+        .env("TASKMANAGER_INSECURE_KEY_DIR", temp.path().join("keys"))
         .assert()
         .failure()
         .code(1)

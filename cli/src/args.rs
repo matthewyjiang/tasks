@@ -120,6 +120,8 @@ pub struct ConfigureArgs {
 pub enum AccountCommands {
     /// Initialize account keys locally.
     Init,
+    /// Clear local account/device keys and auth tokens from the platform key store.
+    Clear,
 }
 
 #[derive(Debug, Subcommand)]

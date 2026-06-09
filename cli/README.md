@@ -111,6 +111,12 @@ Initialize account keys:
 taskmanager --output json account init
 ```
 
+Clear local account/device keys and auth tokens from the platform key store:
+
+```sh
+taskmanager --output json account clear
+```
+
 Initialize only a device keypair:
 
 ```sh
