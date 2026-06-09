@@ -6,7 +6,9 @@ pub mod platform;
 
 use std::path::PathBuf;
 
-use args::{AccountCommands, AuthCommands, Cli, Commands, DeviceCommands, TaskCommands};
+use args::{
+    AccountCommands, AuthCommands, Cli, Commands, DeviceCommands, SyncCommands, TaskCommands,
+};
 use clap::Parser;
 use error::{CliError, CliResult};
 use output::{
@@ -47,6 +49,9 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
         Some(Commands::Account { command }) => run_account(command, cli.output, ctx.offline),
         Some(Commands::Auth { command }) => run_auth(command, cli.output, ctx.offline),
         Some(Commands::Device { command }) => run_device(command, cli.output, ctx.offline),
+        Some(Commands::Sync { command }) => {
+            run_sync(command, cli.output, ctx.db_path, &ctx.profile)
+        }
         Some(Commands::Task { command }) => {
             run_task(command, cli.output, ctx.db_path, &ctx.profile)
         }
@@ -184,19 +189,49 @@ fn run_device(
     }
 }
 
+fn run_sync(
+    command: SyncCommands,
+    output_format: OutputFormat,
+    db_path: Option<PathBuf>,
+    profile: &str,
+) -> CliResult<Option<String>> {
+    let core = open_core(db_path, profile)?;
+    match command {
+        SyncCommands::Status => core
+            .sync_status()
+            .map_err(CliError::from)
+            .and_then(|status| output::format_command_result(output_format, &status))
+            .map(Some),
+        SyncCommands::Retry(args) => core
+            .queue_sync_retry(args.id, now_ms())
+            .map_err(CliError::from)
+            .and_then(|entry| output::format_command_result(output_format, &entry))
+            .map(Some),
+        SyncCommands::Push => Err(CliError::UnsupportedPlatform(
+            "sync push is not implemented until the HTTP sync client is wired".into(),
+        )),
+        SyncCommands::Pull => Err(CliError::UnsupportedPlatform(
+            "sync pull is not implemented until the HTTP sync client is wired".into(),
+        )),
+        SyncCommands::Run => Err(CliError::UnsupportedPlatform(
+            "sync run is not implemented until the HTTP sync client is wired".into(),
+        )),
+        SyncCommands::Conflicts => Err(CliError::UnsupportedPlatform(
+            "sync conflicts is not implemented until conflict persistence is wired".into(),
+        )),
+        SyncCommands::Resolve(_) => Err(CliError::UnsupportedPlatform(
+            "sync resolve is not implemented until conflict persistence is wired".into(),
+        )),
+    }
+}
+
 fn run_task(
     command: TaskCommands,
     output_format: OutputFormat,
     db_path: Option<PathBuf>,
     profile: &str,
 ) -> CliResult<Option<String>> {
-    let db_path = resolve_db_path(db_path, profile)?;
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            CliError::LocalStorage(format!("failed to create DB directory: {error}"))
-        })?;
-    }
-    let core = TaskManagerCore::open(&db_path).map_err(CliError::from)?;
+    let core = open_core(db_path, profile)?;
 
     match command {
         TaskCommands::Create(args) => {
@@ -320,6 +355,24 @@ fn key_exists(platform: &dyn Platform, id: &str) -> CliResult<bool> {
         Err(CoreError::Platform(PlatformError::KeyNotFound(_))) => Ok(false),
         Err(error) => Err(CliError::from(error)),
     }
+}
+
+fn open_core(db_path: Option<PathBuf>, profile: &str) -> CliResult<TaskManagerCore> {
+    let db_path = resolve_db_path(db_path, profile)?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            CliError::LocalStorage(format!("failed to create DB directory: {error}"))
+        })?;
+    }
+    TaskManagerCore::open(&db_path).map_err(CliError::from)
+}
+
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
 }
 
 fn to_hex(bytes: &[u8]) -> String {

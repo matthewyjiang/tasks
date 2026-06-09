@@ -63,6 +63,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: DeviceCommands,
     },
+    /// Inspect and manage sync state.
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommands,
+    },
     /// Manage local tasks.
     Task {
         #[command(subcommand)]
@@ -125,6 +130,24 @@ pub struct DeviceUnwrapKeyArgs {
 
     #[arg(long)]
     pub nonce: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SyncCommands {
+    /// Report local sync diagnostics.
+    Status,
+    /// Queue a task for sync retry.
+    Retry(TaskIdArgs),
+    /// Push local changes to server. Not implemented until HTTP sync client is wired.
+    Push,
+    /// Pull remote changes from server. Not implemented until HTTP sync client is wired.
+    Pull,
+    /// Run pull then push. Not implemented until HTTP sync client is wired.
+    Run,
+    /// List conflicts. Not implemented until conflict persistence is wired.
+    Conflicts,
+    /// Resolve a conflict. Not implemented until conflict persistence is wired.
+    Resolve(TaskIdArgs),
 }
 
 #[derive(Debug, Subcommand)]

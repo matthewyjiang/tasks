@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::db::LocalDatabase;
 use crate::error::CoreResult;
-use crate::types::{Task, TaskFilter, TaskPatch, TaskSort};
+use crate::types::{RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskPatch, TaskSort};
 
 pub struct TaskManagerCore {
     database: LocalDatabase,
@@ -50,6 +50,35 @@ impl TaskManagerCore {
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         self.database.search_tasks(query)
+    }
+
+    pub fn sync_status(&self) -> CoreResult<SyncStatus> {
+        Ok(SyncStatus {
+            dirty_count: self.database.dirty_tasks()?.len(),
+            retry_queue_depth: self.database.retry_queue_entries()?.len(),
+            cursor: self.database.last_pull_cursor()?,
+        })
+    }
+
+    pub fn retry_queue_entries(&self) -> CoreResult<Vec<RetryQueueEntry>> {
+        Ok(self
+            .database
+            .retry_queue_entries()?
+            .into_iter()
+            .map(|(task_id, attempt, next_retry)| RetryQueueEntry {
+                task_id,
+                attempt,
+                next_retry,
+            })
+            .collect())
+    }
+
+    pub fn queue_sync_retry(&self, task_id: Uuid, now: i64) -> CoreResult<RetryQueueEntry> {
+        self.database.queue_retry(task_id, now)?;
+        self.retry_queue_entries()?
+            .into_iter()
+            .find(|entry| entry.task_id == task_id)
+            .ok_or_else(|| crate::error::DbError::TaskNotFound(task_id).into())
     }
 }
 
