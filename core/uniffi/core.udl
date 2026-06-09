@@ -52,15 +52,15 @@
   };
 
   [Error]
-  enum FfiCoreError {
-    "crypto_error",
-    "database_error",
-    "sync_error",
-    "platform_error",
-    "settings_error",
-    "serialization_error",
-    "invalid_uuid",
-    "invalid_nonce"
+  interface FfiCoreError {
+    crypto_error(string message);
+    database_error(string message);
+    sync_error(string message);
+    platform_error(string message);
+    settings_error(string message);
+    serialization_error(string message);
+    invalid_uuid(string message);
+    invalid_nonce(string message);
   };
 
   interface FfiTaskManagerCore {

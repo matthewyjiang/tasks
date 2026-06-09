@@ -80,14 +80,48 @@ pub enum FfiCoreErrorKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FfiCoreError {
-    pub kind: FfiCoreErrorKind,
-    pub message: String,
+pub enum FfiCoreError {
+    CryptoError { message: String },
+    DatabaseError { message: String },
+    SyncError { message: String },
+    PlatformError { message: String },
+    SettingsError { message: String },
+    SerializationError { message: String },
+    InvalidUuid { message: String },
+    InvalidNonce { message: String },
+}
+
+impl FfiCoreError {
+    pub fn kind(&self) -> FfiCoreErrorKind {
+        match self {
+            Self::CryptoError { .. } => FfiCoreErrorKind::CryptoError,
+            Self::DatabaseError { .. } => FfiCoreErrorKind::DatabaseError,
+            Self::SyncError { .. } => FfiCoreErrorKind::SyncError,
+            Self::PlatformError { .. } => FfiCoreErrorKind::PlatformError,
+            Self::SettingsError { .. } => FfiCoreErrorKind::SettingsError,
+            Self::SerializationError { .. } => FfiCoreErrorKind::SerializationError,
+            Self::InvalidUuid { .. } => FfiCoreErrorKind::InvalidUuid,
+            Self::InvalidNonce { .. } => FfiCoreErrorKind::InvalidNonce,
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            Self::CryptoError { message }
+            | Self::DatabaseError { message }
+            | Self::SyncError { message }
+            | Self::PlatformError { message }
+            | Self::SettingsError { message }
+            | Self::SerializationError { message }
+            | Self::InvalidUuid { message }
+            | Self::InvalidNonce { message } => message,
+        }
+    }
 }
 
 impl fmt::Display for FfiCoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.message)
+        write!(formatter, "{}", self.message())
     }
 }
 
@@ -313,16 +347,15 @@ impl TryFrom<FfiBlob> for Blob {
     type Error = FfiCoreError;
 
     fn try_from(blob: FfiBlob) -> Result<Self, Self::Error> {
-        let nonce: [u8; 12] = blob
-            .nonce
-            .try_into()
-            .map_err(|nonce: Vec<u8>| FfiCoreError {
-                kind: FfiCoreErrorKind::InvalidNonce,
-                message: format!(
-                    "invalid nonce length: expected 12 bytes, got {}",
-                    nonce.len()
-                ),
-            })?;
+        let nonce: [u8; 12] =
+            blob.nonce
+                .try_into()
+                .map_err(|nonce: Vec<u8>| FfiCoreError::InvalidNonce {
+                    message: format!(
+                        "invalid nonce length: expected 12 bytes, got {}",
+                        nonce.len()
+                    ),
+                })?;
         Ok(Self {
             ciphertext: blob.ciphertext,
             nonce,
@@ -332,24 +365,20 @@ impl TryFrom<FfiBlob> for Blob {
 
 impl From<CoreError> for FfiCoreError {
     fn from(error: CoreError) -> Self {
-        let kind = match &error {
-            CoreError::Crypto(_) => FfiCoreErrorKind::CryptoError,
-            CoreError::Database(_) => FfiCoreErrorKind::DatabaseError,
-            CoreError::Sync(_) => FfiCoreErrorKind::SyncError,
-            CoreError::Platform(_) => FfiCoreErrorKind::PlatformError,
-            CoreError::Settings(_) => FfiCoreErrorKind::SettingsError,
-            CoreError::Serialization(_) => FfiCoreErrorKind::SerializationError,
-        };
-        Self {
-            kind,
-            message: error.to_string(),
+        let message = error.to_string();
+        match error {
+            CoreError::Crypto(_) => Self::CryptoError { message },
+            CoreError::Database(_) => Self::DatabaseError { message },
+            CoreError::Sync(_) => Self::SyncError { message },
+            CoreError::Platform(_) => Self::PlatformError { message },
+            CoreError::Settings(_) => Self::SettingsError { message },
+            CoreError::Serialization(_) => Self::SerializationError { message },
         }
     }
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, FfiCoreError> {
-    Uuid::parse_str(value).map_err(|error| FfiCoreError {
-        kind: FfiCoreErrorKind::InvalidUuid,
+    Uuid::parse_str(value).map_err(|error| FfiCoreError::InvalidUuid {
         message: format!("invalid UUID '{value}': {error}"),
     })
 }
@@ -414,8 +443,8 @@ mod tests {
 
         let error = core.get_task("not-a-uuid".to_owned()).unwrap_err();
 
-        assert_eq!(error.kind, FfiCoreErrorKind::InvalidUuid);
-        assert!(error.message.contains("invalid UUID"));
+        assert_eq!(error.kind(), FfiCoreErrorKind::InvalidUuid);
+        assert!(error.message().contains("invalid UUID"));
         let _ = std::fs::remove_file(path);
     }
 
@@ -448,7 +477,7 @@ mod tests {
             vec![0; 32],
         )
         .unwrap_err();
-        assert_eq!(error.kind, FfiCoreErrorKind::InvalidNonce);
+        assert_eq!(error.kind(), FfiCoreErrorKind::InvalidNonce);
     }
 
     #[test]
