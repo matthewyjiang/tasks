@@ -71,13 +71,33 @@ def wait_for_postgres(timeout: float = 30.0) -> None:
     deadline = time.time() + timeout
     last_stderr = ""
     while time.time() < deadline:
-        result = run(
+        ready = run(
             ["docker", "compose", "exec", "-T", "postgres", "pg_isready", "-U", "tasks", "-d", "tasks"],
             cwd=ROOT / "server",
         )
-        if result.returncode == 0:
-            return
-        last_stderr = result.stderr.strip() or result.stdout.strip()
+        if ready.returncode == 0:
+            query = run(
+                [
+                    "docker",
+                    "compose",
+                    "exec",
+                    "-T",
+                    "postgres",
+                    "psql",
+                    "-U",
+                    "tasks",
+                    "-d",
+                    "tasks",
+                    "-c",
+                    "SELECT 1",
+                ],
+                cwd=ROOT / "server",
+            )
+            if query.returncode == 0:
+                return
+            last_stderr = query.stderr.strip() or query.stdout.strip()
+        else:
+            last_stderr = ready.stderr.strip() or ready.stdout.strip()
         time.sleep(0.5)
     raise RuntimeError(f"timed out waiting for postgres: {last_stderr}")
 

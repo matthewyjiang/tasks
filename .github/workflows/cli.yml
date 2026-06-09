@@ -7,6 +7,8 @@ on:
       - "Cargo.lock"
       - "core/**"
       - "cli/**"
+      - "server/**"
+      - "scripts/cli_e2e.py"
       - ".github/workflows/cli.yml"
   pull_request:
     paths:
@@ -14,6 +16,8 @@ on:
       - "Cargo.lock"
       - "core/**"
       - "cli/**"
+      - "server/**"
+      - "scripts/cli_e2e.py"
       - ".github/workflows/cli.yml"
 
 jobs:
@@ -27,3 +31,29 @@ jobs:
       - run: cargo clippy -p taskmanager-cli --all-targets
       - run: cargo test -p taskmanager-cli
       - run: cargo build -p taskmanager-cli
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - uses: Swatinem/rust-cache@v2
+      - name: Run local CLI/server E2E suite
+        run: ./scripts/cli_e2e.py
+      - name: Collect E2E diagnostics
+        if: failure()
+        run: |
+          mkdir -p cli-e2e-artifacts
+          docker ps -a > cli-e2e-artifacts/docker-ps.txt || true
+          docker compose -f server/docker-compose.yml logs --no-color > cli-e2e-artifacts/docker-compose.log || true
+      - name: Upload E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-e2e-diagnostics
+          path: cli-e2e-artifacts
+          if-no-files-found: ignore
