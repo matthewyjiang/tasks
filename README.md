@@ -15,10 +15,16 @@ A local-first, end-to-end encrypted task manager.
 
 ## CLI installation
 
-From the repository root, install the Rust CLI with Cargo:
+From the repository root, install the Rust CLI with the repo helper:
 
 ```sh
-cargo install --path cli --bin taskmanager
+make cli-install
+```
+
+Equivalent Cargo command:
+
+```sh
+cargo install --path cli --force
 ```
 
 This installs the `taskmanager` binary into Cargo's bin directory, usually `~/.cargo/bin`. Ensure that directory is on your `PATH`:
@@ -31,7 +37,14 @@ taskmanager --help
 For local development without installing:
 
 ```sh
-cargo run -p taskmanager-cli -- --help
+make cli-run -- --help
+# or: cargo run -p taskmanager-cli -- --help
+```
+
+To uninstall:
+
+```sh
+make cli-uninstall
 ```
 
 Optional shell completions and a man page can be generated after building/installing the CLI:

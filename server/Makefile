@@ -1,4 +1,4 @@
-.PHONY: tidy fmt test build check run migrate docker-up docker-down
+.PHONY: tidy fmt fmt-check test build check fix run dev migrate docker-up docker-down
 
 tidy:
 	go mod tidy
@@ -6,15 +6,27 @@ tidy:
 fmt:
 	gofmt -w ./cmd ./internal
 
+fmt-check:
+	@test -z "$$(gofmt -l ./cmd ./internal)" || (echo "Run 'make fmt' to format:"; gofmt -l ./cmd ./internal; exit 1)
+
 test:
 	go test ./...
 
 build:
 	go build ./...
 
-check: tidy fmt test build
+check: fmt-check test build
+
+fix: tidy fmt
 
 run:
+	go run ./cmd/server
+
+# Start Postgres, load .env if present, and run the API with migrations.
+dev: docker-up
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	DATABASE_URL="$${DATABASE_URL:-postgres://tasks:tasks@localhost:5432/tasks?sslmode=disable}" \
+	JWT_SECRET="$${JWT_SECRET:-dev-only-insecure-jwt-secret-change-me}" \
 	go run ./cmd/server
 
 migrate:

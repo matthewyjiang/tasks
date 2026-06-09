@@ -59,6 +59,13 @@ pub struct LogoutOutput {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AccountClearOutput {
+    pub auth_tokens_cleared: bool,
+    pub device_private_key_cleared: bool,
+    pub account_data_key_cleared: bool,
+}
+
+#[derive(Debug, Serialize)]
 pub struct WrappedKeyOutput {
     pub ciphertext: String,
     pub nonce: String,
@@ -155,6 +162,17 @@ impl TableOutput for AuthOutput {
 impl TableOutput for LogoutOutput {
     fn to_table(&self) -> String {
         "Logged out".to_string()
+    }
+}
+
+impl TableOutput for AccountClearOutput {
+    fn to_table(&self) -> String {
+        format!(
+            "Account secrets cleared\nauth_tokens_cleared\t{}\ndevice_private_key_cleared\t{}\naccount_data_key_cleared\t{}",
+            self.auth_tokens_cleared,
+            self.device_private_key_cleared,
+            self.account_data_key_cleared
+        )
     }
 }
 

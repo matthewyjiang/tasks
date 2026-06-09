@@ -80,6 +80,7 @@ pub enum Commands {
         command: SettingsCommands,
     },
     /// Run developer crypto diagnostics for fixtures, troubleshooting, and E2E validation.
+    #[command(hide = true)]
     Crypto {
         #[command(subcommand)]
         command: CryptoCommands,
@@ -119,13 +120,16 @@ pub struct ConfigureArgs {
 pub enum AccountCommands {
     /// Initialize account keys locally.
     Init,
+    /// Clear local account/device keys and auth tokens from the platform key store.
+    Clear,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommands {
-    /// Store access and optional refresh tokens in the platform key store.
+    /// Log in with email/password or store already-issued tokens.
     Login(AuthLoginArgs),
     /// Refresh tokens are not implemented until server auth is wired.
+    #[command(hide = true)]
     Refresh,
     /// Remove stored auth tokens from the platform key store.
     Logout,
@@ -133,9 +137,23 @@ pub enum AuthCommands {
 
 #[derive(Debug, Args)]
 pub struct AuthLoginArgs {
+    /// Server URL for email/password login. Defaults to configured settings or --server.
     #[arg(long)]
-    pub access_token: String,
+    pub server_url: Option<String>,
 
+    /// Account email for server login.
+    #[arg(long)]
+    pub email: Option<String>,
+
+    /// Account password for server login. If omitted with --email, prompts securely.
+    #[arg(long)]
+    pub password: Option<String>,
+
+    /// Store an already-issued access token instead of logging in with email/password.
+    #[arg(long)]
+    pub access_token: Option<String>,
+
+    /// Store an already-issued refresh token instead of logging in with email/password.
     #[arg(long)]
     pub refresh_token: Option<String>,
 }
@@ -145,8 +163,10 @@ pub enum DeviceCommands {
     /// Generate and store this device's private key, printing only the public key.
     InitKeypair,
     /// Register this device with the server. Not implemented until server auth is wired.
+    #[command(hide = true)]
     Register,
     /// List registered devices. Not implemented until server auth is wired.
+    #[command(hide = true)]
     List,
     /// Wrap the local account data key for a target device public key.
     WrapKey(DeviceWrapKeyArgs),
@@ -185,8 +205,10 @@ pub enum SyncCommands {
     /// Pull remote changes, then push remaining local changes.
     Run,
     /// List conflicts. Not implemented until conflict persistence is wired.
+    #[command(hide = true)]
     Conflicts,
     /// Resolve a conflict. Not implemented until conflict persistence is wired.
+    #[command(hide = true)]
     Resolve(TaskIdArgs),
 }
 
@@ -285,7 +307,7 @@ pub struct TaskCreateArgs {
     pub body: String,
 
     #[arg(long, alias = "due")]
-    pub due_at: Option<i64>,
+    pub due_at: Option<String>,
 
     #[arg(long)]
     pub project_id: Option<Uuid>,
@@ -310,7 +332,7 @@ pub struct TaskUpdateArgs {
     pub body: Option<String>,
 
     #[arg(long)]
-    pub due_at: Option<i64>,
+    pub due_at: Option<String>,
 
     #[arg(long, conflicts_with = "due_at")]
     pub clear_due_at: bool,
@@ -340,10 +362,10 @@ pub struct TaskListArgs {
     pub tags: Vec<String>,
 
     #[arg(long)]
-    pub due_after: Option<i64>,
+    pub due_after: Option<String>,
 
     #[arg(long)]
-    pub due_before: Option<i64>,
+    pub due_before: Option<String>,
 
     #[arg(long)]
     pub include_deleted: bool,

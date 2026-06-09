@@ -62,6 +62,16 @@ fn creating_a_task_returns_generated_dirty_task() {
 }
 
 #[test]
+fn creating_a_task_accepts_human_due_date() {
+    let cli = TaskCli::new();
+
+    let value = cli.json(&["task", "create", "Buy milk", "--due", "tomorrow"]);
+
+    assert_eq!(value["result"]["title"], "Buy milk");
+    assert!(value["result"]["due_at"].as_i64().unwrap() > 0);
+}
+
+#[test]
 fn creating_a_task_accepts_project_and_tags() {
     let cli = TaskCli::new();
     let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";

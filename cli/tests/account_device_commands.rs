@@ -80,6 +80,20 @@ fn configure_accepts_interactive_email_password_input_on_stdin() {
 }
 
 #[test]
+fn configure_offline_fails_before_prompting_or_authenticating() {
+    let cli = KeyCli::new();
+
+    cli.command()
+        .args(["--offline", "configure"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "configure requires network access",
+        ));
+}
+
+#[test]
 fn account_init_initializes_local_keys_and_returns_public_key() {
     let cli = KeyCli::new();
 
@@ -102,6 +116,32 @@ fn account_init_rerun_returns_stable_already_exists_error() {
         .failure()
         .code(5)
         .stderr(predicate::str::contains("account already exists"));
+}
+
+#[test]
+fn account_clear_removes_account_keys_and_auth_tokens() {
+    let cli = KeyCli::new();
+
+    cli.json(&["account", "init"]);
+    cli.json(&[
+        "auth",
+        "login",
+        "--access-token",
+        "access-secret",
+        "--refresh-token",
+        "refresh-secret",
+    ]);
+
+    let cleared = cli.json(&["account", "clear"]);
+    assert_eq!(cleared["result"]["auth_tokens_cleared"], true);
+    assert_eq!(cleared["result"]["device_private_key_cleared"], true);
+    assert_eq!(cleared["result"]["account_data_key_cleared"], true);
+
+    cli.command()
+        .args(["device", "wrap-key", "--target", "00"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("key not found"));
 }
 
 #[test]

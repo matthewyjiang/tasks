@@ -14,7 +14,13 @@ cargo test -p taskmanager-cli
 cargo clippy -p taskmanager-cli --all-targets
 ```
 
-Run locally:
+Install locally so `taskmanager` is available on your `PATH`:
+
+```sh
+make cli-install
+```
+
+Run without installing:
 
 ```sh
 cargo run -p taskmanager-cli -- --help
@@ -24,9 +30,9 @@ cargo run -p taskmanager-cli -- --help
 
 ```text
 --profile <name>           Profile name, defaults to default
---config <path>            Config path, reserved for settings support
+--config <path>            Plaintext settings path
 --db <path>                Local SQLite DB path
---server <url>             Server URL, accepted but not wired to sync/auth yet
+--server <url>             Override configured server URL for sync commands
 --output <table|json|jsonl> Output format, defaults to table
 --quiet                    Suppress non-result messages
 --yes                      Assume yes for future confirmations
@@ -74,7 +80,7 @@ Errors are written to stderr. With JSON/JSONL output selected, errors use:
 Task commands use `taskmanager_core::TaskManagerCore` against the local DB.
 
 ```sh
-taskmanager --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due 1717603200000 --tag work --tag urgent
+taskmanager --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due tomorrow --tag work --tag urgent
 
 taskmanager --db /tmp/tasks.db task list
 
@@ -95,9 +101,11 @@ taskmanager --db /tmp/tasks.db task delete <task_id>
 
 ## Account, auth, and device key commands
 
-These commands currently operate locally through the CLI platform key store. Server-backed auth/device registration is not wired yet.
+`taskmanager configure` is the normal user path for creating local account keys, saving the server URL, and registering/logging in with email and password. Lower-level account, auth, and device commands operate locally through the CLI platform key store for diagnostics, headless tests, and advanced recovery workflows.
 
-For headless/dev/test usage, explicitly opt into the insecure file-backed key store:
+By default, the CLI stores secrets in the platform key store. On Linux this uses the Freedesktop Secret Service/libsecret-compatible backend when available.
+
+For headless/dev/test usage, explicitly opt into the file-backed key store:
 
 ```sh
 export TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager-profile-a/keys
@@ -109,18 +117,27 @@ Initialize account keys:
 taskmanager --output json account init
 ```
 
+Clear local account/device keys and auth tokens from the platform key store:
+
+```sh
+taskmanager --output json account clear
+```
+
 Initialize only a device keypair:
 
 ```sh
 taskmanager --output json device init-keypair
 ```
 
-Store/remove auth tokens locally:
+Log in with email/password, or store/remove already-issued auth tokens locally:
 
 ```sh
+taskmanager --output json auth login --email you@example.com --server-url http://127.0.0.1:18080
 taskmanager --output json auth login --access-token <token> --refresh-token <token>
 taskmanager --output json auth logout
 ```
+
+`configure` remains the recommended first-run command because it also creates local account/device keys and saves the server URL.
 
 Wrap the account data key for another device public key:
 
@@ -162,7 +179,7 @@ taskmanager --config /tmp/settings.json --output json settings migrate
 
 ## Crypto diagnostics
 
-The `crypto` namespace is intentionally exposed in help, but these are developer diagnostics rather than normal user workflows. Use them to generate encrypted fixtures, troubleshoot local key material, debug sync/blob failures, and validate crypto behavior in black-box tests. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
+The `crypto` namespace is hidden from default help because it is a developer diagnostic surface rather than a normal user workflow. It remains available explicitly to generate encrypted fixtures, troubleshoot local key material, debug sync/blob failures, and validate crypto behavior in black-box tests. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
 
 ```sh
 taskmanager crypto verify-local
@@ -189,7 +206,7 @@ taskmanager generate man > taskmanager.1
 
 ## Server status
 
-`sync push`, `sync pull`, and `sync run` use `--server` plus a locally stored bearer token from `auth login` to call the server blob API.
+`sync push`, `sync pull`, and `sync run` use the configured `settings server_url` (or `--server` override) plus a locally stored bearer token from `configure`/`auth login` to call the server blob API. `configure` requires network access; `--offline configure` fails before prompting or authenticating.
 
 A functional local-server workflow looks like this:
 
@@ -206,7 +223,7 @@ taskmanager configure \
 
 # 2. Work normally while offline/local-first.
 taskmanager task create --title "Plan launch" --body "Draft rollout checklist" --tag work
-taskmanager task create --title "Buy groceries" --due 1781200000000 --tag personal
+taskmanager task create --title "Buy groceries" --due tomorrow --tag personal
 
 # 3. Inspect what needs sync, then push encrypted blobs to the server.
 taskmanager sync status
@@ -234,9 +251,10 @@ Local sync diagnostics are available with `sync status` and `sync retry`. `--ser
 
 The following remain future work:
 
-- server auth refresh/login integration
+- auth token refresh
 - device register/list against the server
-- conflict persistence/resolution commands
+- friendly device pairing on top of low-level wrap/unwrap commands
+- conflict persistence/resolution commands (hidden from default help until implemented)
 - applying remote tombstones during pull
 
 ## Headless reminders
@@ -263,7 +281,7 @@ The suite:
 2. Starts a fresh PostgreSQL container with `docker compose down -v && docker compose up -d postgres` under `server/`.
 3. Starts the Go server with test-only environment values on `http://127.0.0.1:18080`.
 4. Runs the compiled CLI with isolated temp profiles and `--server http://127.0.0.1:18080`.
-5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, server-backed sync push/pull/run, and unsupported future commands.
+5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, and server-backed sync push/pull/run.
 
 This test should be extended whenever new CLI features are added, especially for auth/device registration, conflict handling, sharing, and new sync behavior.
 

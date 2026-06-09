@@ -102,7 +102,7 @@
 
    Supported variables:
 
-   - `PORT` default `8080`
+   - `PORT` default `18080`
    - `DATABASE_URL` required
    - `JWT_SECRET` required
    - `JWT_ISSUER` default `tasks-server`
