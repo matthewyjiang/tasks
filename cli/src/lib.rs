@@ -19,9 +19,13 @@ where
 }
 
 pub fn run(cli: Cli) -> CliResult<Option<String>> {
-    let _ctx = context::CliContext::from_cli(&cli)?;
+    let ctx = context::CliContext::from_cli(&cli)?;
+    if ctx.trace {
+        eprintln!("trace: profile={} offline={}", ctx.profile, ctx.offline);
+    }
+
     match cli.command {
-        Some(Commands::Version) => output::format_value(
+        Some(Commands::Version) => output::format_command_result(
             cli.output,
             &VersionOutput {
                 name: env!("CARGO_PKG_NAME"),
