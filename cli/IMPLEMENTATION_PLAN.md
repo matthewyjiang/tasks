@@ -52,21 +52,21 @@ Stabilize command output and integration-test helpers before adding many command
 
 TODO:
 
-- [ ] Implement `OutputFormat::{Json, Jsonl, Table}`.
-- [ ] Implement stable `CommandResult<T>` JSON envelope where useful.
-- [ ] Implement stderr JSON errors for `--output json`.
-- [ ] Add test helpers for invoking the compiled binary with temp config, DB, and key directories.
-- [ ] Add fixture helpers for isolated profiles.
-- [ ] Add snapshot-style assertions for JSON command output.
+- [x] Implement `OutputFormat::{Json, Jsonl, Table}`.
+- [x] Implement stable `CommandResult<T>` JSON envelope where useful.
+- [x] Implement stderr JSON errors for `--output json`.
+- [x] Add test helpers for invoking the compiled binary with temp config, DB, and key directories.
+- [x] Add fixture helpers for isolated profiles.
+- [x] Add snapshot-style assertions for JSON command output.
 
 Interface tests to add before leaving this milestone:
 
-- [ ] JSON output contains only deterministic fields for a fixed fixture.
-- [ ] JSONL output emits one valid JSON object per line.
-- [ ] Table output is human-readable and does not affect JSON tests.
-- [ ] `--quiet` suppresses non-result messages.
-- [ ] `--trace` writes logs to stderr, not stdout.
-- [ ] Temp-profile fixture creates isolated config, DB, and key-store paths.
+- [x] JSON output contains only deterministic fields for a fixed fixture.
+- [x] JSONL output emits one valid JSON object per line.
+- [x] Table output is human-readable and does not affect JSON tests.
+- [x] `--quiet` suppresses non-result messages.
+- [x] `--trace` writes logs to stderr, not stdout.
+- [x] Temp-profile fixture creates isolated config, DB, and key-store paths.
 
 ## Milestone 3: CLI platform implementation
 
