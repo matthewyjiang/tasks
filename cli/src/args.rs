@@ -80,6 +80,7 @@ pub enum Commands {
         command: SettingsCommands,
     },
     /// Run developer crypto diagnostics for fixtures, troubleshooting, and E2E validation.
+    #[command(hide = true)]
     Crypto {
         #[command(subcommand)]
         command: CryptoCommands,
@@ -126,6 +127,7 @@ pub enum AuthCommands {
     /// Store access and optional refresh tokens in the platform key store.
     Login(AuthLoginArgs),
     /// Refresh tokens are not implemented until server auth is wired.
+    #[command(hide = true)]
     Refresh,
     /// Remove stored auth tokens from the platform key store.
     Logout,
@@ -145,8 +147,10 @@ pub enum DeviceCommands {
     /// Generate and store this device's private key, printing only the public key.
     InitKeypair,
     /// Register this device with the server. Not implemented until server auth is wired.
+    #[command(hide = true)]
     Register,
     /// List registered devices. Not implemented until server auth is wired.
+    #[command(hide = true)]
     List,
     /// Wrap the local account data key for a target device public key.
     WrapKey(DeviceWrapKeyArgs),
@@ -185,8 +189,10 @@ pub enum SyncCommands {
     /// Pull remote changes, then push remaining local changes.
     Run,
     /// List conflicts. Not implemented until conflict persistence is wired.
+    #[command(hide = true)]
     Conflicts,
     /// Resolve a conflict. Not implemented until conflict persistence is wired.
+    #[command(hide = true)]
     Resolve(TaskIdArgs),
 }
 

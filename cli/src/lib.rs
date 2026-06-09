@@ -84,7 +84,10 @@ pub fn run(cli: Cli) -> CliResult<Option<String>> {
             run_task(command, cli.output, ctx.db_path, &ctx.profile)
         }
         Some(Commands::Generate { command }) => run_generate(command),
-        None => Ok(None),
+        None => {
+            let mut command = Cli::command();
+            Ok(Some(command.render_long_help().to_string()))
+        }
     }
 }
 
@@ -134,6 +137,13 @@ fn run_configure(
     profile: &str,
     offline: bool,
 ) -> CliResult<Option<String>> {
+    if offline {
+        return Err(CliError::Input(
+            "configure requires network access; remove --offline to authenticate with the server"
+                .into(),
+        ));
+    }
+
     let platform = platform::CliPlatform::new(offline);
     let (account_initialized, public_key) = if key_exists(&platform, DEVICE_PRIVATE_KEY_ID)?
         && key_exists(&platform, ACCOUNT_DATA_KEY_ID)?
@@ -159,7 +169,7 @@ fn run_configure(
     };
     let password = match args.password {
         Some(value) => value,
-        None => prompt("Password: ")?,
+        None => prompt_password("Password: ")?,
     };
     let tokens = configure_server_auth(&server_url, &email, &password, &public_key, args.register)?;
 
@@ -288,6 +298,17 @@ fn prompt(label: &str) -> CliResult<String> {
     io::stdin()
         .read_line(&mut value)
         .map_err(|error| CliError::Input(format!("failed to read input: {error}")))?;
+    non_empty_prompt_value(value)
+}
+
+fn prompt_password(label: &str) -> CliResult<String> {
+    match rpassword::prompt_password(label) {
+        Ok(value) => non_empty_prompt_value(value),
+        Err(_) => prompt(label),
+    }
+}
+
+fn non_empty_prompt_value(value: String) -> CliResult<String> {
     let value = value.trim().to_owned();
     if value.is_empty() {
         Err(CliError::Input("required configure value was empty".into()))

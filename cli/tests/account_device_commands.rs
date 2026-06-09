@@ -80,6 +80,20 @@ fn configure_accepts_interactive_email_password_input_on_stdin() {
 }
 
 #[test]
+fn configure_offline_fails_before_prompting_or_authenticating() {
+    let cli = KeyCli::new();
+
+    cli.command()
+        .args(["--offline", "configure"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "configure requires network access",
+        ));
+}
+
+#[test]
 fn account_init_initializes_local_keys_and_returns_public_key() {
     let cli = KeyCli::new();
 

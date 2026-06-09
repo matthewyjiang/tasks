@@ -15,6 +15,43 @@ fn help_exits_successfully() {
 }
 
 #[test]
+fn no_command_prints_help() {
+    Command::cargo_bin("taskmanager")
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Local-first encrypted task manager CLI",
+        ))
+        .stdout(predicate::str::contains("Usage:"));
+}
+
+#[test]
+fn hidden_developer_and_unimplemented_commands_are_not_in_default_help() {
+    Command::cargo_bin("taskmanager")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("crypto").not());
+
+    Command::cargo_bin("taskmanager")
+        .unwrap()
+        .args(["auth", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("  refresh").not());
+
+    Command::cargo_bin("taskmanager")
+        .unwrap()
+        .args(["sync", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("conflicts").not())
+        .stdout(predicate::str::contains("resolve").not());
+}
+
+#[test]
 fn version_flag_exits_successfully() {
     Command::cargo_bin("taskmanager")
         .unwrap()
