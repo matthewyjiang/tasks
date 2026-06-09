@@ -247,6 +247,8 @@ The server is a zero-knowledge blob relay. It stores encrypted blobs identified 
 **Auth:** JWT (short-lived, 15 min) + refresh token (30 days, rotated on use)  
 **All blob routes require:** `Authorization: Bearer <jwt>`
 
+Binary JSON fields (`pub_key`, `ciphertext`, `nonce`, `wrapped_dek`) are standard base64 strings on the wire.
+
 ### 4.2 Endpoints
 
 #### Auth
@@ -256,7 +258,7 @@ The server is a zero-knowledge blob relay. It stores encrypted blobs identified 
 | `POST` | `/auth/register` | `{ email, password, pub_key }` | `{ jwt, refresh_token, user_id }` | Stores argon2id hash; stores raw `pub_key` bytes |
 | `POST` | `/auth/login` | `{ email, password }` | `{ jwt, refresh_token }` | Verifies argon2id hash |
 | `POST` | `/auth/refresh` | `{ refresh_token }` | `{ jwt, refresh_token }` | Rotates refresh token; old token invalidated |
-| `DELETE` | `/auth/session` | — | `204` | Invalidates current refresh token |
+| `DELETE` | `/auth/session` | `{ refresh_token }` | `204` | Invalidates the supplied refresh token |
 
 #### Blobs
 
@@ -271,7 +273,7 @@ The server is a zero-knowledge blob relay. It stores encrypted blobs identified 
 
 | Method | Path | Request body | Response | Notes |
 |---|---|---|---|---|
-| `GET` | `/keys/:user_id` | — | `{ user_id, pub_key }` | Returns ECDH public key for any user; used before sharing a task |
+| `GET` | `/keys/:user_id` | — | `{ user_id, keys: [{ device_id, pub_key }] }` | Returns all registered device ECDH public keys for any user; used before sharing a task |
 | `PUT` | `/keys/me` | `{ pub_key }` | `204` | Registers a new device's public key |
 
 #### Shared tasks
@@ -289,30 +291,44 @@ CREATE TABLE users (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email       TEXT UNIQUE NOT NULL,
     password_h  TEXT NOT NULL,          -- argon2id hash
-    pub_key     BYTEA NOT NULL,         -- ECDH public key
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE devices (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    pub_key       BYTEA NOT NULL,       -- ECDH public key for one device
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX devices_user_created ON devices(user_id, created_at);
+
 CREATE TABLE blobs (
-    task_id     UUID NOT NULL,
+    task_id     TEXT NOT NULL,          -- UUID text or reserved IDs such as "vault_settings"
     owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    ciphertext  BYTEA NOT NULL,
-    nonce       BYTEA NOT NULL,         -- 12 bytes
+    ciphertext  BYTEA,
+    nonce       BYTEA,                  -- 12 bytes when present
     updated_at  BIGINT NOT NULL,        -- Unix ms; set by server on write, matches wire cursor
     deleted     BOOLEAN NOT NULL DEFAULT false,
-    PRIMARY KEY (task_id, owner_id)
+    PRIMARY KEY (task_id, owner_id),
+    CONSTRAINT blobs_nonce_len CHECK (nonce IS NULL OR octet_length(nonce) = 12),
+    CONSTRAINT blobs_deleted_payload CHECK (
+        (deleted = true) OR (ciphertext IS NOT NULL AND nonce IS NOT NULL)
+    )
 );
 
 CREATE INDEX blobs_owner_updated ON blobs(owner_id, updated_at);
 
 CREATE TABLE shared_blobs (
-    task_id         UUID NOT NULL,
-    owner_id        UUID NOT NULL REFERENCES users(id),
-    recipient_id    UUID NOT NULL REFERENCES users(id),
+    task_id         TEXT NOT NULL,
+    owner_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipient_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     wrapped_dek     BYTEA NOT NULL,     -- per-task task_key, AES-GCM wrapped for recipient
     nonce           BYTEA NOT NULL,     -- 12 bytes, for the wrap
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (task_id, recipient_id)
+    PRIMARY KEY (task_id, recipient_id),
+    CONSTRAINT shared_blobs_nonce_len CHECK (octet_length(nonce) = 12)
 );
 
 CREATE TABLE refresh_tokens (
@@ -329,9 +345,11 @@ CREATE TABLE refresh_tokens (
 - The server queries blobs only by `task_id`, `owner_id`, `updated_at`, and `deleted` — all opaque identifiers or timestamps. It never queries or indexes ciphertext.
 - `updated_at` exists in two places: as a plaintext `BIGINT` column the server sets on every write (drives the `?since=` sync cursor) and as a field inside the encrypted payload (drives client-side conflict resolution). The server column orders sync; the payload field decides which version wins a conflict. They are written together but only the payload field is authoritative for `resolve_conflict`.
 - All blob endpoints enforce ownership by filtering on `owner_id` derived from the JWT claim. A user cannot read or write another user's blobs.
-- Tombstones (`deleted=true`) are retained for 30 days, then hard-deleted by a background job. Clients that have not synced within 30 days may miss deletions.
+- Tombstones (`deleted=true`) are retained for 30 days by default, then hard-deleted by a background job. Clients that have not synced within the retention window may miss deletions.
+- Tombstone rows keep `task_id`, `owner_id`, `updated_at`, and `deleted=true`; `ciphertext` and `nonce` may be `NULL`.
 - `PUT /blobs/:task_id` is idempotent. Retried pushes after network failure are safe.
-- Rate limit: 60 write requests/min per user. No read rate limit.
+- Rate limit: 60 write requests/min per user by default. No read rate limit.
+- Maximum blob size is 1 MiB by default; maximum batch size is 100 blobs by default.
 - JWT expiry: 15 minutes. Refresh token expiry: 30 days, rotated on every use.
 
 ---
@@ -367,10 +385,9 @@ var (
     ErrBadRequest    = errors.New("bad request")
 )
 
-// APIError is returned as JSON to the client
-type APIError struct {
-    Code    int    `json:"code"`
-    Message string `json:"message"`
+// ErrorResponse is returned as JSON to the client
+type ErrorResponse struct {
+    Error string `json:"error"`
 }
 
 // BlobResult is used in batch responses for per-blob success/failure
@@ -384,7 +401,7 @@ type BlobResult struct {
 
 ### Type duplication note
 
-The server and client core are in different languages, so shared types (`Task`, `Blob`, `APIError`) are defined twice — once in Rust for the client core, once in Go for the server. This is an accepted tradeoff for this project. To prevent drift:
+The server and client core are in different languages, so shared types (`Task`, `Blob`, `ErrorResponse`) are defined twice — once in Rust for the client core, once in Go for the server. This is an accepted tradeoff for this project. To prevent drift:
 
 - The wire format for all request/response bodies is JSON with a documented schema (see §4.2)
 - Any field rename or addition must be applied to both codebases and increments the spec version

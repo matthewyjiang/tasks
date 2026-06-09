@@ -257,4 +257,13 @@
 26. ☑ Final implementation order
 
    Implemented the server in the planned dependency order: configuration and migrations first, startup/router foundations, auth, wire/auth middleware, blob sync, keys/devices, sharing, settings, safeguards, tests, tooling, and CI.
-27. ☐ Resolve remaining spec issues before coding
+27. ☑ Resolve remaining spec issues before coding
+
+   Updated `SPEC.md` to match the implemented v0.1 server contract:
+
+   - binary fields are base64 JSON strings
+   - `DELETE /auth/session` requires `{ refresh_token }`
+   - key directory returns per-device keys as `{ user_id, keys: [{ device_id, pub_key }] }`
+   - PostgreSQL schema documents `devices`, text blob IDs, nullable tombstone payloads, and nonce constraints
+   - server errors use `{ error }`
+   - default blob/batch limits and tombstone retention are documented
