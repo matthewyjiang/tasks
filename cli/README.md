@@ -97,7 +97,9 @@ taskmanager --db /tmp/tasks.db task delete <task_id>
 
 `taskmanager configure` is the normal user path for creating local account keys, saving the server URL, and registering/logging in with email and password. Lower-level account, auth, and device commands operate locally through the CLI platform key store for diagnostics, headless tests, and advanced recovery workflows.
 
-For headless/dev/test usage, explicitly opt into the insecure file-backed key store:
+By default, the CLI stores secrets in the platform key store. On Linux this uses the Freedesktop Secret Service/libsecret-compatible backend when available.
+
+For headless/dev/test usage, explicitly opt into the file-backed key store:
 
 ```sh
 export TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager-profile-a/keys

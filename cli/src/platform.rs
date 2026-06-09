@@ -64,8 +64,8 @@ impl Platform for CliPlatform {
 
 #[derive(Debug, Clone)]
 enum KeyStore {
+    Native,
     File { dir: PathBuf },
-    Unsupported { reason: &'static str },
 }
 
 impl KeyStore {
@@ -76,19 +76,14 @@ impl KeyStore {
             };
         }
 
-        if let Some(home) = env::var_os("HOME") {
-            return Self::File {
-                dir: PathBuf::from(home).join(".taskmanager").join("keys"),
-            };
-        }
-
-        Self::Unsupported {
-            reason: "no HOME directory found for CLI key store; set TASKMANAGER_INSECURE_KEY_DIR for explicit file-backed test storage",
-        }
+        Self::Native
     }
 
     fn store_key(&self, id: &str, bytes: &[u8]) -> CoreResult<()> {
         match self {
+            Self::Native => native_entry(id)?
+                .set_secret(bytes)
+                .map_err(keyring_store_error),
             Self::File { dir } => {
                 ensure_private_dir(dir)?;
                 let path = key_path(dir, id);
@@ -96,14 +91,14 @@ impl KeyStore {
                 set_private_file_permissions(&path)?;
                 Ok(())
             }
-            Self::Unsupported { reason } => {
-                Err(PlatformError::OperationFailed((*reason).into()).into())
-            }
         }
     }
 
     fn load_key(&self, id: &str) -> CoreResult<Vec<u8>> {
         match self {
+            Self::Native => native_entry(id)?
+                .get_secret()
+                .map_err(|error| keyring_load_error(error, id)),
             Self::File { dir } => fs::read(key_path(dir, id)).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     PlatformError::KeyNotFound(id.to_string()).into()
@@ -111,22 +106,20 @@ impl KeyStore {
                     key_store_io_error(error)
                 }
             }),
-            Self::Unsupported { reason } => {
-                Err(PlatformError::OperationFailed((*reason).into()).into())
-            }
         }
     }
 
     fn delete_key(&self, id: &str) -> CoreResult<()> {
         match self {
+            Self::Native => match native_entry(id)?.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(keyring_store_error(error)),
+            },
             Self::File { dir } => match fs::remove_file(key_path(dir, id)) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(key_store_io_error(error)),
             },
-            Self::Unsupported { reason } => {
-                Err(PlatformError::OperationFailed((*reason).into()).into())
-            }
         }
     }
 }
@@ -201,6 +194,10 @@ fn key_path(dir: &std::path::Path, id: &str) -> PathBuf {
     dir.join(format!("{}.key", hex_id(id)))
 }
 
+fn native_entry(id: &str) -> CoreResult<keyring::Entry> {
+    keyring::Entry::new("taskmanager", id).map_err(keyring_store_error)
+}
+
 fn ensure_private_dir(dir: &std::path::Path) -> CoreResult<()> {
     fs::create_dir_all(dir).map_err(key_store_io_error)?;
     #[cfg(unix)]
@@ -227,6 +224,17 @@ fn hex_id(id: &str) -> String {
 
 fn key_store_io_error(error: std::io::Error) -> taskmanager_core::CoreError {
     PlatformError::OperationFailed(format!("key-store I/O failed: {error}")).into()
+}
+
+fn keyring_store_error(error: keyring::Error) -> taskmanager_core::CoreError {
+    PlatformError::OperationFailed(format!("platform key store failed: {error}")).into()
+}
+
+fn keyring_load_error(error: keyring::Error, id: &str) -> taskmanager_core::CoreError {
+    match error {
+        keyring::Error::NoEntry => PlatformError::KeyNotFound(id.to_string()).into(),
+        error => keyring_store_error(error),
+    }
 }
 
 fn reminder_io_error(error: std::io::Error) -> taskmanager_core::CoreError {
@@ -287,22 +295,6 @@ mod tests {
             CoreError::Platform(PlatformError::KeyNotFound(_))
         ));
         assert_eq!(platform.load_key("two").unwrap(), b"2");
-    }
-
-    #[test]
-    fn insecure_key_store_is_never_selected_implicitly() {
-        let platform = CliPlatform {
-            offline: false,
-            key_store: KeyStore::Unsupported { reason: "test" },
-            reminder_store: ReminderStore::Disabled,
-        };
-
-        let error = platform.store_key("key", b"secret").unwrap_err();
-
-        assert!(matches!(
-            error,
-            CoreError::Platform(PlatformError::OperationFailed(message)) if message == "test"
-        ));
     }
 
     #[test]
