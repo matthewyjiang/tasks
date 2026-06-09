@@ -4,7 +4,7 @@ use taskmanager_cli::{args::Cli, context::CliContext, error::CliError, output::O
 
 #[test]
 fn help_exits_successfully() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .arg("--help")
         .assert()
@@ -16,7 +16,7 @@ fn help_exits_successfully() {
 
 #[test]
 fn no_command_prints_help() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .assert()
         .success()
@@ -28,21 +28,21 @@ fn no_command_prints_help() {
 
 #[test]
 fn hidden_developer_and_unimplemented_commands_are_not_in_default_help() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .arg("--help")
         .assert()
         .success()
         .stdout(predicate::str::contains("crypto").not());
 
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["auth", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("  refresh").not());
 
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["sync", "--help"])
         .assert()
@@ -53,7 +53,7 @@ fn hidden_developer_and_unimplemented_commands_are_not_in_default_help() {
 
 #[test]
 fn version_flag_exits_successfully() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .arg("--version")
         .assert()
@@ -63,7 +63,7 @@ fn version_flag_exits_successfully() {
 
 #[test]
 fn unknown_command_exits_with_code_one() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .arg("nope")
         .assert()
@@ -73,7 +73,7 @@ fn unknown_command_exits_with_code_one() {
 
 #[test]
 fn accepts_global_json_output() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output", "json", "version"])
         .assert()
@@ -83,7 +83,7 @@ fn accepts_global_json_output() {
 
 #[test]
 fn invalid_output_exits_with_code_one() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output", "xml", "version"])
         .assert()
@@ -93,7 +93,7 @@ fn invalid_output_exits_with_code_one() {
 
 #[test]
 fn parse_error_uses_json_when_requested() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output", "json", "nope"])
         .assert()
@@ -107,7 +107,7 @@ fn parse_error_uses_json_when_requested() {
 
 #[test]
 fn parse_error_uses_json_when_requested_with_equals() {
-    Command::cargo_bin("taskmanager")
+    Command::cargo_bin("tsk")
         .unwrap()
         .args(["--output=json", "nope"])
         .assert()
@@ -122,7 +122,7 @@ fn parse_error_uses_json_when_requested_with_equals() {
 #[test]
 fn context_resolves_global_flags() {
     let cli = <Cli as clap::Parser>::try_parse_from([
-        "taskmanager",
+        "tsk",
         "--profile",
         "ci",
         "--config",

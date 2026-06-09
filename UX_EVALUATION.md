@@ -57,7 +57,7 @@ The deploy script interactively prompts for configuration, writes `.env`, starts
 - The README now connects server setup to CLI setup:
 
   ```sh
-  taskmanager configure --server-url http://localhost:18080
+  tsk configure --server-url http://localhost:18080
   ```
 
 - The deploy script is interactive and preserves existing `.env` defaults.
@@ -165,8 +165,8 @@ Global flags include:
    A friendlier target would be something like:
 
    ```sh
-   taskmanager device pair
-   taskmanager device pair --code ABCD-1234
+   tsk device pair
+   tsk device pair --code ABCD-1234
    ```
 
 2. **Date parsing is improved but limited**
@@ -192,7 +192,7 @@ Global flags include:
    `--offline configure` now fails clearly, which is better than surprising behavior. But users may still reasonably want:
 
    ```sh
-   taskmanager configure --local-only
+   tsk configure --local-only
    ```
 
 6. **Normal-user docs could be more guided**
@@ -214,23 +214,23 @@ cd server
 make dev
 
 # Configure CLI profile and account.
-taskmanager configure --server-url http://localhost:18080
+tsk configure --server-url http://localhost:18080
 
 # Create a task.
-taskmanager task create "Buy milk" --due tomorrow
+tsk task create "Buy milk" --due tomorrow
 
 # Sync.
-taskmanager sync run
+tsk sync run
 
 # Inspect state.
-taskmanager task list
+tsk task list
 ```
 
 For automation, the current flow is strong:
 
 ```sh
 TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
-  taskmanager \
+  tsk \
   --profile ci \
   --db /tmp/taskmanager/tasks.db \
   --config /tmp/taskmanager/settings.json \

@@ -35,8 +35,8 @@ TODO:
 
 Interface tests to add before leaving this milestone:
 
-- [x] `taskmanager --help` exits successfully.
-- [x] `taskmanager --version` exits successfully.
+- [x] `tsk --help` exits successfully.
+- [x] `tsk --version` exits successfully.
 - [x] Unknown command exits with code `1`.
 - [x] `--output json` is accepted globally.
 - [x] Invalid `--output` value exits with code `1`.

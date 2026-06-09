@@ -561,56 +561,56 @@ Every command that changes local state must go through the core library and pres
 
 | Command | Core/API coverage |
 |---|---|
-| `taskmanager account init` | `init_account`, local DB/bootstrap settings, device public-key registration |
-| `taskmanager auth login` / `auth refresh` / `auth logout` | Server auth endpoints, token storage through platform key store |
-| `taskmanager device init-keypair` | `init_device_keypair` |
-| `taskmanager device list` | Server key directory |
-| `taskmanager device register` | Register this device public key with server |
-| `taskmanager device wrap-key --target <device_id>` | `wrap_data_key`, wrapped-key upload |
-| `taskmanager device unwrap-key --from <device_id>` | Wrapped-key fetch, `unwrap_data_key`, local key storage |
+| `tsk account init` | `init_account`, local DB/bootstrap settings, device public-key registration |
+| `tsk auth login` / `auth refresh` / `auth logout` | Server auth endpoints, token storage through platform key store |
+| `tsk device init-keypair` | `init_device_keypair` |
+| `tsk device list` | Server key directory |
+| `tsk device register` | Register this device public key with server |
+| `tsk device wrap-key --target <device_id>` | `wrap_data_key`, wrapped-key upload |
+| `tsk device unwrap-key --from <device_id>` | Wrapped-key fetch, `unwrap_data_key`, local key storage |
 
 #### Task commands
 
 | Command | Core coverage |
 |---|---|
-| `taskmanager task create --title ... [--body ...] [--due ...] [--tag ...] [--project ...]` | `create_task` |
-| `taskmanager task get <task_id>` | `get_task` |
-| `taskmanager task update <task_id> [fields...]` | `update_task` |
-| `taskmanager task delete <task_id>` | `delete_task` tombstone |
-| `taskmanager task list [filters...] [--sort ...]` | `list_tasks` with all `TaskFilter` and `TaskSort` variants |
-| `taskmanager task search <query>` | `search_tasks` |
-| `taskmanager task complete <task_id>` / `reopen <task_id>` | `update_task` status patch |
+| `tsk task create --title ... [--body ...] [--due ...] [--tag ...] [--project ...]` | `create_task` |
+| `tsk task get <task_id>` | `get_task` |
+| `tsk task update <task_id> [fields...]` | `update_task` |
+| `tsk task delete <task_id>` | `delete_task` tombstone |
+| `tsk task list [filters...] [--sort ...]` | `list_tasks` with all `TaskFilter` and `TaskSort` variants |
+| `tsk task search <query>` | `search_tasks` |
+| `tsk task complete <task_id>` / `reopen <task_id>` | `update_task` status patch |
 
 #### Sync and server-pipeline commands
 
 | Command | Core/API coverage |
 |---|---|
-| `taskmanager sync push` | `sync_push` |
-| `taskmanager sync pull [--since <cursor>]` | `sync_pull` |
-| `taskmanager sync run` | Pull then push, or configured bidirectional order |
-| `taskmanager sync status` | Local dirty rows, queue depth, retry state, cursor |
-| `taskmanager sync retry <task_id>` | `queue_retry` |
-| `taskmanager sync conflicts` | Inspect pending conflicts when pluggable conflict handling is enabled |
-| `taskmanager sync resolve <task_id> --local|--remote|--json <patch>` | `resolve_conflict` / configured strategy |
+| `tsk sync push` | `sync_push` |
+| `tsk sync pull [--since <cursor>]` | `sync_pull` |
+| `tsk sync run` | Pull then push, or configured bidirectional order |
+| `tsk sync status` | Local dirty rows, queue depth, retry state, cursor |
+| `tsk sync retry <task_id>` | `queue_retry` |
+| `tsk sync conflicts` | Inspect pending conflicts when pluggable conflict handling is enabled |
+| `tsk sync resolve <task_id> --local|--remote|--json <patch>` | `resolve_conflict` / configured strategy |
 
 #### Settings commands
 
 | Command | Coverage |
 |---|---|
-| `taskmanager settings get [key]` | Plaintext and vault settings read paths |
-| `taskmanager settings set <key> <value>` | Plaintext/vault settings write paths and sync dirty marking |
-| `taskmanager settings pull-plaintext` / `push-plaintext` | `/settings/plaintext` endpoints |
-| `taskmanager settings migrate` | Vault settings schema migration functions |
+| `tsk settings get [key]` | Plaintext and vault settings read paths |
+| `tsk settings set <key> <value>` | Plaintext/vault settings write paths and sync dirty marking |
+| `tsk settings pull-plaintext` / `push-plaintext` | `/settings/plaintext` endpoints |
+| `tsk settings migrate` | Vault settings schema migration functions |
 
 #### Sharing commands
 
 | Command | Coverage |
 |---|---|
-| `taskmanager share create <task_id> --recipient <user_or_device>` | Per-task key generation, task re-encryption, recipient key wrap, `/share/:task_id` |
-| `taskmanager share inbox` | Shared-task inbox fetch |
-| `taskmanager share accept <share_id>` | Wrapped task-key unwrap and local import |
-| `taskmanager share revoke <task_id> --recipient <id>` | Share deletion, task-key rotation, remaining-recipient rewrap |
-| `taskmanager share list <task_id>` | Current collaborators and key state |
+| `tsk share create <task_id> --recipient <user_or_device>` | Per-task key generation, task re-encryption, recipient key wrap, `/share/:task_id` |
+| `tsk share inbox` | Shared-task inbox fetch |
+| `tsk share accept <share_id>` | Wrapped task-key unwrap and local import |
+| `tsk share revoke <task_id> --recipient <id>` | Share deletion, task-key rotation, remaining-recipient rewrap |
+| `tsk share list <task_id>` | Current collaborators and key state |
 
 #### Crypto diagnostic commands
 
@@ -618,10 +618,10 @@ These commands exist for development/test profiles and must never print secret k
 
 | Command | Coverage |
 |---|---|
-| `taskmanager crypto encrypt-task <task_id>` | `encrypt_blob` |
-| `taskmanager crypto decrypt-blob <file>` | `decrypt_blob` |
-| `taskmanager crypto wrap-data-key ...` / `unwrap-data-key ...` | Direct wrap/unwrap coverage |
-| `taskmanager crypto verify-local` | Validate local key availability and decryptability without network |
+| `tsk crypto encrypt-task <task_id>` | `encrypt_blob` |
+| `tsk crypto decrypt-blob <file>` | `decrypt_blob` |
+| `tsk crypto wrap-data-key ...` / `unwrap-data-key ...` | Direct wrap/unwrap coverage |
+| `tsk crypto verify-local` | Validate local key availability and decryptability without network |
 
 ### 7.5 Output and exit-code contract
 

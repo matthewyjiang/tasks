@@ -22,7 +22,7 @@ impl KeyCli {
     }
 
     fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("taskmanager").unwrap();
+        let mut cmd = Command::cargo_bin("tsk").unwrap();
         cmd.args([
             "--output",
             "json",

@@ -32,7 +32,7 @@ impl SyncCli {
     }
 
     fn command_with_db(db: &std::path::Path) -> Command {
-        let mut cmd = Command::cargo_bin("taskmanager").unwrap();
+        let mut cmd = Command::cargo_bin("tsk").unwrap();
         cmd.args(["--db", db.to_str().unwrap(), "--output", "json"]);
         cmd
     }

@@ -27,11 +27,11 @@ Equivalent Cargo command:
 cargo install --path cli --force
 ```
 
-This installs the `taskmanager` binary into Cargo's bin directory, usually `~/.cargo/bin`. Ensure that directory is on your `PATH`:
+This installs the `tsk` binary into Cargo's bin directory, usually `~/.cargo/bin`. Ensure that directory is on your `PATH`:
 
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"
-taskmanager --help
+tsk --help
 ```
 
 For local development without installing:
@@ -50,11 +50,11 @@ make cli-uninstall
 Optional shell completions and a man page can be generated after building/installing the CLI:
 
 ```sh
-taskmanager generate completion bash > taskmanager.bash
-taskmanager generate completion zsh > _taskmanager
-taskmanager generate completion fish > taskmanager.fish
-taskmanager generate completion powershell > taskmanager.ps1
-taskmanager generate man > taskmanager.1
+tsk generate completion bash > tsk.bash
+tsk generate completion zsh > _tsk
+tsk generate completion fish > tsk.fish
+tsk generate completion powershell > tsk.ps1
+tsk generate man > tsk.1
 ```
 
 See [`cli/README.md`](./cli/README.md) for usage examples and development setup.
