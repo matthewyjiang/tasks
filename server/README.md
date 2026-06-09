@@ -26,7 +26,7 @@ cd server
 ./scripts/deploy.sh
 ```
 
-The script interactively asks for required settings, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`.
+The script interactively asks for required settings, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the app container always listens on `PORT=8080`.
 
 ## Checks
 

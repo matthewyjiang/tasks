@@ -58,7 +58,8 @@ random_secret() {
 
 write_env() {
   cat > "$ENV_FILE" <<EOF_ENV
-PORT=$PORT
+HOST_PORT=$HOST_PORT
+PORT=8080
 POSTGRES_DB=$POSTGRES_DB
 POSTGRES_USER=$POSTGRES_USER
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
@@ -89,7 +90,8 @@ main() {
 
   load_existing
 
-  prompt PORT "Public HTTP port" "${PORT:-8080}"
+  prompt HOST_PORT "Public HTTP port" "${HOST_PORT:-${PORT:-8080}}"
+  PORT=8080
   prompt POSTGRES_DB "Postgres database name" "${POSTGRES_DB:-tasks}"
   prompt POSTGRES_USER "Postgres user" "${POSTGRES_USER:-tasks}"
 
@@ -125,9 +127,9 @@ main() {
   compose up -d --build
 
   echo
-  echo "Waiting for app to respond on http://localhost:$PORT/healthz ..."
+  echo "Waiting for app to respond on http://localhost:$HOST_PORT/healthz ..."
   for _ in $(seq 1 30); do
-    if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$PORT/healthz" >/dev/null; then
+    if command -v curl >/dev/null 2>&1 && curl -fsS "http://localhost:$HOST_PORT/healthz" >/dev/null; then
       echo "Deploy complete. Health check passed."
       exit 0
     fi
