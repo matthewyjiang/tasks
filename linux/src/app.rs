@@ -755,6 +755,7 @@ fn build_ui(app: &adw::Application) {
     let search_results = gtk::ListBox::new();
     search_results.add_css_class("search-results");
     search_results.set_selection_mode(gtk::SelectionMode::None);
+    search_results.set_visible(false);
     search_panel.append(&overlay_search);
     search_panel.append(&search_results);
 
@@ -1498,6 +1499,7 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
     while let Some(row) = results.first_child() {
         results.remove(&row);
     }
+    results.set_visible(false);
     if query.is_empty() {
         return;
     }
@@ -1511,11 +1513,13 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
     };
     match state.core.list_tasks(TaskFilter::default(), default_sort()) {
         Ok(tasks) => {
+            let mut has_results = false;
             for task in tasks
                 .into_iter()
                 .filter(|task| regex_matches_task(&regex, task))
                 .take(10)
             {
+                has_results = true;
                 let row = gtk::ListBoxRow::new();
                 row.set_widget_name(&task.id.to_string());
                 row.add_css_class("search-result-row");
@@ -1536,6 +1540,7 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
                 row.set_child(Some(&content));
                 results.append(&row);
             }
+            results.set_visible(has_results);
         }
         Err(error) => state.toast(format!("Search failed: {error}")),
     }
