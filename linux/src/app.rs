@@ -432,6 +432,7 @@ impl AppState {
             let name = gtk::Label::new(Some(&list.name));
             name.set_xalign(0.0);
             name.set_hexpand(true);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
             row_box.append(&icon);
             row_box.append(&name);
             row.set_child(Some(&row_box));
@@ -523,7 +524,9 @@ fn build_ui(app: &adw::Application) {
 
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 14);
     sidebar.add_css_class("tsk-sidebar");
-    sidebar.set_size_request(260, -1);
+    sidebar.set_width_request(260);
+    sidebar.set_hexpand(false);
+    sidebar.set_halign(gtk::Align::Start);
 
     sidebar.append(&search);
 
@@ -549,6 +552,7 @@ fn build_ui(app: &adw::Application) {
         let label = gtk::Label::new(Some(sidebar_filter_title(filter)));
         label.set_xalign(0.0);
         label.set_hexpand(true);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
         let count_label = gtk::Label::new(Some("0"));
         count_label.add_css_class("sidebar-count");
 
