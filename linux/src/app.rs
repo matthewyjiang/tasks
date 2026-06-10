@@ -883,7 +883,13 @@ fn build_ui(app: &adw::Application) {
     setup_card.append(&setup_password);
     setup_card.append(&setup_status);
     setup_card.append(&setup_actions);
+    let setup_top_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    setup_top_spacer.set_vexpand(true);
+    let setup_bottom_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    setup_bottom_spacer.set_vexpand(true);
+    setup_panel.append(&setup_top_spacer);
     setup_panel.append(&setup_card);
+    setup_panel.append(&setup_bottom_spacer);
 
     let page_click = gtk::GestureClick::new();
     page.add_controller(page_click.clone());
