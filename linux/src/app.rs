@@ -141,8 +141,11 @@ impl AppState {
                 }
             });
             if self.pending_focus_task_id.borrow().as_ref() == Some(&task.id) {
-                title.grab_focus();
-                title.select_region(0, -1);
+                let title_to_focus = title.clone();
+                gtk::glib::idle_add_local_once(move || {
+                    title_to_focus.grab_focus();
+                    title_to_focus.select_region(0, -1);
+                });
                 self.pending_focus_task_id.replace(None);
             }
             let summary = gtk::Label::new(Some(&format_task_row_summary(task)));
