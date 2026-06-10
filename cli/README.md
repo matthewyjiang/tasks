@@ -86,7 +86,7 @@ tsk --db /tmp/tasks.db task list
 
 tsk --db /tmp/tasks.db task get <task_id>
 
-tsk --db /tmp/tasks.db task update <task_id> --status in-progress --project-id <uuid>
+tsk --db /tmp/tasks.db task update <task_id> --status open --project-id <uuid>
 
 tsk --db /tmp/tasks.db task complete <task_id>
 

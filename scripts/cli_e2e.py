@@ -316,14 +316,14 @@ def main() -> int:
                     "--due-at",
                     "3000",
                     "--status",
-                    "in-progress",
+                    "open",
                     "--tags",
                     "updated,edge",
                 )
             )
             assert updated["title"] == "updated e2e task"
             assert updated["body"] == "updated body"
-            assert updated["status"] == "in_progress"
+            assert updated["status"] == "open"
             assert updated["due_at"] == 3000
             assert updated["tags"] == ["updated", "edge"]
 
@@ -333,7 +333,7 @@ def main() -> int:
             complete = parse_result(cli(env, profile_a, "task", "complete", task_id))
             assert complete["status"] == "done"
             reopened = parse_result(cli(env, profile_a, "task", "reopen", task_id))
-            assert reopened["status"] == "inbox"
+            assert reopened["status"] == "open"
 
             search = parse_result(cli(env, profile_a, "task", "search", "updated e2e"))
             assert any(task["id"] == task_id for task in search)
@@ -346,8 +346,8 @@ def main() -> int:
             assert any(task["id"] == task_id for task in listed)
             assert any(task["id"] == positional_id for task in listed)
 
-            inbox = parse_result(cli(env, profile_a, "task", "list", "--status", "inbox"))
-            assert all(task["status"] == "inbox" for task in inbox)
+            inbox = parse_result(cli(env, profile_a, "task", "list", "--status", "open"))
+            assert all(task["status"] == "open" for task in inbox)
             tagged = parse_result(cli(env, profile_a, "task", "list", "--tag", "updated"))
             assert any(task["id"] == task_id for task in tagged)
             assert all("updated" in task["tags"] for task in tagged)
