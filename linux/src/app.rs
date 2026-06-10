@@ -171,14 +171,6 @@ impl AppState {
             }
         }
 
-        if counts.is_empty() {
-            let empty = gtk::Label::new(Some("Add tags in a task to organize lists"));
-            empty.set_xalign(0.0);
-            empty.add_css_class("sidebar-empty-note");
-            self.tag_box.append(&empty);
-            return;
-        }
-
         for (tag, count) in counts {
             let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
             row.add_css_class("sidebar-static-row");
@@ -252,16 +244,7 @@ fn build_ui(app: &adw::Application) {
     sidebar.add_css_class("tsk-sidebar");
     sidebar.set_size_request(260, -1);
 
-    let app_label = gtk::Label::new(Some("tsk"));
-    app_label.set_xalign(0.0);
-    app_label.add_css_class("sidebar-app-title");
-    sidebar.append(&app_label);
     sidebar.append(&search);
-
-    let smart_lists_label = gtk::Label::new(Some("Smart Lists"));
-    smart_lists_label.set_xalign(0.0);
-    smart_lists_label.add_css_class("sidebar-section");
-    sidebar.append(&smart_lists_label);
 
     let filter_list = gtk::ListBox::new();
     let mut filter_count_labels = Vec::new();
@@ -290,10 +273,6 @@ fn build_ui(app: &adw::Application) {
     }
     sidebar.append(&filter_list);
 
-    let tag_label = gtk::Label::new(Some("Tags"));
-    tag_label.set_xalign(0.0);
-    tag_label.add_css_class("sidebar-section");
-    sidebar.append(&tag_label);
     let tag_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     sidebar.append(&tag_box);
 
@@ -465,13 +444,6 @@ fn install_css() {
             background: @sidebar_bg_color;
             padding: 10px 10px 10px 12px;
         }
-        .sidebar-app-title {
-            color: @window_fg_color;
-            font-size: 20px;
-            font-weight: 800;
-            letter-spacing: -0.04em;
-            margin: 2px 8px 0;
-        }
         .sidebar-search {
             border-radius: 8px;
             min-height: 30px;
@@ -480,12 +452,6 @@ fn install_css() {
             border-radius: 6px;
             margin: 1px 0;
             color: @window_fg_color;
-        }
-        .sidebar-section {
-            color: @dim_label_color;
-            font-size: 12px;
-            font-weight: 700;
-            margin: 10px 8px 2px;
         }
         .sidebar-static-row {
             color: @window_fg_color;
@@ -496,11 +462,6 @@ fn install_css() {
             color: @dim_label_color;
             font-size: 12px;
             font-weight: 700;
-        }
-        .sidebar-empty-note {
-            color: @dim_label_color;
-            font-size: 12px;
-            margin: 4px 10px;
         }
         .pane-title {
             font-size: 22px;

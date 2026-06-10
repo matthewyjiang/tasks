@@ -30,6 +30,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Simplified the layout to one sidebar plus one main task list window.
 - [x] Removed divider lines between sidebar and main content; sidebar distinction now comes from theme background color only.
 - [x] Sidebar now owns the full window height instead of starting below the header.
+- [x] Removed sidebar title/section labels for a more minimal layout.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
