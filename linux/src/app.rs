@@ -1445,6 +1445,8 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
     let save_button = gtk::Button::with_label("Save");
     save_button.add_css_class("suggested-action");
     save_button.set_halign(gtk::Align::End);
+    save_button.set_margin_end(22);
+    save_button.set_margin_bottom(22);
 
     settings_stack.add_named(&sync_page, Some("sync"));
     settings_stack.add_named(&appearance_page, Some("appearance"));
