@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -48,6 +49,8 @@ jobs:
       - name: Release ${{ matrix.artifact }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_UPDATE_PACKAGE_VERSION: "1"
+          RELEASE_VERSION_PR: "1"
         run: |
           python3 scripts/semantic_release.py \
             --artifact "${{ matrix.artifact }}" \
