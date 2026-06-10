@@ -19,7 +19,12 @@ use crate::ui::search::normalize_query;
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
 
 const FLOATING_PANEL_FADE_MS: u64 = 180;
-const TASK_EDITOR_WIDTH: i32 = 780;
+const TASK_EDITOR_MIN_WIDTH: i32 = 640;
+const TASK_EDITOR_MAX_WIDTH: i32 = 1040;
+const TASK_EDITOR_WIDTH_RATIO: f64 = 0.72;
+const TASK_EDITOR_MIN_HEIGHT: i32 = 420;
+const TASK_EDITOR_MAX_HEIGHT: i32 = 820;
+const TASK_EDITOR_HEIGHT_RATIO: f64 = 0.78;
 const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
 const TASK_EDITOR_INNER_PADDING: i32 = 7;
 
@@ -755,7 +760,7 @@ fn build_ui(app: &adw::Application) {
 
     let editor_panel = gtk::Box::new(gtk::Orientation::Vertical, 16);
     editor_panel.add_css_class("task-editor-panel");
-    editor_panel.set_width_request(TASK_EDITOR_WIDTH);
+    editor_panel.set_size_request(TASK_EDITOR_MIN_WIDTH, TASK_EDITOR_MIN_HEIGHT);
     editor_panel.set_focusable(true);
     editor_panel.set_halign(gtk::Align::Center);
     editor_panel.set_valign(gtk::Align::Center);
@@ -1166,6 +1171,16 @@ fn build_ui(app: &adw::Application) {
             if let Ok(task_id) = Uuid::parse_str(&row.widget_name()) {
                 state.select_task(task_id);
             }
+        }
+    });
+
+    resize_task_editor_panel(&window, &state.editor_panel);
+    window.add_tick_callback({
+        let window = window.clone();
+        let editor_panel = state.editor_panel.clone();
+        move |_, _| {
+            resize_task_editor_panel(&window, &editor_panel);
+            gtk::glib::ControlFlow::Continue
         }
     });
 
@@ -1581,6 +1596,20 @@ fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
         });
     state.load_tasks();
     state.select_task(task.id);
+}
+
+fn resize_task_editor_panel(window: &adw::ApplicationWindow, editor_panel: &gtk::Box) {
+    let width = window.allocated_width();
+    let height = window.allocated_height();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let editor_width = ((width as f64) * TASK_EDITOR_WIDTH_RATIO) as i32;
+    let editor_height = ((height as f64) * TASK_EDITOR_HEIGHT_RATIO) as i32;
+    editor_panel.set_size_request(
+        editor_width.clamp(TASK_EDITOR_MIN_WIDTH, TASK_EDITOR_MAX_WIDTH),
+        editor_height.clamp(TASK_EDITOR_MIN_HEIGHT, TASK_EDITOR_MAX_HEIGHT),
+    );
 }
 
 fn show_floating_panel<W>(widget: &W)
