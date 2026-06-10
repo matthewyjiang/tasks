@@ -690,7 +690,6 @@ fn build_ui(app: &adw::Application) {
     content_bottom_bar.append(&bottom_new_button);
 
     let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    main_area.set_width_request(560);
     main_area.set_hexpand(true);
     main_area.set_vexpand(true);
     main_area.append(&list_pane);
