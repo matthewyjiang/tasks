@@ -1467,8 +1467,13 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
     if let Some(row) = settings_nav.row_at_index(0) {
         settings_nav.select_row(Some(&row));
     }
+    let settings_body = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    settings_body.set_hexpand(true);
+    settings_body.set_vexpand(true);
+    settings_body.append(&settings_stack);
+    settings_body.append(&save_button);
     content.append(&settings_nav);
-    content.append(&settings_stack);
+    content.append(&settings_body);
 
     sync_setup_button.connect_clicked({
         let panel = panel.clone();
@@ -1561,7 +1566,6 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
     });
 
     panel.append(&content);
-    panel.append(&save_button);
     show_floating_panel(panel);
 }
 
