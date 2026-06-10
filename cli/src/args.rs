@@ -291,7 +291,7 @@ pub enum TaskCommands {
     Search(TaskSearchArgs),
     /// Mark a task done.
     Complete(TaskIdArgs),
-    /// Reopen a task into inbox status.
+    /// Reopen a task into open status.
     Reopen(TaskIdArgs),
 }
 
@@ -381,16 +381,14 @@ pub struct TaskSearchArgs {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum CliTaskStatus {
-    Inbox,
-    InProgress,
+    Open,
     Done,
 }
 
 impl From<CliTaskStatus> for TaskStatus {
     fn from(status: CliTaskStatus) -> Self {
         match status {
-            CliTaskStatus::Inbox => Self::Inbox,
-            CliTaskStatus::InProgress => Self::InProgress,
+            CliTaskStatus::Open => Self::Open,
             CliTaskStatus::Done => Self::Done,
         }
     }

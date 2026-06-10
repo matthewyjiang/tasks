@@ -1,6 +1,5 @@
 enum FfiTaskStatus {
-  "Inbox",
-  "InProgress",
+  "Open",
   "Done"
 };
 

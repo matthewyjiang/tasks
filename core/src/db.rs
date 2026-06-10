@@ -6,7 +6,8 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::error::{CoreResult, DbError};
-use crate::types::{Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};
+use crate::settings::{VaultSettings, VAULT_SETTINGS_ID};
+use crate::types::{Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus};
 
 pub struct LocalDatabase {
     connection: Connection,
@@ -27,6 +28,61 @@ impl LocalDatabase {
         Ok(database)
     }
 
+    pub fn create_list(&self, name: String) -> CoreResult<TaskList> {
+        let now = now_ms();
+        let list = TaskList {
+            id: Uuid::new_v4(),
+            name,
+            created_at: now,
+            updated_at: now,
+            deleted: false,
+            dirty: true,
+        };
+        self.upsert_list(&list)?;
+        Ok(list)
+    }
+
+    pub fn list_task_lists(&self) -> CoreResult<Vec<TaskList>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, created_at, updated_at, deleted, dirty FROM task_lists WHERE deleted = 0 ORDER BY name COLLATE NOCASE ASC, id ASC",
+        )?;
+        let lists = statement.query_map([], read_task_list)?;
+        collect_task_lists(lists)
+    }
+
+    pub fn update_list(&self, list_id: Uuid, name: String) -> CoreResult<TaskList> {
+        let mut list = self.get_list(list_id)?;
+        list.name = name;
+        list.updated_at = now_ms().max(list.updated_at + 1);
+        list.dirty = true;
+        self.upsert_list(&list)?;
+        Ok(list)
+    }
+
+    pub fn delete_list(&self, list_id: Uuid) -> CoreResult<()> {
+        let mut list = self.get_list(list_id)?;
+        list.deleted = true;
+        list.updated_at = now_ms().max(list.updated_at + 1);
+        list.dirty = true;
+        self.upsert_list(&list)?;
+        self.connection.execute(
+            "UPDATE tasks SET project_id = NULL, updated_at = ?2, dirty = 1 WHERE project_id = ?1",
+            params![list_id.to_string(), now_ms()],
+        )?;
+        Ok(())
+    }
+
+    fn get_list(&self, list_id: Uuid) -> CoreResult<TaskList> {
+        self.connection
+            .query_row(
+                "SELECT id, name, created_at, updated_at, deleted, dirty FROM task_lists WHERE id = ?1",
+                params![list_id.to_string()],
+                read_task_list,
+            )
+            .optional()?
+            .ok_or_else(|| DbError::InvalidRowData(format!("list not found: {list_id}")).into())
+    }
+
     pub fn create_task(
         &self,
         title: String,
@@ -39,7 +95,7 @@ impl LocalDatabase {
             title,
             body,
             due_at,
-            status: TaskStatus::Inbox,
+            status: TaskStatus::Open,
             project_id: None,
             tags: Vec::new(),
             created_at: now,
@@ -101,9 +157,9 @@ impl LocalDatabase {
 
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
         let mut sql = String::from(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE 1 = 1",
+            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
         );
-        let mut values = Vec::new();
+        let mut values = vec![Value::Text(Uuid::nil().to_string())];
 
         if !filter.include_deleted {
             sql.push_str(" AND deleted = 0");
@@ -143,14 +199,34 @@ impl LocalDatabase {
         collect_tasks(tasks)
     }
 
+    pub fn vault_settings(&self) -> CoreResult<VaultSettings> {
+        let task = self
+            .connection
+            .query_row(
+                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1 AND title = ?2",
+                params![Uuid::nil().to_string(), VAULT_SETTINGS_ID],
+                read_task,
+            )
+            .optional()?;
+        task.as_ref()
+            .map(VaultSettings::from_reserved_task)
+            .unwrap_or_else(|| Ok(VaultSettings::default()))
+    }
+
+    pub fn update_vault_settings(&self, settings: &VaultSettings) -> CoreResult<VaultSettings> {
+        let task = settings.to_reserved_task(now_ms())?;
+        self.upsert_task(&task)?;
+        Ok(settings.clone())
+    }
+
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         let mut statement = self.connection.prepare(
             "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
              FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
-             WHERE tasks_fts MATCH ?1 AND t.deleted = 0
+             WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
              ORDER BY rank, t.updated_at DESC, t.id ASC",
         )?;
-        let tasks = statement.query_map(params![query], read_task)?;
+        let tasks = statement.query_map(params![query, Uuid::nil().to_string()], read_task)?;
         collect_tasks(tasks)
     }
 
@@ -161,9 +237,18 @@ impl LocalDatabase {
                 title       TEXT NOT NULL,
                 body        TEXT NOT NULL DEFAULT '',
                 due_at      INTEGER,
-                status      TEXT NOT NULL DEFAULT 'inbox',
+                status      TEXT NOT NULL DEFAULT 'open',
                 project_id  TEXT,
                 tags        TEXT NOT NULL DEFAULT '[]',
+                created_at  INTEGER NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                deleted     INTEGER NOT NULL DEFAULT 0,
+                dirty       INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS task_lists (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
                 created_at  INTEGER NOT NULL,
                 updated_at  INTEGER NOT NULL,
                 deleted     INTEGER NOT NULL DEFAULT 0,
@@ -209,6 +294,28 @@ impl LocalDatabase {
 
             CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_task_id_unique
             ON sync_queue(task_id);",
+        )?;
+        Ok(())
+    }
+
+    fn upsert_list(&self, list: &TaskList) -> CoreResult<()> {
+        self.connection.execute(
+            "INSERT INTO task_lists (id, name, created_at, updated_at, deleted, dirty)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                deleted = excluded.deleted,
+                dirty = excluded.dirty",
+            params![
+                list.id.to_string(),
+                list.name,
+                list.created_at,
+                list.updated_at,
+                bool_to_db(list.deleted),
+                bool_to_db(list.dirty),
+            ],
         )?;
         Ok(())
     }
@@ -322,6 +429,28 @@ impl LocalDatabase {
     }
 }
 
+fn collect_task_lists(
+    rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<TaskList>>,
+) -> CoreResult<Vec<TaskList>> {
+    let mut lists = Vec::new();
+    for list in rows {
+        lists.push(list?);
+    }
+    Ok(lists)
+}
+
+fn read_task_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskList> {
+    let id_text: String = row.get(0)?;
+    Ok(TaskList {
+        id: parse_uuid(&id_text, "id")?,
+        name: row.get(1)?,
+        created_at: row.get(2)?,
+        updated_at: row.get(3)?,
+        deleted: db_to_bool(row.get(4)?),
+        dirty: db_to_bool(row.get(5)?),
+    })
+}
+
 fn collect_tasks(
     rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<Task>>,
 ) -> CoreResult<Vec<Task>> {
@@ -382,16 +511,14 @@ fn parse_uuid(text: &str, column: &'static str) -> rusqlite::Result<Uuid> {
 
 fn status_to_db(status: TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Inbox => "inbox",
-        TaskStatus::InProgress => "in_progress",
+        TaskStatus::Open => "open",
         TaskStatus::Done => "done",
     }
 }
 
 fn status_from_db(text: &str) -> rusqlite::Result<TaskStatus> {
     match text {
-        "inbox" => Ok(TaskStatus::Inbox),
-        "in_progress" => Ok(TaskStatus::InProgress),
+        "open" | "inbox" | "in_progress" => Ok(TaskStatus::Open),
         "done" => Ok(TaskStatus::Done),
         other => Err(rusqlite::Error::FromSqlConversionFailure(
             4,
@@ -501,7 +628,7 @@ mod tests {
         let loaded = database.get_task(task.id).unwrap();
 
         assert_eq!(loaded, task);
-        assert_eq!(loaded.status, TaskStatus::Inbox);
+        assert_eq!(loaded.status, TaskStatus::Open);
         assert!(loaded.dirty);
         assert!(!loaded.deleted);
     }
@@ -576,6 +703,31 @@ mod tests {
     }
 
     #[test]
+    fn list_tasks_excludes_reserved_vault_settings_task() {
+        let database = db();
+        let task = create_named(&database, "visible", "body", None);
+        database
+            .update_vault_settings(&VaultSettings::default())
+            .unwrap();
+
+        let tasks = database
+            .list_tasks(
+                TaskFilter {
+                    include_deleted: true,
+                    ..TaskFilter::default()
+                },
+                TaskSort::CreatedAtAsc,
+            )
+            .unwrap();
+
+        assert_eq!(
+            tasks.iter().map(|task| task.id).collect::<Vec<_>>(),
+            vec![task.id]
+        );
+        assert!(database.vault_settings().is_ok());
+    }
+
+    #[test]
     fn list_tasks_filters_by_status_project_tags_and_due_range() {
         let database = db();
         let project_id = Uuid::new_v4();
@@ -584,7 +736,7 @@ mod tests {
             .update_task(
                 matching.id,
                 TaskPatch {
-                    status: Some(TaskStatus::InProgress),
+                    status: Some(TaskStatus::Open),
                     project_id: Some(Some(project_id)),
                     tags: Some(vec!["work".to_owned(), "urgent".to_owned()]),
                     ..TaskPatch::default()
@@ -596,7 +748,7 @@ mod tests {
             .update_task(
                 wrong_tag.id,
                 TaskPatch {
-                    status: Some(TaskStatus::InProgress),
+                    status: Some(TaskStatus::Open),
                     project_id: Some(Some(project_id)),
                     tags: Some(vec!["work".to_owned()]),
                     ..TaskPatch::default()
@@ -609,7 +761,7 @@ mod tests {
         let tasks = database
             .list_tasks(
                 TaskFilter {
-                    status: Some(TaskStatus::InProgress),
+                    status: Some(TaskStatus::Open),
                     project_id: Some(project_id),
                     tags: vec!["work".to_owned(), "urgent".to_owned()],
                     due_after: Some(40),
@@ -745,7 +897,7 @@ mod tests {
     fn invalid_uuid_row_returns_clear_error() {
         let database = db();
         database.connection.execute(
-            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES ('not-a-uuid', 't', 'b', 'inbox', '[]', 1, 1)",
+            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES ('not-a-uuid', 't', 'b', 'open', '[]', 1, 1)",
             [],
         ).unwrap();
 
@@ -765,7 +917,7 @@ mod tests {
     fn invalid_tags_json_row_returns_clear_error() {
         let database = db();
         database.connection.execute(
-            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES (?1, 't', 'b', 'inbox', 'not-json', 1, 1)",
+            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES (?1, 't', 'b', 'open', 'not-json', 1, 1)",
             params![Uuid::new_v4().to_string()],
         ).unwrap();
 

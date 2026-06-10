@@ -57,7 +57,7 @@ fn creating_a_task_returns_generated_dirty_task() {
     assert_eq!(value["result"]["title"], "write tests");
     assert_eq!(value["result"]["body"], "cover cli");
     assert_eq!(value["result"]["due_at"], 123);
-    assert_eq!(value["result"]["status"], "inbox");
+    assert_eq!(value["result"]["status"], "open");
     assert_eq!(value["result"]["dirty"], true);
 }
 
@@ -150,7 +150,7 @@ fn updating_patchable_fields_persists_and_marks_dirty() {
         "--due-at",
         "456",
         "--status",
-        "in-progress",
+        "open",
         "--project-id",
         project_id,
         "--tags",
@@ -160,7 +160,7 @@ fn updating_patchable_fields_persists_and_marks_dirty() {
     assert_eq!(updated["result"]["title"], "done title");
     assert_eq!(updated["result"]["body"], "done body");
     assert_eq!(updated["result"]["due_at"], 456);
-    assert_eq!(updated["result"]["status"], "in_progress");
+    assert_eq!(updated["result"]["status"], "open");
     assert_eq!(updated["result"]["project_id"], project_id);
     assert_eq!(
         updated["result"]["tags"],
@@ -324,7 +324,7 @@ fn complete_and_reopen_map_to_status_patches() {
     assert_eq!(done["result"]["status"], "done");
 
     let reopened = cli.json(&["task", "reopen", id]);
-    assert_eq!(reopened["result"]["status"], "inbox");
+    assert_eq!(reopened["result"]["status"], "open");
 }
 
 #[test]

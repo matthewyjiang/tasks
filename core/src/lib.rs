@@ -33,15 +33,15 @@ pub use platform::{
     ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 pub use settings::{
-    AuthMethod, DefaultSort, DisplayDensity, PlaintextSettings, PlaintextSettingsSyncPayload,
-    Theme, VaultSettings, VaultSettingsBlob, PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID,
-    VAULT_SETTINGS_SCHEMA_VERSION,
+    AuthMethod, DefaultSort, DisplayDensity, Keybindings, PlaintextSettings,
+    PlaintextSettingsSyncPayload, Theme, VaultSettings, VaultSettingsBlob,
+    PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID, VAULT_SETTINGS_SCHEMA_VERSION,
 };
 pub use sync::{
     resolve_conflict, sync_pull, sync_push, BlobPush, PullResponse, PushResponse, RemoteBlob,
     SyncClient,
 };
 pub use types::{
-    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskPatch, TaskSort,
+    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort,
     TaskStatus,
 };

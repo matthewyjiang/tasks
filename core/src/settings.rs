@@ -47,6 +47,18 @@ pub struct VaultSettings {
     pub display_density: DisplayDensity,
     pub first_day_of_week: i32,
     pub notification_sound: String,
+    #[serde(default)]
+    pub keybindings: Keybindings,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Keybindings {
+    pub add_task: String,
+    pub search: String,
+    pub close_overlay: String,
+    pub confirm_rename: String,
+    pub delete_task: String,
+    pub toggle_done: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +135,19 @@ impl PlaintextSettings {
     }
 }
 
+impl Default for Keybindings {
+    fn default() -> Self {
+        Self {
+            add_task: "<Primary>n".to_owned(),
+            search: "<Primary>f".to_owned(),
+            close_overlay: "Escape".to_owned(),
+            confirm_rename: "Return".to_owned(),
+            delete_task: "Delete".to_owned(),
+            toggle_done: "space".to_owned(),
+        }
+    }
+}
+
 impl Default for VaultSettings {
     fn default() -> Self {
         Self {
@@ -135,13 +160,14 @@ impl Default for VaultSettings {
             display_density: DisplayDensity::Comfortable,
             first_day_of_week: 1,
             notification_sound: "default".to_owned(),
+            keybindings: Keybindings::default(),
         }
     }
 }
 
 impl VaultSettings {
     pub fn encrypt(&self, key: &[u8]) -> CoreResult<VaultSettingsBlob> {
-        let task = self.to_reserved_task()?;
+        let task = self.to_reserved_task(0)?;
         Ok(VaultSettingsBlob {
             id: VAULT_SETTINGS_ID.to_owned(),
             blob: encrypt_blob(&task, key)?,
@@ -167,7 +193,7 @@ impl VaultSettings {
         }
     }
 
-    fn to_reserved_task(&self) -> CoreResult<Task> {
+    pub(crate) fn to_reserved_task(&self, updated_at: i64) -> CoreResult<Task> {
         self.validate_schema_version()?;
 
         Ok(Task {
@@ -175,14 +201,20 @@ impl VaultSettings {
             title: VAULT_SETTINGS_ID.to_owned(),
             body: serde_json::to_string(self)?,
             due_at: None,
-            status: TaskStatus::Inbox,
+            status: TaskStatus::Open,
             project_id: None,
             tags: Vec::new(),
             created_at: 0,
-            updated_at: 0,
+            updated_at,
             deleted: false,
             dirty: true,
         })
+    }
+
+    pub(crate) fn from_reserved_task(task: &Task) -> CoreResult<Self> {
+        let settings: Self = serde_json::from_str(&task.body)?;
+        settings.validate_schema_version()?;
+        Ok(settings)
     }
 
     fn validate_schema_version(&self) -> CoreResult<()> {
@@ -294,6 +326,8 @@ mod tests {
         assert_eq!(json["display_density"], "comfortable");
         assert_eq!(json["first_day_of_week"], 1);
         assert_eq!(json["notification_sound"], "default");
+        assert_eq!(json["keybindings"]["add_task"], "<Primary>n");
+        assert_eq!(json["keybindings"]["search"], "<Primary>f");
     }
 
     #[test]
@@ -307,13 +341,42 @@ mod tests {
             "tag_colors": { "work": "#4A90D9" },
             "display_density": "comfortable",
             "first_day_of_week": 1,
-            "notification_sound": "default"
+            "notification_sound": "default",
+            "keybindings": {
+                "add_task": "<Primary><Shift>n",
+                "search": "<Primary>f",
+                "close_overlay": "Escape",
+                "confirm_rename": "Return",
+                "delete_task": "Delete",
+                "toggle_done": "space"
+            }
         }"##;
 
         let settings: VaultSettings = serde_json::from_str(json).unwrap();
 
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.tag_colors["work"], "#4A90D9");
+        assert_eq!(settings.keybindings.add_task, "<Primary><Shift>n");
+        assert_eq!(settings.keybindings.search, "<Primary>f");
+    }
+
+    #[test]
+    fn vault_settings_missing_keybindings_deserializes_defaults() {
+        let json = r##"{
+            "schema_version": 1,
+            "theme": "dark",
+            "default_sort": "due_at_asc",
+            "show_completed": false,
+            "default_reminder_minutes": 30,
+            "tag_colors": {},
+            "display_density": "comfortable",
+            "first_day_of_week": 1,
+            "notification_sound": "default"
+        }"##;
+
+        let settings: VaultSettings = serde_json::from_str(json).unwrap();
+
+        assert_eq!(settings.keybindings, Keybindings::default());
     }
 
     #[test]
@@ -353,7 +416,7 @@ mod tests {
 
     #[test]
     fn vault_settings_conflict_resolution_uses_last_write_wins() {
-        let mut local = VaultSettings::default().to_reserved_task().unwrap();
+        let mut local = VaultSettings::default().to_reserved_task(0).unwrap();
         let mut remote = local.clone();
         local.updated_at = 10;
         remote.updated_at = 20;
@@ -365,10 +428,12 @@ mod tests {
 
     #[test]
     fn unsupported_vault_schema_version_returns_error() {
-        let mut settings = VaultSettings::default();
-        settings.schema_version = 2;
+        let settings = VaultSettings {
+            schema_version: 2,
+            ..VaultSettings::default()
+        };
 
-        let error = settings.to_reserved_task().unwrap_err();
+        let error = settings.to_reserved_task(0).unwrap_err();
 
         assert!(matches!(
             error,

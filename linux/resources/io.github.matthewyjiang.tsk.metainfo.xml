@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.matthewyjiang.tsk</id>
+  <name>tsk</name>
+  <summary>Local-first encrypted task manager</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>tsk is a local-first, end-to-end encrypted task manager.</p>
+  </description>
+  <launchable type="desktop-id">io.github.matthewyjiang.tsk.desktop</launchable>
+</component>

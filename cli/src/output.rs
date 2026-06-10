@@ -302,8 +302,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 fn status_label(status: TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Inbox => "inbox",
-        TaskStatus::InProgress => "in_progress",
+        TaskStatus::Open => "open",
         TaskStatus::Done => "done",
     }
 }
