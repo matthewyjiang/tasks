@@ -1384,11 +1384,13 @@ fn install_css() {
     provider.load_from_data(
         r#"
         @font-face {
-            font-family: "Font Awesome 6 Free";
+            font-family: "Font Awesome 7 Free";
             src: url("file:///usr/share/fonts/WOFF2/fa-solid-900.woff2");
         }
-        .fa-icon {
-            font-family: "Font Awesome 6 Free";
+        .fa-icon,
+        .fa-icon label,
+        button.fa-icon label {
+            font-family: "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
             font-weight: 900;
         }
         .tsk-sidebar {
