@@ -54,7 +54,7 @@ def require(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
 
 
 
-def wait_for_http(url: str, timeout: float = 30.0) -> None:
+def wait_for_http(url: str, timeout: float = 90.0) -> None:
     deadline = time.time() + timeout
     last_error: Exception | None = None
     while time.time() < deadline:
@@ -204,9 +204,14 @@ def main() -> int:
             try:
                 wait_for_http(f"{SERVER_URL}/healthz")
             except Exception:
-                if server_proc.poll() is not None:
-                    print("\nserver exited before becoming healthy; output:", file=sys.stderr)
-                    print(read_process_output(server_proc), file=sys.stderr)
+                print("\nserver did not become healthy; output so far:", file=sys.stderr)
+                if server_proc.poll() is None:
+                    server_proc.send_signal(signal.SIGINT)
+                    try:
+                        server_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        server_proc.kill()
+                print(read_process_output(server_proc), file=sys.stderr)
                 raise
 
             version = parse_result(cli(env, profile_a, "version"))
