@@ -1317,9 +1317,30 @@ fn show_settings_window(
     content.append(&server_label);
     content.append(&server_entry);
 
+    let platform = LinuxPlatform::new();
+    let signed_in = sync_auth_configured(&platform, &settings);
     let sync_setup_button = gtk::Button::with_label("Sync login / setup…");
     sync_setup_button.set_halign(gtk::Align::Start);
+    sync_setup_button.set_visible(!signed_in);
     content.append(&sync_setup_button);
+
+    let sync_account_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    sync_account_row.set_visible(signed_in);
+    let sync_account = gtk::Label::new(Some(&format!(
+        "Signed in as {}",
+        if settings.sync_email.is_empty() {
+            "unknown account"
+        } else {
+            &settings.sync_email
+        }
+    )));
+    sync_account.set_xalign(0.0);
+    sync_account.set_hexpand(true);
+    let sync_logout_button = gtk::Button::with_label("Log out");
+    sync_logout_button.add_css_class("destructive-action");
+    sync_account_row.append(&sync_account);
+    sync_account_row.append(&sync_logout_button);
+    content.append(&sync_account_row);
 
     let theme_label = gtk::Label::new(Some("Theme"));
     theme_label.set_xalign(0.0);
@@ -1375,6 +1396,16 @@ fn show_settings_window(
         let dialog = dialog.clone();
         let settings_path = settings_path.clone();
         move |_| show_sync_setup_window(&dialog, settings_path.clone(), false)
+    });
+    sync_logout_button.connect_clicked({
+        let dialog = dialog.clone();
+        let settings_path = settings_path.clone();
+        move |_| {
+            if let Err(error) = logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
+                eprintln!("Failed to log out: {error}");
+            }
+            dialog.close();
+        }
     });
 
     save_button.connect_clicked({
