@@ -1399,13 +1399,12 @@ fn show_settings_window(
         let sync_account_row = sync_account_row.clone();
         let sync_account = sync_account.clone();
         move |_| {
-            let setup = show_sync_setup_window(&dialog, settings_path.clone(), false);
-            setup.connect_destroy({
+            let refresh_settings_sync_state: Rc<dyn Fn()> = Rc::new({
                 let settings_path = settings_path.clone();
                 let sync_setup_button = sync_setup_button.clone();
                 let sync_account_row = sync_account_row.clone();
                 let sync_account = sync_account.clone();
-                move |_| {
+                move || {
                     let settings = read_settings(&settings_path).unwrap_or_default();
                     let signed_in = sync_auth_configured(&LinuxPlatform::new(), &settings);
                     sync_setup_button.set_visible(!signed_in);
@@ -1422,6 +1421,12 @@ fn show_settings_window(
                     }
                 }
             });
+            show_sync_setup_window(
+                &dialog,
+                settings_path.clone(),
+                false,
+                Some(refresh_settings_sync_state),
+            );
         }
     });
     sync_logout_button.connect_clicked({
@@ -1644,6 +1649,7 @@ fn show_sync_setup_window(
     parent: &impl IsA<gtk::Window>,
     settings_path: PathBuf,
     first_run: bool,
+    on_auth_changed: Option<Rc<dyn Fn()>>,
 ) -> gtk::Window {
     let settings = read_settings(&settings_path).unwrap_or_default();
     let dialog = gtk::Window::builder()
@@ -1729,8 +1735,14 @@ fn show_sync_setup_window(
         let dialog = dialog.clone();
         let settings_path = settings_path.clone();
         let status = status.clone();
+        let on_auth_changed = on_auth_changed.clone();
         move |_| match logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
-            Ok(()) => dialog.close(),
+            Ok(()) => {
+                if let Some(on_auth_changed) = &on_auth_changed {
+                    on_auth_changed();
+                }
+                dialog.close()
+            }
             Err(error) => status.set_text(&format!("Logout failed: {error}")),
         }
     });
@@ -1738,6 +1750,7 @@ fn show_sync_setup_window(
     login_button.connect_clicked({
         let dialog = dialog.clone();
         let status = status.clone();
+        let on_auth_changed = on_auth_changed.clone();
         move |_| {
             status.set_text("Signing in…");
             let platform = LinuxPlatform::new();
@@ -1750,6 +1763,9 @@ fn show_sync_setup_window(
             ) {
                 Ok(()) => {
                     status.set_text("Sync configured.");
+                    if let Some(on_auth_changed) = &on_auth_changed {
+                        on_auth_changed();
+                    }
                     dialog.close();
                 }
                 Err(error) => status.set_text(&format!("Sync setup failed: {error}")),
