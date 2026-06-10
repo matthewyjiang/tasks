@@ -793,10 +793,11 @@ fn build_ui(app: &adw::Application) {
     due_calendar.add_css_class("task-calendar");
     let due_popover = gtk::Popover::new();
     due_popover.set_child(Some(&due_calendar));
-    let due_button = gtk::MenuButton::new();
-    due_button.set_label("\u{f073}");
-    due_button.set_tooltip_text(Some("Calendar"));
-    due_button.add_css_class("fa-icon");
+    let due_icon = font_awesome_label("\u{f073}");
+    let due_button = gtk::MenuButton::builder()
+        .child(&due_icon)
+        .tooltip_text("Calendar")
+        .build();
     due_button.add_css_class("task-editor-button");
     due_button.set_popover(Some(&due_popover));
     let clear_due_button = gtk::Button::with_label("Clear");
@@ -2087,6 +2088,10 @@ fn install_css() {
             font-size: 12px;
             font-weight: 700;
             margin-top: 6px;
+        }
+        .task-calendar,
+        .task-calendar * {
+            font-family: sans-serif;
         }
         .task-calendar {
             border-radius: 12px;
