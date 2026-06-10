@@ -40,6 +40,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Restored Inbox as the first built-in sidebar view.
 - [x] Added core-backed user-defined task lists and display them below built-in sidebar views.
 - [x] New tasks are created in Inbox, task titles can be edited inline, and row actions include mark open/done and delete.
+- [x] Task list layout expands to fill the available vertical space.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.

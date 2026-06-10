@@ -400,6 +400,8 @@ fn build_ui(app: &adw::Application) {
     list_heading.add_css_class("pane-title");
 
     let task_list = gtk::ListBox::new();
+    task_list.set_vexpand(true);
+    task_list.set_hexpand(true);
     task_list.add_css_class("task-list");
     task_list.set_selection_mode(gtk::SelectionMode::Single);
 
@@ -414,15 +416,20 @@ fn build_ui(app: &adw::Application) {
     empty_state.append(&empty_subtitle);
 
     let list_stack = gtk::Overlay::new();
+    list_stack.set_vexpand(true);
+    list_stack.set_hexpand(true);
     list_stack.set_child(Some(&task_list));
     list_stack.add_overlay(&empty_state);
     let scrolled_list = gtk::ScrolledWindow::builder()
         .min_content_width(340)
+        .vexpand(true)
+        .hexpand(true)
         .child(&list_stack)
         .build();
 
     let list_pane = gtk::Box::new(gtk::Orientation::Vertical, 12);
     list_pane.set_hexpand(true);
+    list_pane.set_vexpand(true);
     list_pane.add_css_class("tsk-list-pane");
     list_pane.set_margin_top(18);
     list_pane.set_margin_bottom(18);
@@ -447,10 +454,13 @@ fn build_ui(app: &adw::Application) {
 
     let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main_area.set_hexpand(true);
+    main_area.set_vexpand(true);
     main_area.append(&header);
     main_area.append(&list_pane);
 
     let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    page.set_vexpand(true);
+    page.set_hexpand(true);
     page.append(&sidebar);
     page.append(&main_area);
 
