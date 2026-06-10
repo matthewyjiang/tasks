@@ -23,6 +23,7 @@ pub fn run() {
 struct AppState {
     core: Rc<TaskManagerCore>,
     tasks: RefCell<Vec<Task>>,
+    pending_focus_task_id: RefCell<Option<Uuid>>,
     active_filter: RefCell<TaskFilterState>,
     selected_list_id: RefCell<Option<Uuid>>,
     search_query: RefCell<String>,
@@ -72,7 +73,7 @@ impl AppState {
                     {
                         self.list_heading.set_visible(false);
                         self.list_name_entry.set_visible(true);
-                        self.list_rename_button.set_visible(true);
+                        self.list_rename_button.set_visible(false);
                         self.list_actions_button.set_visible(true);
                         self.list_name_entry.set_text(&list.name);
                     }
@@ -139,6 +140,11 @@ impl AppState {
                     state.load_tasks();
                 }
             });
+            if self.pending_focus_task_id.borrow().as_ref() == Some(&task.id) {
+                title.grab_focus();
+                title.select_region(0, -1);
+                self.pending_focus_task_id.replace(None);
+            }
             let summary = gtk::Label::new(Some(&format_task_row_summary(task)));
             summary.set_xalign(0.0);
             summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -326,6 +332,9 @@ impl AppState {
             .create_task("New task".to_owned(), String::new(), None)
         {
             Ok(task) => {
+                self.selected_list_id.replace(None);
+                self.active_filter.replace(TaskFilterState::Inbox);
+                self.pending_focus_task_id.replace(Some(task.id));
                 self.load_tasks();
                 self.select_task(task.id);
             }
@@ -412,6 +421,8 @@ impl AppState {
                 self.active_filter.replace(TaskFilterState::Upcoming);
                 self.render_user_lists();
                 self.load_tasks();
+                self.list_name_entry.grab_focus();
+                self.list_name_entry.select_region(0, -1);
             }
             Err(error) => self.toast(format!("Failed to create list: {error}")),
         }
@@ -628,6 +639,7 @@ fn build_ui(app: &adw::Application) {
     let state = Rc::new(AppState {
         core: Rc::new(core),
         tasks: RefCell::new(Vec::new()),
+        pending_focus_task_id: RefCell::new(None),
         active_filter: RefCell::new(TaskFilterState::Inbox),
         selected_list_id: RefCell::new(None),
         search_query: RefCell::new(String::new()),
@@ -649,19 +661,37 @@ fn build_ui(app: &adw::Application) {
 
     new_button.connect_clicked({
         let state = Rc::clone(&state);
-        move |_| state.create_task()
+        let filter_list = filter_list.clone();
+        move |_| {
+            if let Some(row) = filter_list.row_at_index(0) {
+                filter_list.select_row(Some(&row));
+            }
+            state.create_task();
+        }
     });
     add_list_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| state.create_list()
     });
+    let list_name_focus = gtk::EventControllerFocus::new();
+    list_name_focus.connect_enter({
+        let state = Rc::clone(&state);
+        move |_| state.list_rename_button.set_visible(true)
+    });
+    state.list_name_entry.add_controller(list_name_focus);
     state.list_name_entry.connect_activate({
         let state = Rc::clone(&state);
-        move |_| state.rename_selected_list()
+        move |_| {
+            state.rename_selected_list();
+            state.list_rename_button.set_visible(false);
+        }
     });
     state.list_rename_button.connect_clicked({
         let state = Rc::clone(&state);
-        move |_| state.rename_selected_list()
+        move |_| {
+            state.rename_selected_list();
+            state.list_rename_button.set_visible(false);
+        }
     });
     list_delete_button.connect_clicked({
         let state = Rc::clone(&state);
