@@ -47,6 +47,18 @@ pub struct VaultSettings {
     pub display_density: DisplayDensity,
     pub first_day_of_week: i32,
     pub notification_sound: String,
+    #[serde(default)]
+    pub keybindings: Keybindings,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Keybindings {
+    pub add_task: String,
+    pub search: String,
+    pub close_overlay: String,
+    pub confirm_rename: String,
+    pub delete_task: String,
+    pub toggle_done: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +135,19 @@ impl PlaintextSettings {
     }
 }
 
+impl Default for Keybindings {
+    fn default() -> Self {
+        Self {
+            add_task: "<Primary>n".to_owned(),
+            search: "<Primary>k".to_owned(),
+            close_overlay: "Escape".to_owned(),
+            confirm_rename: "Return".to_owned(),
+            delete_task: "Delete".to_owned(),
+            toggle_done: "space".to_owned(),
+        }
+    }
+}
+
 impl Default for VaultSettings {
     fn default() -> Self {
         Self {
@@ -135,6 +160,7 @@ impl Default for VaultSettings {
             display_density: DisplayDensity::Comfortable,
             first_day_of_week: 1,
             notification_sound: "default".to_owned(),
+            keybindings: Keybindings::default(),
         }
     }
 }
@@ -294,6 +320,8 @@ mod tests {
         assert_eq!(json["display_density"], "comfortable");
         assert_eq!(json["first_day_of_week"], 1);
         assert_eq!(json["notification_sound"], "default");
+        assert_eq!(json["keybindings"]["add_task"], "<Primary>n");
+        assert_eq!(json["keybindings"]["search"], "<Primary>k");
     }
 
     #[test]
@@ -307,13 +335,42 @@ mod tests {
             "tag_colors": { "work": "#4A90D9" },
             "display_density": "comfortable",
             "first_day_of_week": 1,
-            "notification_sound": "default"
+            "notification_sound": "default",
+            "keybindings": {
+                "add_task": "<Primary><Shift>n",
+                "search": "<Primary>f",
+                "close_overlay": "Escape",
+                "confirm_rename": "Return",
+                "delete_task": "Delete",
+                "toggle_done": "space"
+            }
         }"##;
 
         let settings: VaultSettings = serde_json::from_str(json).unwrap();
 
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.tag_colors["work"], "#4A90D9");
+        assert_eq!(settings.keybindings.add_task, "<Primary><Shift>n");
+        assert_eq!(settings.keybindings.search, "<Primary>f");
+    }
+
+    #[test]
+    fn vault_settings_missing_keybindings_deserializes_defaults() {
+        let json = r##"{
+            "schema_version": 1,
+            "theme": "dark",
+            "default_sort": "due_at_asc",
+            "show_completed": false,
+            "default_reminder_minutes": 30,
+            "tag_colors": {},
+            "display_density": "comfortable",
+            "first_day_of_week": 1,
+            "notification_sound": "default"
+        }"##;
+
+        let settings: VaultSettings = serde_json::from_str(json).unwrap();
+
+        assert_eq!(settings.keybindings, Keybindings::default());
     }
 
     #[test]
