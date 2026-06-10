@@ -745,8 +745,8 @@ fn build_ui(app: &adw::Application) {
     search_panel.add_css_class("search-panel");
     search_panel.set_width_request(560);
     search_panel.set_halign(gtk::Align::Center);
-    search_panel.set_valign(gtk::Align::Center);
-    search_panel.set_margin_bottom(140);
+    search_panel.set_valign(gtk::Align::Start);
+    search_panel.set_margin_top(120);
     search_panel.set_opacity(0.0);
     search_panel.set_visible(false);
     let overlay_search = gtk::SearchEntry::new();
