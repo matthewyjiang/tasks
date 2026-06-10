@@ -126,7 +126,9 @@ impl AppState {
             title.add_css_class("task-title");
             title.add_css_class("rename-entry");
             title.add_css_class("flat");
-            title.set_hexpand(true);
+            title.set_hexpand(false);
+            update_entry_width(&title);
+            title.connect_changed(update_entry_width);
             let task_confirm = gtk::Button::with_label("✓");
             task_confirm.add_css_class("confirm-button");
             task_confirm.add_css_class("task-confirm");
@@ -575,7 +577,9 @@ fn build_ui(app: &adw::Application) {
     list_heading.add_css_class("pane-title");
 
     let list_name_entry = gtk::Entry::new();
-    list_name_entry.set_hexpand(true);
+    list_name_entry.set_hexpand(false);
+    update_entry_width(&list_name_entry);
+    list_name_entry.connect_changed(update_entry_width);
     list_name_entry.add_css_class("pane-title");
     list_name_entry.add_css_class("rename-entry");
     list_name_entry.add_css_class("flat");
@@ -598,11 +602,15 @@ fn build_ui(app: &adw::Application) {
     list_actions_popover.set_child(Some(&list_actions_box));
     list_actions_button.set_popover(Some(&list_actions_popover));
 
+    let page_title_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    page_title_spacer.set_hexpand(true);
+
     let page_title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     page_title.set_hexpand(true);
     page_title.append(&list_heading);
     page_title.append(&list_name_entry);
     page_title.append(&list_rename_button);
+    page_title.append(&page_title_spacer);
     page_title.append(&list_actions_button);
 
     let task_list = gtk::ListBox::new();
@@ -814,6 +822,12 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
+fn update_entry_width(entry: &gtk::Entry) {
+    let width = entry.text().chars().count().clamp(1, 48) as i32;
+    entry.set_width_chars(width);
+    entry.set_max_width_chars(width);
+}
+
 fn update_task_title(state: &Rc<AppState>, task_id: Uuid, title: &str) {
     let patch = TaskPatch {
         title: Some(title.to_owned()),
@@ -1022,20 +1036,17 @@ fn install_css() {
         entry.rename-entry:focus-within {
             background: transparent;
             border: none;
+            border-bottom: 2px solid transparent;
+            border-radius: 0;
             box-shadow: none;
             outline: none;
             padding-left: 0;
             padding-right: 0;
         }
-        entry.rename-entry text {
-            text-decoration-line: underline;
-            text-decoration-color: transparent;
-            text-decoration-thickness: 2px;
-            text-underline-offset: 3px;
-        }
-        entry.rename-entry.renaming text,
-        entry.rename-entry.renaming:focus text {
-            text-decoration-color: @accent_color;
+        entry.rename-entry.renaming,
+        entry.rename-entry.renaming:focus,
+        entry.rename-entry.renaming:focus-within {
+            border-bottom-color: @accent_color;
         }
         .task-summary {
             color: @dim_label_color;
