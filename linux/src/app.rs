@@ -207,7 +207,7 @@ impl AppState {
             actions.add_css_class("task-actions");
             let popover = gtk::Popover::new();
             let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            let move_task = gtk::Button::with_label("Move…");
+            let move_task = gtk::Button::with_label("Move");
             move_task.add_css_class("flat");
             move_task.connect_clicked({
                 let state = Rc::clone(self);
@@ -812,9 +812,6 @@ fn build_ui(app: &adw::Application) {
     move_list_panel.set_valign(gtk::Align::Center);
     move_list_panel.set_opacity(0.0);
     move_list_panel.set_visible(false);
-    let move_list_title = gtk::Label::new(Some("Move to list"));
-    move_list_title.set_xalign(0.0);
-    move_list_title.add_css_class("move-list-title");
     let move_list_search = gtk::SearchEntry::new();
     move_list_search.add_css_class("move-list-search");
     move_list_search.set_placeholder_text(Some("Search lists with regex"));
@@ -825,7 +822,6 @@ fn build_ui(app: &adw::Application) {
         .min_content_height(260)
         .child(&move_list_results)
         .build();
-    move_list_panel.append(&move_list_title);
     move_list_panel.append(&move_list_search);
     move_list_panel.append(&move_list_scroll);
 
