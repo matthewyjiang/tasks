@@ -5,6 +5,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus};
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
@@ -136,7 +137,7 @@ impl AppState {
                     state.load_tasks();
                 }
             });
-            let summary = gtk::Label::new(Some(&format_task_summary(task)));
+            let summary = gtk::Label::new(Some(&format_task_row_summary(task)));
             summary.set_xalign(0.0);
             summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
             summary.add_css_class("task-summary");
@@ -175,6 +176,102 @@ impl AppState {
                     state.load_tasks();
                 }
             });
+            let due_label = gtk::Label::new(Some("Due date"));
+            due_label.set_xalign(0.0);
+            due_label.add_css_class("task-menu-heading");
+            let calendar = gtk::Calendar::new();
+            calendar.connect_day_selected({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                move |calendar| {
+                    let date = calendar.date();
+                    let due_at = gtk::glib::DateTime::from_local(
+                        date.year(),
+                        date.month(),
+                        date.day_of_month(),
+                        23,
+                        59,
+                        59.0,
+                    )
+                    .map(|date_time| date_time.to_unix() * 1000);
+                    match due_at {
+                        Ok(due_at) => {
+                            let patch = TaskPatch {
+                                due_at: Some(Some(due_at)),
+                                ..TaskPatch::default()
+                            };
+                            if let Err(error) = state.core.update_task(task_id, patch) {
+                                state.toast(format!("Failed to set due date: {error}"));
+                            }
+                            state.load_tasks();
+                        }
+                        Err(error) => state.toast(format!("Failed to read due date: {error}")),
+                    }
+                }
+            });
+            let clear_due = gtk::Button::with_label("Clear Due Date");
+            clear_due.add_css_class("flat");
+            clear_due.connect_clicked({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                move |_| {
+                    let patch = TaskPatch {
+                        due_at: Some(None),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to clear due date: {error}"));
+                    }
+                    state.load_tasks();
+                }
+            });
+
+            let list_label = gtk::Label::new(Some("List"));
+            list_label.set_xalign(0.0);
+            list_label.add_css_class("task-menu-heading");
+            let inbox_button = gtk::Button::with_label("Inbox");
+            inbox_button.add_css_class("flat");
+            inbox_button.connect_clicked({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                move |_| {
+                    let patch = TaskPatch {
+                        project_id: Some(None),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to move task: {error}"));
+                    }
+                    state.load_tasks();
+                }
+            });
+
+            action_box.append(&due_label);
+            action_box.append(&calendar);
+            action_box.append(&clear_due);
+            action_box.append(&list_label);
+            action_box.append(&inbox_button);
+            for list in self.user_lists.borrow().iter() {
+                let list_button = gtk::Button::with_label(&list.name);
+                list_button.add_css_class("flat");
+                list_button.connect_clicked({
+                    let state = Rc::clone(self);
+                    let task_id = task.id;
+                    let list_id = list.id;
+                    move |_| {
+                        let patch = TaskPatch {
+                            project_id: Some(Some(list_id)),
+                            ..TaskPatch::default()
+                        };
+                        if let Err(error) = state.core.update_task(task_id, patch) {
+                            state.toast(format!("Failed to move task: {error}"));
+                        }
+                        state.load_tasks();
+                    }
+                });
+                action_box.append(&list_button);
+            }
+
             let delete = gtk::Button::with_label("Delete");
             delete.add_css_class("flat");
             delete.connect_clicked({
@@ -611,6 +708,37 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
+fn format_task_row_summary(task: &Task) -> String {
+    let mut parts = Vec::new();
+    if let Some(due_at) = task.due_at {
+        parts.push(format!("Due {}", format_due_date(due_at)));
+    }
+    let base = format_task_summary(task);
+    if !base.is_empty() {
+        parts.push(base);
+    }
+    parts.join(" · ")
+}
+
+fn format_due_date(due_at_ms: i64) -> String {
+    let Ok(date_time) = OffsetDateTime::from_unix_timestamp(due_at_ms / 1000) else {
+        return "unknown".to_owned();
+    };
+    let now = OffsetDateTime::now_utc();
+    if date_time.date() == now.date() {
+        "today".to_owned()
+    } else if date_time.date() == (now + Duration::days(1)).date() {
+        "tomorrow".to_owned()
+    } else {
+        format!(
+            "{} {:02}, {}",
+            date_time.month(),
+            date_time.day(),
+            date_time.year()
+        )
+    }
+}
+
 fn sidebar_filter_order() -> [TaskFilterState; 5] {
     [
         TaskFilterState::Inbox,
@@ -751,6 +879,12 @@ fn install_css() {
         .task-summary {
             color: @dim_label_color;
             font-size: 13px;
+        }
+        .task-menu-heading {
+            color: @dim_label_color;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 6px;
         }
         .editor-title {
             font-size: 26px;
