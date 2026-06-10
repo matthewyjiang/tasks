@@ -705,8 +705,8 @@ fn build_ui(app: &adw::Application) {
     search_panel.add_css_class("search-panel");
     search_panel.set_width_request(560);
     search_panel.set_halign(gtk::Align::Center);
-    search_panel.set_valign(gtk::Align::Start);
-    search_panel.set_margin_top(96);
+    search_panel.set_valign(gtk::Align::Center);
+    search_panel.set_margin_bottom(140);
     search_panel.set_visible(false);
     let overlay_search = gtk::SearchEntry::new();
     overlay_search.set_placeholder_text(Some("Search tasks"));
@@ -827,6 +827,19 @@ fn build_ui(app: &adw::Application) {
             overlay_search.grab_focus();
         }
     });
+    let search_key_controller = gtk::EventControllerKey::new();
+    search_key_controller.connect_key_pressed({
+        let search_panel = search_panel.clone();
+        move |_, key, _, _| {
+            if key == gtk::gdk::Key::Escape {
+                search_panel.set_visible(false);
+                gtk::glib::Propagation::Stop
+            } else {
+                gtk::glib::Propagation::Proceed
+            }
+        }
+    });
+    overlay_search.add_controller(search_key_controller);
     overlay_search.connect_search_changed({
         let state = Rc::clone(&state);
         let search_results = search_results.clone();
