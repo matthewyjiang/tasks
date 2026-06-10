@@ -3399,6 +3399,7 @@ dependencies = [
  "keyring",
  "libadwaita",
  "notify-rust",
+ "regex",
  "serde",
  "serde_json",
  "taskmanager-core",

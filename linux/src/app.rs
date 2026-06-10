@@ -5,6 +5,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
+use regex::Regex;
 use taskmanager_core::{
     Keybindings, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
 };
@@ -53,6 +54,10 @@ struct AppState {
     body_stack: gtk::Stack,
     editor_panel: gtk::Box,
     current_editing_task_id: RefCell<Option<Uuid>>,
+    move_list_panel: gtk::Box,
+    move_list_search: gtk::SearchEntry,
+    move_list_results: gtk::ListBox,
+    moving_task_id: RefCell<Option<Uuid>>,
     toast_overlay: adw::ToastOverlay,
 }
 
@@ -69,7 +74,21 @@ impl AppState {
             filter.project_id = selected_list_id;
             self.core.list_tasks(filter, default_sort())
         } else {
-            self.core.search_tasks(query)
+            match regex_from_query(&query) {
+                Ok(regex) => self
+                    .core
+                    .list_tasks(TaskFilter::default(), default_sort())
+                    .map(|tasks| {
+                        tasks
+                            .into_iter()
+                            .filter(|task| regex_matches_task(&regex, task))
+                            .collect()
+                    }),
+                Err(error) => {
+                    self.toast(format!("Invalid regex: {error}"));
+                    Ok(Vec::new())
+                }
+            }
         };
 
         match result {
@@ -208,105 +227,13 @@ impl AppState {
                     state.load_tasks();
                 }
             });
-            let due_label = gtk::Label::new(Some("Due date"));
-            due_label.set_xalign(0.0);
-            due_label.add_css_class("task-menu-heading");
-            let calendar = gtk::Calendar::new();
-            calendar.add_css_class("task-calendar");
-            calendar.connect_day_selected({
+            let move_task = gtk::Button::with_label("Move…");
+            move_task.add_css_class("flat");
+            move_task.connect_clicked({
                 let state = Rc::clone(self);
                 let task_id = task.id;
-                move |calendar| {
-                    let date = calendar.date();
-                    // Store the selected calendar day at local noon. Noon avoids
-                    // day-shift surprises around timezone/DST boundaries while
-                    // preserving the user-selected date.
-                    let due_at = gtk::glib::DateTime::from_local(
-                        date.year(),
-                        date.month(),
-                        date.day_of_month(),
-                        12,
-                        0,
-                        0.0,
-                    )
-                    .map(|date_time| date_time.to_unix() * 1000);
-                    match due_at {
-                        Ok(due_at) => {
-                            let patch = TaskPatch {
-                                due_at: Some(Some(due_at)),
-                                ..TaskPatch::default()
-                            };
-                            if let Err(error) = state.core.update_task(task_id, patch) {
-                                state.toast(format!("Failed to set due date: {error}"));
-                            }
-                            state.load_tasks();
-                        }
-                        Err(error) => state.toast(format!("Failed to read due date: {error}")),
-                    }
-                }
+                move |_| state.show_move_list_panel(task_id)
             });
-            let clear_due = gtk::Button::with_label("Clear Due Date");
-            clear_due.add_css_class("flat");
-            clear_due.connect_clicked({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                move |_| {
-                    let patch = TaskPatch {
-                        due_at: Some(None),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to clear due date: {error}"));
-                    }
-                    state.load_tasks();
-                }
-            });
-
-            let list_label = gtk::Label::new(Some("List"));
-            list_label.set_xalign(0.0);
-            list_label.add_css_class("task-menu-heading");
-            let inbox_button = gtk::Button::with_label("Inbox");
-            inbox_button.add_css_class("flat");
-            inbox_button.connect_clicked({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                move |_| {
-                    let patch = TaskPatch {
-                        project_id: Some(None),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to move task: {error}"));
-                    }
-                    state.load_tasks();
-                }
-            });
-
-            action_box.append(&due_label);
-            action_box.append(&calendar);
-            action_box.append(&clear_due);
-            action_box.append(&list_label);
-            action_box.append(&inbox_button);
-            for list in self.user_lists.borrow().iter() {
-                let list_button = gtk::Button::with_label(&list.name);
-                list_button.add_css_class("flat");
-                list_button.connect_clicked({
-                    let state = Rc::clone(self);
-                    let task_id = task.id;
-                    let list_id = list.id;
-                    move |_| {
-                        let patch = TaskPatch {
-                            project_id: Some(Some(list_id)),
-                            ..TaskPatch::default()
-                        };
-                        if let Err(error) = state.core.update_task(task_id, patch) {
-                            state.toast(format!("Failed to move task: {error}"));
-                        }
-                        state.load_tasks();
-                    }
-                });
-                action_box.append(&list_button);
-            }
 
             let delete = gtk::Button::with_label("Delete");
             delete.add_css_class("flat");
@@ -321,6 +248,7 @@ impl AppState {
                 }
             });
             action_box.append(&toggle_done);
+            action_box.append(&move_task);
             action_box.append(&delete);
             popover.set_child(Some(&action_box));
             actions.set_popover(Some(&popover));
@@ -373,6 +301,19 @@ impl AppState {
     fn hide_task_editor(&self) {
         self.current_editing_task_id.replace(None);
         hide_floating_panel(&self.editor_panel);
+    }
+
+    fn show_move_list_panel(self: &Rc<Self>, task_id: Uuid) {
+        self.moving_task_id.replace(Some(task_id));
+        self.move_list_search.set_text("");
+        render_move_list_results(self, "");
+        show_floating_panel(&self.move_list_panel);
+        self.move_list_search.grab_focus();
+    }
+
+    fn hide_move_list_panel(&self) {
+        self.moving_task_id.replace(None);
+        hide_floating_panel(&self.move_list_panel);
     }
 
     fn save_task_editor(self: &Rc<Self>) {
@@ -843,6 +784,11 @@ fn build_ui(app: &adw::Application) {
     body_stack.add_named(&preview_scroll, Some("preview"));
     body_stack.set_visible_child_name("preview");
 
+    let due_calendar = gtk::Calendar::new();
+    due_calendar.add_css_class("task-calendar");
+    let clear_due_button = gtk::Button::with_label("Clear due date");
+    clear_due_button.add_css_class("task-editor-button");
+
     let metadata_grid = gtk::Grid::new();
     metadata_grid.add_css_class("task-editor-meta");
     metadata_grid.set_column_spacing(14);
@@ -853,12 +799,37 @@ fn build_ui(app: &adw::Application) {
     metadata_grid.attach(&list_combo, 1, 1, 1, 1);
     metadata_grid.attach(&field_label("Due"), 0, 2, 1, 1);
     metadata_grid.attach(&due_entry, 1, 2, 1, 1);
-    metadata_grid.attach(&field_label("Tags"), 0, 3, 1, 1);
-    metadata_grid.attach(&tags_entry, 1, 3, 1, 1);
+    metadata_grid.attach(&due_calendar, 1, 3, 1, 1);
+    metadata_grid.attach(&clear_due_button, 1, 4, 1, 1);
+    metadata_grid.attach(&field_label("Tags"), 0, 5, 1, 1);
+    metadata_grid.attach(&tags_entry, 1, 5, 1, 1);
 
     editor_panel.append(&title_entry);
     editor_panel.append(&body_stack);
     editor_panel.append(&metadata_grid);
+
+    let move_list_panel = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    move_list_panel.add_css_class("move-list-panel");
+    move_list_panel.set_width_request(420);
+    move_list_panel.set_halign(gtk::Align::Center);
+    move_list_panel.set_valign(gtk::Align::Center);
+    move_list_panel.set_opacity(0.0);
+    move_list_panel.set_visible(false);
+    let move_list_title = gtk::Label::new(Some("Move to list"));
+    move_list_title.set_xalign(0.0);
+    move_list_title.add_css_class("pane-title");
+    let move_list_search = gtk::SearchEntry::new();
+    move_list_search.set_placeholder_text(Some("Search lists with regex"));
+    let move_list_results = gtk::ListBox::new();
+    move_list_results.add_css_class("search-results");
+    move_list_results.set_selection_mode(gtk::SelectionMode::None);
+    let move_list_scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(260)
+        .child(&move_list_results)
+        .build();
+    move_list_panel.append(&move_list_title);
+    move_list_panel.append(&move_list_search);
+    move_list_panel.append(&move_list_scroll);
 
     let page_click = gtk::GestureClick::new();
     page.add_controller(page_click.clone());
@@ -866,6 +837,7 @@ fn build_ui(app: &adw::Application) {
     let root_overlay = gtk::Overlay::new();
     root_overlay.set_child(Some(&page));
     root_overlay.add_overlay(&editor_panel);
+    root_overlay.add_overlay(&move_list_panel);
     root_overlay.add_overlay(&search_panel);
 
     let toast_overlay = adw::ToastOverlay::new();
@@ -899,7 +871,60 @@ fn build_ui(app: &adw::Application) {
         body_stack,
         editor_panel,
         current_editing_task_id: RefCell::new(None),
+        move_list_panel,
+        move_list_search,
+        move_list_results,
+        moving_task_id: RefCell::new(None),
         toast_overlay,
+    });
+
+    due_calendar.connect_day_selected({
+        let due_entry = state.due_entry.clone();
+        move |calendar| {
+            let date = calendar.date();
+            due_entry.set_text(&format!(
+                "{:04}-{:02}-{:02}",
+                date.year(),
+                date.month(),
+                date.day_of_month()
+            ));
+        }
+    });
+    clear_due_button.connect_clicked({
+        let due_entry = state.due_entry.clone();
+        move |_| due_entry.set_text("")
+    });
+    state.move_list_search.connect_search_changed({
+        let state = Rc::clone(&state);
+        move |entry| render_move_list_results(&state, &normalize_query(&entry.text()))
+    });
+    state.move_list_results.connect_row_activated({
+        let state = Rc::clone(&state);
+        move |_, row| {
+            let Some(task_id) = *state.moving_task_id.borrow() else {
+                return;
+            };
+            let project_id = if row.widget_name() == "inbox" {
+                None
+            } else {
+                match Uuid::parse_str(&row.widget_name()) {
+                    Ok(id) => Some(id),
+                    Err(error) => {
+                        state.toast(format!("Invalid list id: {error}"));
+                        return;
+                    }
+                }
+            };
+            let patch = TaskPatch {
+                project_id: Some(project_id),
+                ..TaskPatch::default()
+            };
+            if let Err(error) = state.core.update_task(task_id, patch) {
+                state.toast(format!("Failed to move task: {error}"));
+            }
+            state.hide_move_list_panel();
+            state.load_tasks();
+        }
     });
 
     state.body_view.buffer().connect_changed({
@@ -1331,6 +1356,9 @@ fn install_keybindings(
             if state.editor_panel.is_visible() {
                 state.save_task_editor();
             }
+            if state.move_list_panel.is_visible() {
+                state.hide_move_list_panel();
+            }
             gtk::glib::Propagation::Stop
         } else if accel_matches(delete_task, key, modifiers) {
             if editing_text {
@@ -1441,9 +1469,20 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
         return;
     }
 
-    match state.core.search_tasks(query.to_owned()) {
+    let regex = match regex_from_query(query) {
+        Ok(regex) => regex,
+        Err(error) => {
+            state.toast(format!("Invalid regex: {error}"));
+            return;
+        }
+    };
+    match state.core.list_tasks(TaskFilter::default(), default_sort()) {
         Ok(tasks) => {
-            for task in tasks.into_iter().take(10) {
+            for task in tasks
+                .into_iter()
+                .filter(|task| regex_matches_task(&regex, task))
+                .take(10)
+            {
                 let row = gtk::ListBoxRow::new();
                 row.set_widget_name(&task.id.to_string());
                 row.add_css_class("search-result-row");
@@ -1467,6 +1506,53 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
         }
         Err(error) => state.toast(format!("Search failed: {error}")),
     }
+}
+
+fn render_move_list_results(state: &Rc<AppState>, results_query: &str) {
+    while let Some(row) = state.move_list_results.first_child() {
+        state.move_list_results.remove(&row);
+    }
+    let regex = match regex_from_query(results_query) {
+        Ok(regex) => regex,
+        Err(error) => {
+            state.toast(format!("Invalid regex: {error}"));
+            return;
+        }
+    };
+    append_move_list_row(state, "inbox", "Inbox");
+    for list in state
+        .user_lists
+        .borrow()
+        .iter()
+        .filter(|list| regex.is_match(&list.name))
+    {
+        append_move_list_row(state, &list.id.to_string(), &list.name);
+    }
+}
+
+fn append_move_list_row(state: &Rc<AppState>, id: &str, name: &str) {
+    let row = gtk::ListBoxRow::new();
+    row.set_widget_name(id);
+    row.add_css_class("search-result-row");
+    let label = gtk::Label::new(Some(name));
+    label.set_xalign(0.0);
+    label.set_margin_top(10);
+    label.set_margin_bottom(10);
+    label.set_margin_start(12);
+    label.set_margin_end(12);
+    row.set_child(Some(&label));
+    state.move_list_results.append(&row);
+}
+
+fn regex_from_query(query: &str) -> Result<Regex, regex::Error> {
+    let pattern = if query.is_empty() { ".*" } else { query };
+    Regex::new(&format!("(?i){pattern}"))
+}
+
+fn regex_matches_task(regex: &Regex, task: &Task) -> bool {
+    regex.is_match(&task.title)
+        || regex.is_match(&task.body)
+        || task.tags.iter().any(|tag| regex.is_match(tag))
 }
 
 fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
@@ -1803,7 +1889,8 @@ fn install_css() {
         .content-bottom-bar {
             padding: 8px 18px 10px 18px;
         }
-        .search-panel {
+        .search-panel,
+        .move-list-panel {
             padding: 10px;
             border-radius: 16px;
             background: @popover_bg_color;
