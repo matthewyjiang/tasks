@@ -1009,7 +1009,9 @@ fn install_css() {
             padding-left: 0;
             padding-right: 0;
         }
-        entry.rename-entry text,
+        entry.rename-entry text {
+            text-decoration-line: none;
+        }
         entry.rename-entry:focus text,
         entry.rename-entry:focus-within text {
             text-decoration-line: underline;
