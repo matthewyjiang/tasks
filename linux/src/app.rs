@@ -247,6 +247,8 @@ fn build_ui(app: &adw::Application) {
     sidebar.append(&search);
 
     let filter_list = gtk::ListBox::new();
+    filter_list.add_css_class("sidebar-list");
+    filter_list.set_selection_mode(gtk::SelectionMode::None);
     let mut filter_count_labels = Vec::new();
     for filter in sidebar_filter_order() {
         let row = gtk::ListBoxRow::new();
@@ -368,12 +370,9 @@ fn build_ui(app: &adw::Application) {
             state.load_tasks();
         }
     });
-    filter_list.connect_row_selected({
+    filter_list.connect_row_activated({
         let state = Rc::clone(&state);
         move |_, row| {
-            let Some(row) = row else {
-                return;
-            };
             let filter = match row.index() {
                 0 => TaskFilterState::Inbox,
                 1 => TaskFilterState::InProgress,
@@ -448,21 +447,27 @@ fn install_css() {
             border-radius: 8px;
             min-height: 30px;
         }
+        .sidebar-list {
+            background: transparent;
+        }
+        .sidebar-list row,
         .sidebar-row {
             border-radius: 10px;
             margin: 2px 0;
             color: @window_fg_color;
             background: transparent;
         }
+        .sidebar-list row:hover,
         .sidebar-row:hover {
             background: color-mix(in srgb, @window_fg_color 6%, transparent);
         }
-        .sidebar-row:selected {
+        .sidebar-list row:selected,
+        .sidebar-list row:selected:hover,
+        .sidebar-list row:selected label,
+        .sidebar-row:selected,
+        .sidebar-row:selected:hover {
             background: transparent;
             color: @window_fg_color;
-        }
-        .sidebar-row:selected:hover {
-            background: color-mix(in srgb, @window_fg_color 6%, transparent);
         }
         .sidebar-static-row {
             color: @window_fg_color;
