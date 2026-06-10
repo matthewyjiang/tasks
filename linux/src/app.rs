@@ -29,6 +29,12 @@ const TASK_EDITOR_WIDTH_RATIO: f64 = 0.72;
 const TASK_EDITOR_MIN_HEIGHT: i32 = 420;
 const TASK_EDITOR_MAX_HEIGHT: i32 = 820;
 const TASK_EDITOR_HEIGHT_RATIO: f64 = 0.78;
+const SETTINGS_PANEL_MIN_WIDTH: i32 = 560;
+const SETTINGS_PANEL_MAX_WIDTH: i32 = 900;
+const SETTINGS_PANEL_WIDTH_RATIO: f64 = 0.62;
+const SETTINGS_PANEL_MIN_HEIGHT: i32 = 420;
+const SETTINGS_PANEL_MAX_HEIGHT: i32 = 760;
+const SETTINGS_PANEL_HEIGHT_RATIO: f64 = 0.72;
 const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
 const TASK_EDITOR_INNER_PADDING: i32 = 7;
 const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
@@ -891,6 +897,14 @@ fn build_ui(app: &adw::Application) {
     setup_panel.append(&setup_card);
     setup_panel.append(&setup_bottom_spacer);
 
+    let settings_panel = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    settings_panel.add_css_class("settings-panel");
+    settings_panel.set_size_request(SETTINGS_PANEL_MIN_WIDTH, SETTINGS_PANEL_MIN_HEIGHT);
+    settings_panel.set_halign(gtk::Align::Center);
+    settings_panel.set_valign(gtk::Align::Center);
+    settings_panel.set_opacity(0.0);
+    settings_panel.set_visible(false);
+
     let page_click = gtk::GestureClick::new();
     page.add_controller(page_click.clone());
 
@@ -899,6 +913,7 @@ fn build_ui(app: &adw::Application) {
     root_overlay.add_overlay(&editor_panel);
     root_overlay.add_overlay(&move_list_panel);
     root_overlay.add_overlay(&search_panel);
+    root_overlay.add_overlay(&settings_panel);
     root_overlay.add_overlay(&setup_panel);
 
     let toast_overlay = adw::ToastOverlay::new();
@@ -1098,10 +1113,10 @@ fn build_ui(app: &adw::Application) {
         move |_| state.create_list()
     });
     settings_button.connect_clicked({
-        let window = window.clone();
+        let settings_panel = settings_panel.clone();
         let settings_path = paths.settings_path.clone();
         let core = Rc::clone(&state.core);
-        move |_| show_settings_window(&window, settings_path.clone(), Rc::clone(&core))
+        move |_| show_settings_panel(&settings_panel, settings_path.clone(), Rc::clone(&core))
     });
     let list_name_focus = gtk::EventControllerFocus::new();
     list_name_focus.connect_enter({
@@ -1252,8 +1267,10 @@ fn build_ui(app: &adw::Application) {
     window.add_tick_callback({
         let window = window.clone();
         let editor_panel = state.editor_panel.clone();
+        let settings_panel = settings_panel.clone();
         move |_, _| {
             resize_task_editor_panel(&window, &editor_panel);
+            resize_settings_panel(&window, &settings_panel);
             gtk::glib::ControlFlow::Continue
         }
     });
@@ -1283,46 +1300,65 @@ fn apply_theme_choice(theme: ThemeChoice) {
     adw::StyleManager::default().set_color_scheme(color_scheme);
 }
 
-fn show_settings_window(
-    parent: &adw::ApplicationWindow,
-    settings_path: PathBuf,
-    core: Rc<TaskManagerCore>,
-) {
+fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskManagerCore>) {
     let settings = read_settings(&settings_path).unwrap_or_default();
     let vault_settings = core.vault_settings().unwrap_or_default();
-    let dialog = gtk::Window::builder()
-        .title("Settings")
-        .transient_for(parent)
-        .modal(true)
-        .default_width(420)
-        .default_height(260)
-        .build();
+    while let Some(child) = panel.first_child() {
+        panel.remove(&child);
+    }
 
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 18);
     content.set_margin_top(18);
     content.set_margin_bottom(18);
     content.set_margin_start(18);
     content.set_margin_end(18);
+    content.set_vexpand(true);
+    content.set_hexpand(true);
 
-    let title = gtk::Label::new(Some("Settings"));
+    let settings_nav = gtk::ListBox::new();
+    settings_nav.add_css_class("settings-nav");
+    settings_nav.set_selection_mode(gtk::SelectionMode::Single);
+    settings_nav.set_width_request(150);
+    for name in ["Sync", "Appearance", "Keybindings"] {
+        let row = gtk::ListBoxRow::new();
+        row.add_css_class("sidebar-row");
+        let label = gtk::Label::new(Some(name));
+        label.set_xalign(0.0);
+        label.set_margin_top(8);
+        label.set_margin_bottom(8);
+        label.set_margin_start(10);
+        label.set_margin_end(10);
+        row.set_child(Some(&label));
+        settings_nav.append(&row);
+    }
+
+    let settings_stack = gtk::Stack::new();
+    settings_stack.set_hexpand(true);
+    settings_stack.set_vexpand(true);
+
+    let sync_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    let appearance_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    let keybindings_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+
+    let title = gtk::Label::new(Some("Sync"));
     title.set_xalign(0.0);
     title.add_css_class("pane-title");
-    content.append(&title);
+    sync_page.append(&title);
 
     let server_label = gtk::Label::new(Some("Server URL"));
     server_label.set_xalign(0.0);
     let server_entry = gtk::Entry::new();
     server_entry.set_placeholder_text(Some("Optional sync server URL"));
     server_entry.set_text(&settings.server_url);
-    content.append(&server_label);
-    content.append(&server_entry);
+    sync_page.append(&server_label);
+    sync_page.append(&server_entry);
 
     let platform = LinuxPlatform::new();
     let signed_in = sync_auth_configured(&platform, &settings);
     let sync_setup_button = gtk::Button::with_label("Sync login / setup…");
     sync_setup_button.set_halign(gtk::Align::Start);
     sync_setup_button.set_visible(!signed_in);
-    content.append(&sync_setup_button);
+    sync_page.append(&sync_setup_button);
 
     let sync_account_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     sync_account_row.set_visible(signed_in);
@@ -1340,7 +1376,12 @@ fn show_settings_window(
     sync_logout_button.add_css_class("destructive-action");
     sync_account_row.append(&sync_account);
     sync_account_row.append(&sync_logout_button);
-    content.append(&sync_account_row);
+    sync_page.append(&sync_account_row);
+
+    let appearance_title = gtk::Label::new(Some("Appearance"));
+    appearance_title.set_xalign(0.0);
+    appearance_title.add_css_class("pane-title");
+    appearance_page.append(&appearance_title);
 
     let theme_label = gtk::Label::new(Some("Theme"));
     theme_label.set_xalign(0.0);
@@ -1353,47 +1394,82 @@ fn show_settings_window(
         ThemeChoice::Light => "light",
         ThemeChoice::Dark => "dark",
     }));
-    content.append(&theme_label);
-    content.append(&theme_combo);
+    appearance_page.append(&theme_label);
+    appearance_page.append(&theme_combo);
 
     let show_completed = gtk::CheckButton::with_label("Show completed tasks");
     show_completed.set_active(vault_settings.show_completed);
-    content.append(&show_completed);
+    appearance_page.append(&show_completed);
 
     let keybind_label = gtk::Label::new(Some("Keybindings (encrypted + synced)"));
     keybind_label.set_xalign(0.0);
     keybind_label.add_css_class("task-menu-heading");
-    content.append(&keybind_label);
-    let add_task_key = settings_entry("Add task", &vault_settings.keybindings.add_task, &content);
-    let search_key = settings_entry("Search", &vault_settings.keybindings.search, &content);
+    let keybindings_title = gtk::Label::new(Some("Keybindings"));
+    keybindings_title.set_xalign(0.0);
+    keybindings_title.add_css_class("pane-title");
+    keybindings_page.append(&keybindings_title);
+    keybindings_page.append(&keybind_label);
+    let add_task_key = settings_entry(
+        "Add task",
+        &vault_settings.keybindings.add_task,
+        &keybindings_page,
+    );
+    let search_key = settings_entry(
+        "Search",
+        &vault_settings.keybindings.search,
+        &keybindings_page,
+    );
     let close_overlay_key = settings_entry(
         "Close overlay",
         &vault_settings.keybindings.close_overlay,
-        &content,
+        &keybindings_page,
     );
     let confirm_rename_key = settings_entry(
         "Confirm rename",
         &vault_settings.keybindings.confirm_rename,
-        &content,
+        &keybindings_page,
     );
     let delete_task_key = settings_entry(
         "Delete task",
         &vault_settings.keybindings.delete_task,
-        &content,
+        &keybindings_page,
     );
     let toggle_done_key = settings_entry(
         "Toggle done",
         &vault_settings.keybindings.toggle_done,
-        &content,
+        &keybindings_page,
     );
 
     let save_button = gtk::Button::with_label("Save");
     save_button.add_css_class("suggested-action");
     save_button.set_halign(gtk::Align::End);
-    content.append(&save_button);
+
+    settings_stack.add_named(&sync_page, Some("sync"));
+    settings_stack.add_named(&appearance_page, Some("appearance"));
+    settings_stack.add_named(&keybindings_page, Some("keybindings"));
+    settings_stack.set_visible_child_name("sync");
+    settings_nav.connect_row_selected({
+        let settings_stack = settings_stack.clone();
+        move |_, row| {
+            let Some(row) = row else {
+                return;
+            };
+            settings_stack.set_visible_child_name(match row.index() {
+                0 => "sync",
+                1 => "appearance",
+                2 => "keybindings",
+                _ => "sync",
+            });
+        }
+    });
+    if let Some(row) = settings_nav.row_at_index(0) {
+        settings_nav.select_row(Some(&row));
+    }
+    content.append(&settings_nav);
+    content.append(&settings_stack);
 
     sync_setup_button.connect_clicked({
-        let dialog = dialog.clone();
+        let panel = panel.clone();
         let settings_path = settings_path.clone();
         let sync_setup_button = sync_setup_button.clone();
         let sync_account_row = sync_account_row.clone();
@@ -1421,8 +1497,14 @@ fn show_settings_window(
                     }
                 }
             });
+            let Some(root) = panel
+                .root()
+                .and_then(|root| root.downcast::<gtk::Window>().ok())
+            else {
+                return;
+            };
             show_sync_setup_window(
-                &dialog,
+                &root,
                 settings_path.clone(),
                 false,
                 Some(refresh_settings_sync_state),
@@ -1430,18 +1512,18 @@ fn show_settings_window(
         }
     });
     sync_logout_button.connect_clicked({
-        let dialog = dialog.clone();
+        let panel = panel.clone();
         let settings_path = settings_path.clone();
         move |_| {
             if let Err(error) = logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
                 eprintln!("Failed to log out: {error}");
             }
-            dialog.close();
+            hide_floating_panel(&panel);
         }
     });
 
     save_button.connect_clicked({
-        let dialog = dialog.clone();
+        let panel = panel.clone();
         move |_| {
             let theme = match theme_combo.active_id().as_deref() {
                 Some("light") => ThemeChoice::Light,
@@ -1471,13 +1553,14 @@ fn show_settings_window(
                 eprintln!("Failed to save encrypted settings: {error}");
             } else {
                 apply_theme_choice(theme);
-                dialog.close();
+                hide_floating_panel(&panel);
             }
         }
     });
 
-    dialog.set_child(Some(&content));
-    dialog.present();
+    panel.append(&content);
+    panel.append(&save_button);
+    show_floating_panel(panel);
 }
 
 fn font_awesome_label(icon: &str) -> gtk::Label {
@@ -1987,6 +2070,20 @@ fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
     state.select_task(task.id);
 }
 
+fn resize_settings_panel(window: &adw::ApplicationWindow, settings_panel: &gtk::Box) {
+    let width = window.allocated_width();
+    let height = window.allocated_height();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let panel_width = ((width as f64) * SETTINGS_PANEL_WIDTH_RATIO) as i32;
+    let panel_height = ((height as f64) * SETTINGS_PANEL_HEIGHT_RATIO) as i32;
+    settings_panel.set_size_request(
+        panel_width.clamp(SETTINGS_PANEL_MIN_WIDTH, SETTINGS_PANEL_MAX_WIDTH),
+        panel_height.clamp(SETTINGS_PANEL_MIN_HEIGHT, SETTINGS_PANEL_MAX_HEIGHT),
+    );
+}
+
 fn resize_task_editor_panel(window: &adw::ApplicationWindow, editor_panel: &gtk::Box) {
     let width = window.allocated_width();
     let height = window.allocated_height();
@@ -2327,7 +2424,8 @@ fn install_css() {
             box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
             transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
-        .move-list-panel {
+        .move-list-panel,
+        .settings-panel {
             padding: 20px;
             border-radius: 20px;
             background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
