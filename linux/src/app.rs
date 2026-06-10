@@ -679,12 +679,15 @@ fn build_ui(app: &adw::Application) {
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
 
     let content_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    content_bottom_bar.set_homogeneous(true);
     content_bottom_bar.add_css_class("content-bottom-bar");
     let search_button = gtk::Button::with_label("⌕");
     search_button.add_css_class("flat");
+    search_button.set_hexpand(true);
     search_button.set_tooltip_text(Some("Search"));
     let bottom_new_button = gtk::Button::with_label("＋");
     bottom_new_button.add_css_class("flat");
+    bottom_new_button.set_hexpand(true);
     bottom_new_button.set_tooltip_text(Some("Add Task"));
     content_bottom_bar.append(&search_button);
     content_bottom_bar.append(&bottom_new_button);
