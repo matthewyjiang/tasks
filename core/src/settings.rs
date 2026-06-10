@@ -428,8 +428,10 @@ mod tests {
 
     #[test]
     fn unsupported_vault_schema_version_returns_error() {
-        let mut settings = VaultSettings::default();
-        settings.schema_version = 2;
+        let settings = VaultSettings {
+            schema_version: 2,
+            ..VaultSettings::default()
+        };
 
         let error = settings.to_reserved_task(0).unwrap_err();
 

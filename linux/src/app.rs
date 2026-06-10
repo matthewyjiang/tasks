@@ -64,7 +64,7 @@ impl AppState {
                 let now = now_ms();
                 let tasks = tasks
                     .into_iter()
-                    .filter(|task| task_matches_view(task, view, now))
+                    .filter(|task| selected_list_id.is_some() || task_matches_view(task, view, now))
                     .collect::<Vec<_>>();
                 self.tasks.replace(tasks);
                 if let Some(list_id) = selected_list_id {
@@ -74,8 +74,9 @@ impl AppState {
                         .iter()
                         .find(|list| list.id == list_id)
                     {
-                        self.list_heading.set_visible(false);
-                        self.list_name_entry.set_visible(true);
+                        self.list_heading.set_visible(true);
+                        self.list_heading.set_text(&list.name);
+                        self.list_name_entry.set_visible(false);
                         self.list_rename_button.set_visible(false);
                         self.list_actions_button.set_visible(true);
                         self.list_name_entry.set_text(&list.name);
@@ -589,10 +590,12 @@ fn build_ui(app: &adw::Application) {
     let list_heading = gtk::Label::new(Some("Inbox"));
     list_heading.set_xalign(0.0);
     list_heading.set_hexpand(true);
+    list_heading.set_valign(gtk::Align::Center);
     list_heading.add_css_class("pane-title");
 
     let list_name_entry = gtk::Entry::new();
     list_name_entry.set_hexpand(false);
+    list_name_entry.set_valign(gtk::Align::Center);
     update_entry_width(&list_name_entry);
     list_name_entry.connect_changed(update_entry_width);
     list_name_entry.add_css_class("pane-title");
@@ -601,18 +604,23 @@ fn build_ui(app: &adw::Application) {
     list_name_entry.set_visible(false);
 
     let list_rename_button = gtk::Button::with_label("✓");
+    list_rename_button.set_valign(gtk::Align::Center);
     list_rename_button.add_css_class("confirm-button");
     list_rename_button.set_visible(false);
 
     let list_actions_button = gtk::MenuButton::new();
     list_actions_button.set_label("⋯");
     list_actions_button.set_halign(gtk::Align::End);
+    list_actions_button.set_valign(gtk::Align::Center);
     list_actions_button.add_css_class("flat");
     list_actions_button.set_visible(false);
     let list_actions_popover = gtk::Popover::new();
     let list_actions_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let list_edit_button = gtk::Button::with_label("Rename List");
+    list_edit_button.add_css_class("flat");
     let list_delete_button = gtk::Button::with_label("Delete List");
     list_delete_button.add_css_class("flat");
+    list_actions_box.append(&list_edit_button);
     list_actions_box.append(&list_delete_button);
     list_actions_popover.set_child(Some(&list_actions_box));
     list_actions_button.set_popover(Some(&list_actions_popover));
@@ -622,6 +630,8 @@ fn build_ui(app: &adw::Application) {
 
     let page_title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     page_title.set_hexpand(true);
+    page_title.set_height_request(40);
+    page_title.set_valign(gtk::Align::Center);
     page_title.append(&list_heading);
     page_title.append(&list_name_entry);
     page_title.append(&list_rename_button);
@@ -805,6 +815,8 @@ fn build_ui(app: &adw::Application) {
         move |_| {
             state.list_name_entry.remove_css_class("renaming");
             state.rename_selected_list();
+            state.list_heading.set_visible(true);
+            state.list_name_entry.set_visible(false);
             state.list_rename_button.set_visible(false);
         }
     });
@@ -813,7 +825,19 @@ fn build_ui(app: &adw::Application) {
         move |_| {
             state.list_name_entry.remove_css_class("renaming");
             state.rename_selected_list();
+            state.list_heading.set_visible(true);
+            state.list_name_entry.set_visible(false);
             state.list_rename_button.set_visible(false);
+        }
+    });
+    list_edit_button.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| {
+            state.list_heading.set_visible(false);
+            state.list_name_entry.set_visible(true);
+            state.list_rename_button.set_visible(true);
+            state.list_name_entry.grab_focus();
+            state.list_name_entry.select_region(0, -1);
         }
     });
     list_delete_button.connect_clicked({
@@ -1094,48 +1118,17 @@ fn install_keybindings(
     search_panel: gtk::Box,
     state: Rc<AppState>,
 ) {
-    let controller = gtk::ShortcutController::new();
-    controller.set_scope(gtk::ShortcutScope::Global);
-    controller.set_propagation_phase(gtk::PropagationPhase::Capture);
-
-    add_shortcut(&controller, &keybindings.add_task, {
-        let create_task_action = Rc::clone(&create_task_action);
-        move || create_task_action()
-    });
-    add_shortcut(&controller, &keybindings.search, {
-        let open_search_action = Rc::clone(&open_search_action);
-        move || open_search_action()
-    });
-    if keybindings.search != "<Primary>f" {
-        add_shortcut(&controller, "<Primary>f", {
-            let open_search_action = Rc::clone(&open_search_action);
-            move || open_search_action()
-        });
-    }
-    add_shortcut(&controller, &keybindings.close_overlay, {
-        let search_panel = search_panel.clone();
-        move || search_panel.set_visible(false)
-    });
-    add_shortcut(&controller, &keybindings.delete_task, {
-        let state = Rc::clone(&state);
-        move || delete_selected_task(&state)
-    });
-    add_shortcut(&controller, &keybindings.toggle_done, {
-        let state = Rc::clone(&state);
-        move || toggle_selected_task_done(&state)
-    });
-
-    window.add_controller(controller);
-
     let key_controller = gtk::EventControllerKey::new();
-    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
+    key_controller.set_propagation_phase(gtk::PropagationPhase::Bubble);
     let add_task = parse_accel(&keybindings.add_task);
     let search = parse_accel(&keybindings.search);
     let search_fallback = parse_accel("<Primary>f");
     let close_overlay = parse_accel(&keybindings.close_overlay);
     let delete_task = parse_accel(&keybindings.delete_task);
     let toggle_done = parse_accel(&keybindings.toggle_done);
+    let window_for_keys = window.clone();
     key_controller.connect_key_pressed(move |_, key, _, modifiers| {
+        let editing_text = window_has_text_focus(&window_for_keys);
         if accel_matches(add_task, key, modifiers) {
             create_task_action();
             gtk::glib::Propagation::Stop
@@ -1148,11 +1141,19 @@ fn install_keybindings(
             search_panel.set_visible(false);
             gtk::glib::Propagation::Stop
         } else if accel_matches(delete_task, key, modifiers) {
-            delete_selected_task(&state);
-            gtk::glib::Propagation::Stop
+            if editing_text {
+                gtk::glib::Propagation::Proceed
+            } else {
+                delete_selected_task(&state);
+                gtk::glib::Propagation::Stop
+            }
         } else if accel_matches(toggle_done, key, modifiers) {
-            toggle_selected_task_done(&state);
-            gtk::glib::Propagation::Stop
+            if editing_text {
+                gtk::glib::Propagation::Proceed
+            } else {
+                toggle_selected_task_done(&state);
+                gtk::glib::Propagation::Stop
+            }
         } else {
             gtk::glib::Propagation::Proceed
         }
@@ -1160,23 +1161,14 @@ fn install_keybindings(
     window.add_controller(key_controller);
 }
 
-fn add_shortcut(
-    controller: &gtk::ShortcutController,
-    accelerator: &str,
-    action: impl Fn() + 'static,
-) {
-    let Some(trigger) = gtk::ShortcutTrigger::parse_string(accelerator) else {
-        eprintln!("Ignoring invalid keybinding: {accelerator}");
-        return;
-    };
-    let shortcut = gtk::Shortcut::new(
-        Some(trigger),
-        Some(gtk::CallbackAction::new(move |_, _| {
-            action();
-            gtk::glib::Propagation::Stop
-        })),
-    );
-    controller.add_shortcut(shortcut);
+fn window_has_text_focus(window: &adw::ApplicationWindow) -> bool {
+    gtk::prelude::GtkWindowExt::focus(window).is_some_and(|widget| {
+        widget.is::<gtk::Entry>()
+            || widget.is::<gtk::SearchEntry>()
+            || widget.is::<gtk::TextView>()
+            || widget.is::<gtk::EditableLabel>()
+            || widget.is::<gtk::SpinButton>()
+    })
 }
 
 fn parse_accel(accelerator: &str) -> Option<(gtk::gdk::Key, gtk::gdk::ModifierType)> {

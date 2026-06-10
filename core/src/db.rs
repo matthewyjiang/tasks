@@ -157,9 +157,9 @@ impl LocalDatabase {
 
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
         let mut sql = String::from(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE 1 = 1",
+            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
         );
-        let mut values = Vec::new();
+        let mut values = vec![Value::Text(Uuid::nil().to_string())];
 
         if !filter.include_deleted {
             sql.push_str(" AND deleted = 0");
@@ -700,6 +700,31 @@ mod tests {
             )
             .unwrap();
         assert_eq!(with_deleted.len(), 2);
+    }
+
+    #[test]
+    fn list_tasks_excludes_reserved_vault_settings_task() {
+        let database = db();
+        let task = create_named(&database, "visible", "body", None);
+        database
+            .update_vault_settings(&VaultSettings::default())
+            .unwrap();
+
+        let tasks = database
+            .list_tasks(
+                TaskFilter {
+                    include_deleted: true,
+                    ..TaskFilter::default()
+                },
+                TaskSort::CreatedAtAsc,
+            )
+            .unwrap();
+
+        assert_eq!(
+            tasks.iter().map(|task| task.id).collect::<Vec<_>>(),
+            vec![task.id]
+        );
+        assert!(database.vault_settings().is_ok());
     }
 
     #[test]
