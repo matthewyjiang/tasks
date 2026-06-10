@@ -17,6 +17,11 @@ use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::normalize_query;
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
 
+const FLOATING_PANEL_FADE_MS: u64 = 180;
+const TASK_EDITOR_WIDTH: i32 = 780;
+const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
+const TASK_EDITOR_INNER_PADDING: i32 = 7;
+
 pub fn run() {
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_activate(build_ui);
@@ -26,7 +31,6 @@ pub fn run() {
 struct AppState {
     core: Rc<TaskManagerCore>,
     tasks: RefCell<Vec<Task>>,
-    pending_focus_task_id: RefCell<Option<Uuid>>,
     active_filter: RefCell<TaskFilterState>,
     selected_list_id: RefCell<Option<Uuid>>,
     search_query: RefCell<String>,
@@ -43,6 +47,12 @@ struct AppState {
     body_view: gtk::TextView,
     status_combo: gtk::ComboBoxText,
     tags_entry: gtk::Entry,
+    due_entry: gtk::Entry,
+    list_combo: gtk::ComboBoxText,
+    markdown_preview: gtk::Label,
+    body_stack: gtk::Stack,
+    editor_panel: gtk::Box,
+    current_editing_task_id: RefCell<Option<Uuid>>,
     toast_overlay: adw::ToastOverlay,
 }
 
@@ -51,7 +61,11 @@ impl AppState {
         let query = self.search_query.borrow().clone();
         let selected_list_id = *self.selected_list_id.borrow();
         let result = if query.is_empty() {
-            let mut filter = self.active_filter.borrow().to_filter(now_ms());
+            let mut filter = if selected_list_id.is_some() {
+                TaskFilter::default()
+            } else {
+                self.active_filter.borrow().to_filter(now_ms())
+            };
             filter.project_id = selected_list_id;
             self.core.list_tasks(filter, default_sort())
         } else {
@@ -116,77 +130,45 @@ impl AppState {
             container.set_margin_start(14);
             container.set_margin_end(14);
 
-            let status_dot = gtk::Label::new(Some(match task.status {
+            let status_dot = gtk::Button::with_label(match task.status {
                 TaskStatus::Done => "✓",
                 TaskStatus::Open => "○",
-            }));
+            });
+            status_dot.add_css_class("flat");
             status_dot.add_css_class("status-dot");
-            status_dot.set_valign(gtk::Align::Start);
+            status_dot.set_valign(gtk::Align::Center);
+            status_dot.set_tooltip_text(Some(if task.status == TaskStatus::Done {
+                "Mark open"
+            } else {
+                "Mark done"
+            }));
+            status_dot.connect_clicked({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                let next_status = if task.status == TaskStatus::Done {
+                    TaskStatus::Open
+                } else {
+                    TaskStatus::Done
+                };
+                move |_| {
+                    let patch = TaskPatch {
+                        status: Some(next_status),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to update task: {error}"));
+                    }
+                    state.load_tasks();
+                }
+            });
 
             let text = gtk::Box::new(gtk::Orientation::Vertical, 4);
             text.set_hexpand(true);
-            let title = gtk::Entry::new();
-            title.set_text(&task.title);
+            let title = gtk::Label::new(Some(&task.title));
+            title.set_xalign(0.0);
+            title.set_hexpand(true);
+            title.set_ellipsize(gtk::pango::EllipsizeMode::End);
             title.add_css_class("task-title");
-            title.add_css_class("rename-entry");
-            title.add_css_class("flat");
-            title.set_hexpand(false);
-            update_entry_width(&title);
-            title.connect_changed(update_entry_width);
-            let task_confirm = gtk::Button::with_label("✓");
-            task_confirm.add_css_class("confirm-button");
-            task_confirm.add_css_class("task-confirm");
-            task_confirm.set_visible(false);
-
-            title.connect_activate({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                let task_confirm = task_confirm.clone();
-                move |entry| {
-                    entry.remove_css_class("renaming");
-                    update_task_title(&state, task_id, &entry.text());
-                    task_confirm.set_visible(false);
-                    state.list.grab_focus();
-                }
-            });
-            let task_title_focus = gtk::EventControllerFocus::new();
-            task_title_focus.connect_enter({
-                let task_confirm = task_confirm.clone();
-                let title = title.clone();
-                move |_| {
-                    title.add_css_class("renaming");
-                    task_confirm.set_visible(true);
-                }
-            });
-            task_title_focus.connect_leave({
-                let task_confirm = task_confirm.clone();
-                let title = title.clone();
-                move |_| {
-                    title.remove_css_class("renaming");
-                    task_confirm.set_visible(false);
-                }
-            });
-            title.add_controller(task_title_focus);
-            task_confirm.connect_clicked({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                let title = title.clone();
-                let task_confirm = task_confirm.clone();
-                move |_| {
-                    title.remove_css_class("renaming");
-                    update_task_title(&state, task_id, &title.text());
-                    task_confirm.set_visible(false);
-                    state.list.grab_focus();
-                }
-            });
-            if self.pending_focus_task_id.borrow().as_ref() == Some(&task.id) {
-                let title_to_focus = title.clone();
-                gtk::glib::idle_add_local_once(move || {
-                    title_to_focus.grab_focus();
-                    title_to_focus.select_region(0, -1);
-                });
-                self.pending_focus_task_id.replace(None);
-            }
             let summary = gtk::Label::new(Some(&format_task_row_summary(task)));
             summary.set_xalign(0.0);
             summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -345,7 +327,6 @@ impl AppState {
 
             container.append(&status_dot);
             container.append(&text);
-            container.append(&task_confirm);
             container.append(&actions);
             row.set_child(Some(&container));
             self.list.append(&row);
@@ -353,20 +334,87 @@ impl AppState {
     }
 
     fn select_task(self: &Rc<Self>, task_id: Uuid) {
+        self.select_task_with_focus(task_id, false);
+    }
+
+    fn select_task_with_focus(self: &Rc<Self>, task_id: Uuid, focus_title: bool) {
         match self.core.get_task(task_id) {
-            Ok(task) => self.show_task(&task),
+            Ok(task) => self.show_task(&task, focus_title),
             Err(error) => self.toast(format!("Failed to open task: {error}")),
         }
     }
 
-    fn show_task(&self, task: &Task) {
+    fn show_task(&self, task: &Task, focus_title: bool) {
+        self.current_editing_task_id.replace(Some(task.id));
         self.title_entry.set_text(&task.title);
         self.body_view.buffer().set_text(&task.body);
+        self.markdown_preview
+            .set_markup(&markdown_to_pango_markup(&task.body));
+        self.body_stack.set_visible_child_name("preview");
         self.status_combo.set_active(Some(match task.status {
             TaskStatus::Open => 0,
             TaskStatus::Done => 1,
         }));
         self.tags_entry.set_text(&task.tags.join(", "));
+        self.due_entry
+            .set_text(&task.due_at.map(format_due_date_value).unwrap_or_default());
+        self.list_combo.set_active_id(Some(
+            task.project_id
+                .map(|id| id.to_string())
+                .as_deref()
+                .unwrap_or("inbox"),
+        ));
+        show_floating_panel(&self.editor_panel);
+        if focus_title {
+            self.title_entry.grab_focus();
+        }
+    }
+
+    fn hide_task_editor(&self) {
+        self.current_editing_task_id.replace(None);
+        hide_floating_panel(&self.editor_panel);
+    }
+
+    fn save_task_editor(self: &Rc<Self>) {
+        let Some(task_id) = *self.current_editing_task_id.borrow() else {
+            return;
+        };
+        let body = text_buffer_string(&self.body_view.buffer());
+        let due_at = match parse_due_date_entry(&self.due_entry.text()) {
+            Ok(due_at) => due_at,
+            Err(error) => {
+                self.toast(error);
+                return;
+            }
+        };
+        let project_id = match self.list_combo.active_id().as_deref() {
+            Some("inbox") | None => Some(None),
+            Some(id) => match Uuid::parse_str(id) {
+                Ok(id) => Some(Some(id)),
+                Err(error) => {
+                    self.toast(format!("Invalid list id: {error}"));
+                    return;
+                }
+            },
+        };
+        let patch = TaskPatch {
+            title: Some(self.title_entry.text().trim().to_owned()),
+            body: Some(body),
+            status: Some(if self.status_combo.active() == Some(1) {
+                TaskStatus::Done
+            } else {
+                TaskStatus::Open
+            }),
+            due_at: Some(due_at),
+            project_id,
+            tags: Some(parse_tags(&self.tags_entry.text())),
+        };
+        if let Err(error) = self.core.update_task(task_id, patch) {
+            self.toast(format!("Failed to save task: {error}"));
+            return;
+        }
+        self.hide_task_editor();
+        self.load_tasks();
     }
 
     fn create_task(self: &Rc<Self>) {
@@ -377,9 +425,8 @@ impl AppState {
             Ok(task) => {
                 self.selected_list_id.replace(None);
                 self.active_filter.replace(TaskFilterState::Inbox);
-                self.pending_focus_task_id.replace(Some(task.id));
                 self.load_tasks();
-                self.select_task(task.id);
+                self.select_task_with_focus(task.id, true);
             }
             Err(error) => self.toast(format!("Failed to create task: {error}")),
         }
@@ -419,6 +466,7 @@ impl AppState {
             }
         };
         self.user_lists.replace(lists.clone());
+        self.refresh_editor_list_choices(&lists);
 
         for list in lists {
             let row = gtk::ListBoxRow::new();
@@ -440,6 +488,19 @@ impl AppState {
             row_box.append(&name);
             row.set_child(Some(&row_box));
             self.user_list_box.append(&row);
+        }
+    }
+
+    fn refresh_editor_list_choices(&self, lists: &[TaskList]) {
+        let active_id = self.list_combo.active_id().map(|id| id.to_string());
+        self.list_combo.remove_all();
+        self.list_combo.append(Some("inbox"), "Inbox");
+        for list in lists {
+            self.list_combo
+                .append(Some(&list.id.to_string()), &list.name);
+        }
+        if let Some(active_id) = active_id {
+            self.list_combo.set_active_id(Some(&active_id));
         }
     }
 
@@ -683,13 +744,30 @@ fn build_ui(app: &adw::Application) {
     let body_view = gtk::TextView::new();
     body_view.set_vexpand(true);
     body_view.set_wrap_mode(gtk::WrapMode::Word);
+    body_view.set_size_request(-1, TASK_EDITOR_BODY_HEIGHT);
     body_view.add_css_class("editor-notes");
+    let markdown_preview = gtk::Label::new(None);
+    markdown_preview.set_xalign(0.0);
+    markdown_preview.set_yalign(0.0);
+    markdown_preview.set_wrap(true);
+    markdown_preview.set_selectable(false);
+    markdown_preview.set_tooltip_text(Some("Click to edit notes"));
+    markdown_preview.add_css_class("markdown-preview");
     let status_combo = gtk::ComboBoxText::new();
     status_combo.append_text("Open");
     status_combo.append_text("Done");
     status_combo.set_active(Some(0));
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
+    let due_entry = gtk::Entry::new();
+    due_entry.set_placeholder_text(Some("Due date: YYYY-MM-DD, timestamp ms, or blank"));
+    let list_combo = gtk::ComboBoxText::new();
+    list_combo.append(Some("inbox"), "Inbox");
+    if let Ok(lists) = core.list_task_lists() {
+        for list in lists {
+            list_combo.append(Some(&list.id.to_string()), &list.name);
+        }
+    }
 
     let content_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     content_bottom_bar.set_homogeneous(true);
@@ -723,6 +801,7 @@ fn build_ui(app: &adw::Application) {
     search_panel.set_halign(gtk::Align::Center);
     search_panel.set_valign(gtk::Align::Center);
     search_panel.set_margin_bottom(140);
+    search_panel.set_opacity(0.0);
     search_panel.set_visible(false);
     let overlay_search = gtk::SearchEntry::new();
     overlay_search.set_placeholder_text(Some("Search tasks"));
@@ -733,8 +812,60 @@ fn build_ui(app: &adw::Application) {
     search_panel.append(&overlay_search);
     search_panel.append(&search_results);
 
+    let editor_panel = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    editor_panel.add_css_class("task-editor-panel");
+    editor_panel.set_width_request(TASK_EDITOR_WIDTH);
+    editor_panel.set_focusable(true);
+    editor_panel.set_halign(gtk::Align::Center);
+    editor_panel.set_valign(gtk::Align::Center);
+    editor_panel.set_opacity(0.0);
+    editor_panel.set_visible(false);
+
+    title_entry.add_css_class("task-editor-title");
+    body_view.add_css_class("task-editor-body");
+    status_combo.add_css_class("task-editor-field");
+    list_combo.add_css_class("task-editor-field");
+    due_entry.add_css_class("task-editor-field");
+    tags_entry.add_css_class("task-editor-field");
+    status_combo.set_hexpand(true);
+    list_combo.set_hexpand(true);
+    due_entry.set_hexpand(true);
+    tags_entry.set_hexpand(true);
+
+    let body_stack = gtk::Stack::new();
+    body_stack.set_vexpand(true);
+    body_stack.add_named(&body_view, Some("write"));
+    let preview_scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(TASK_EDITOR_BODY_HEIGHT)
+        .vexpand(true)
+        .child(&markdown_preview)
+        .build();
+    body_stack.add_named(&preview_scroll, Some("preview"));
+    body_stack.set_visible_child_name("preview");
+
+    let metadata_grid = gtk::Grid::new();
+    metadata_grid.add_css_class("task-editor-meta");
+    metadata_grid.set_column_spacing(14);
+    metadata_grid.set_row_spacing(12);
+    metadata_grid.attach(&field_label("Status"), 0, 0, 1, 1);
+    metadata_grid.attach(&status_combo, 1, 0, 1, 1);
+    metadata_grid.attach(&field_label("List"), 0, 1, 1, 1);
+    metadata_grid.attach(&list_combo, 1, 1, 1, 1);
+    metadata_grid.attach(&field_label("Due"), 0, 2, 1, 1);
+    metadata_grid.attach(&due_entry, 1, 2, 1, 1);
+    metadata_grid.attach(&field_label("Tags"), 0, 3, 1, 1);
+    metadata_grid.attach(&tags_entry, 1, 3, 1, 1);
+
+    editor_panel.append(&title_entry);
+    editor_panel.append(&body_stack);
+    editor_panel.append(&metadata_grid);
+
+    let page_click = gtk::GestureClick::new();
+    page.add_controller(page_click.clone());
+
     let root_overlay = gtk::Overlay::new();
     root_overlay.set_child(Some(&page));
+    root_overlay.add_overlay(&editor_panel);
     root_overlay.add_overlay(&search_panel);
 
     let toast_overlay = adw::ToastOverlay::new();
@@ -746,7 +877,6 @@ fn build_ui(app: &adw::Application) {
     let state = Rc::new(AppState {
         core: Rc::new(core),
         tasks: RefCell::new(Vec::new()),
-        pending_focus_task_id: RefCell::new(None),
         active_filter: RefCell::new(TaskFilterState::Inbox),
         selected_list_id: RefCell::new(None),
         search_query: RefCell::new(String::new()),
@@ -763,7 +893,69 @@ fn build_ui(app: &adw::Application) {
         body_view,
         status_combo,
         tags_entry,
+        due_entry,
+        list_combo,
+        markdown_preview,
+        body_stack,
+        editor_panel,
+        current_editing_task_id: RefCell::new(None),
         toast_overlay,
+    });
+
+    state.body_view.buffer().connect_changed({
+        let markdown_preview = state.markdown_preview.clone();
+        move |buffer| {
+            markdown_preview.set_markup(&markdown_to_pango_markup(&text_buffer_string(buffer)))
+        }
+    });
+    let preview_click = gtk::GestureClick::new();
+    preview_click.connect_released({
+        let body_stack = state.body_stack.clone();
+        let body_view = state.body_view.clone();
+        move |_, _, _, _| {
+            body_stack.set_visible_child_name("write");
+            body_view.grab_focus();
+        }
+    });
+    state.markdown_preview.add_controller(preview_click);
+    let editor_click = gtk::GestureClick::new();
+    editor_click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    editor_click.connect_pressed({
+        let editor_panel = state.editor_panel.clone();
+        let title_entry = state.title_entry.clone();
+        let body_view = state.body_view.clone();
+        move |_, _, x, y| {
+            let Some(widget) = editor_panel.pick(x, y, gtk::PickFlags::DEFAULT) else {
+                return;
+            };
+            if widget.is::<gtk::Entry>()
+                || widget.is::<gtk::TextView>()
+                || widget.ancestor(gtk::Entry::static_type()).is_some()
+                || widget.ancestor(gtk::TextView::static_type()).is_some()
+            {
+                return;
+            }
+            title_entry.set_position(-1);
+            body_view
+                .buffer()
+                .place_cursor(&body_view.buffer().end_iter());
+            editor_panel.grab_focus();
+        }
+    });
+    state.editor_panel.add_controller(editor_click);
+    let body_focus = gtk::EventControllerFocus::new();
+    body_focus.connect_leave({
+        let body_stack = state.body_stack.clone();
+        move |_| body_stack.set_visible_child_name("preview")
+    });
+    state.body_view.add_controller(body_focus);
+    page_click.connect_pressed({
+        let state = Rc::clone(&state);
+        move |_, _, _, _| {
+            if state.editor_panel.is_visible() {
+                state.save_task_editor();
+            }
+        }
     });
 
     let create_task_action: Rc<dyn Fn()> = Rc::new({
@@ -859,7 +1051,7 @@ fn build_ui(app: &adw::Application) {
         let search_panel = search_panel.clone();
         let overlay_search = overlay_search.clone();
         move || {
-            search_panel.set_visible(true);
+            show_floating_panel(&search_panel);
             overlay_search.grab_focus();
         }
     });
@@ -872,7 +1064,7 @@ fn build_ui(app: &adw::Application) {
         let search_panel = search_panel.clone();
         move |_, key, _, _| {
             if key == gtk::gdk::Key::Escape {
-                search_panel.set_visible(false);
+                hide_floating_panel(&search_panel);
                 gtk::glib::Propagation::Stop
             } else {
                 gtk::glib::Propagation::Proceed
@@ -893,7 +1085,7 @@ fn build_ui(app: &adw::Application) {
                 match state.core.get_task(task_id) {
                     Ok(task) => {
                         open_task_from_search(&state, &task);
-                        search_panel.set_visible(false);
+                        hide_floating_panel(&search_panel);
                     }
                     Err(error) => state.toast(format!("Failed to open task: {error}")),
                 }
@@ -930,12 +1122,9 @@ fn build_ui(app: &adw::Application) {
             }
         }
     });
-    state.list.connect_row_selected({
+    state.list.connect_row_activated({
         let state = Rc::clone(&state);
         move |_, row| {
-            let Some(row) = row else {
-                return;
-            };
             if let Ok(task_id) = Uuid::parse_str(&row.widget_name()) {
                 state.select_task(task_id);
             }
@@ -1138,7 +1327,10 @@ fn install_keybindings(
             open_search_action();
             gtk::glib::Propagation::Stop
         } else if accel_matches(close_overlay, key, modifiers) {
-            search_panel.set_visible(false);
+            hide_floating_panel(&search_panel);
+            if state.editor_panel.is_visible() {
+                state.save_task_editor();
+            }
             gtk::glib::Propagation::Stop
         } else if accel_matches(delete_task, key, modifiers) {
             if editing_text {
@@ -1187,10 +1379,13 @@ fn accel_matches(
 }
 
 fn delete_selected_task(state: &Rc<AppState>) {
-    if let Some(task_id) = selected_task_id(state) {
+    let editing_task_id = *state.current_editing_task_id.borrow();
+    let task_id = editing_task_id.or_else(|| selected_task_id(state));
+    if let Some(task_id) = task_id {
         if let Err(error) = state.core.delete_task(task_id) {
             state.toast(format!("Failed to delete task: {error}"));
         }
+        state.hide_task_editor();
         state.load_tasks();
     }
 }
@@ -1289,21 +1484,137 @@ fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
     state.select_task(task.id);
 }
 
+fn show_floating_panel<W>(widget: &W)
+where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    widget.set_opacity(0.0);
+    widget.set_visible(true);
+    animate_opacity(widget, 0.0, 1.0, FLOATING_PANEL_FADE_MS, None);
+}
+
+fn hide_floating_panel<W>(widget: &W)
+where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    let start = widget.opacity();
+    let widget_to_hide = widget.clone();
+    animate_opacity(
+        widget,
+        start,
+        0.0,
+        FLOATING_PANEL_FADE_MS,
+        Some(Box::new(move || widget_to_hide.set_visible(false))),
+    );
+}
+
+fn animate_opacity<W>(
+    widget: &W,
+    from: f64,
+    to: f64,
+    duration_ms: u64,
+    done: Option<Box<dyn FnOnce() + 'static>>,
+) where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    let widget = widget.clone();
+    let started = std::time::Instant::now();
+    let done = Rc::new(RefCell::new(done));
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+        let progress = (started.elapsed().as_millis() as f64 / duration_ms as f64).min(1.0);
+        let eased = 1.0 - (1.0 - progress).powi(3);
+        widget.set_opacity(from + (to - from) * eased);
+        if progress >= 1.0 {
+            if let Some(done) = done.borrow_mut().take() {
+                done();
+            }
+            gtk::glib::ControlFlow::Break
+        } else {
+            gtk::glib::ControlFlow::Continue
+        }
+    });
+}
+
+fn field_label(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.set_valign(gtk::Align::Center);
+    label.add_css_class("task-editor-field-label");
+    label
+}
+
+fn text_buffer_string(buffer: &gtk::TextBuffer) -> String {
+    buffer
+        .text(&buffer.start_iter(), &buffer.end_iter(), true)
+        .to_string()
+}
+
+fn parse_tags(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn parse_due_date_entry(text: &str) -> Result<Option<i64>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(value) = text.parse::<i64>() {
+        return Ok(Some(value));
+    }
+    let parts = text
+        .split('-')
+        .map(str::parse::<i32>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Use due date format YYYY-MM-DD".to_owned())?;
+    if parts.len() != 3 {
+        return Err("Use due date format YYYY-MM-DD".to_owned());
+    }
+    gtk::glib::DateTime::from_local(parts[0], parts[1], parts[2], 12, 0, 0.0)
+        .map(|date_time| Some(date_time.to_unix() * 1000))
+        .map_err(|error| format!("Invalid due date: {error}"))
+}
+
+fn format_due_date_value(due_at_ms: i64) -> String {
+    gtk::glib::DateTime::from_unix_local(due_at_ms / 1000)
+        .and_then(|date_time| date_time.format("%Y-%m-%d"))
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| due_at_ms.to_string())
+}
+
+fn markdown_to_pango_markup(markdown: &str) -> String {
+    if markdown.trim().is_empty() {
+        return "<span foreground=\"#888888\">No notes</span>".to_owned();
+    }
+    markdown
+        .lines()
+        .map(|line| {
+            let escaped = gtk::glib::markup_escape_text(line).to_string();
+            if let Some(text) = escaped.strip_prefix("# ") {
+                format!("<span size=\"x-large\" weight=\"bold\">{text}</span>")
+            } else if let Some(text) = escaped.strip_prefix("## ") {
+                format!("<span size=\"large\" weight=\"bold\">{text}</span>")
+            } else if let Some(text) = escaped.strip_prefix("### ") {
+                format!("<b>{text}</b>")
+            } else if let Some(text) = escaped.strip_prefix("- ") {
+                format!("• {text}")
+            } else if let Some(text) = escaped.strip_prefix("* ") {
+                format!("• {text}")
+            } else {
+                escaped
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn update_entry_width(entry: &gtk::Entry) {
     let width = entry.text().chars().count().clamp(1, 48) as i32;
     entry.set_width_chars(width);
     entry.set_max_width_chars(width);
-}
-
-fn update_task_title(state: &Rc<AppState>, task_id: Uuid, title: &str) {
-    let patch = TaskPatch {
-        title: Some(title.to_owned()),
-        ..TaskPatch::default()
-    };
-    if let Err(error) = state.core.update_task(task_id, patch) {
-        state.toast(format!("Failed to update task: {error}"));
-    }
-    state.load_tasks();
 }
 
 fn format_task_row_summary(task: &Task) -> String {
@@ -1407,6 +1718,22 @@ fn install_css() {
             font-family: "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
             font-weight: 900;
         }
+        button,
+        row,
+        entry,
+        textview,
+        .sidebar-row,
+        .task-row,
+        .markdown-preview,
+        .task-editor-title,
+        .task-editor-body,
+        .task-calendar,
+        .task-calendar label {
+            transition: background __FLOATING_PANEL_FADE_MS__ms ease-out,
+                        border-color __FLOATING_PANEL_FADE_MS__ms ease-out,
+                        color __FLOATING_PANEL_FADE_MS__ms ease-out,
+                        opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
         .tsk-sidebar {
             background: @sidebar_bg_color;
             padding: 10px 10px 0 12px;
@@ -1482,6 +1809,7 @@ fn install_css() {
             background: @popover_bg_color;
             color: @popover_fg_color;
             box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
         .search-panel-entry {
             min-height: 40px;
@@ -1489,6 +1817,67 @@ fn install_css() {
         }
         .search-results {
             background: transparent;
+        }
+        .task-editor-panel {
+            padding: 24px;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .task-editor-panel .pane-title {
+            font-size: 20px;
+            font-weight: 750;
+        }
+        .task-editor-title {
+            font-size: 28px;
+            font-weight: 800;
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+            margin-bottom: 2px;
+            border-radius: 8px;
+        }
+        .task-editor-title:hover,
+        .markdown-preview:hover {
+            background: color-mix(in srgb, @window_fg_color 5%, transparent);
+        }
+        .task-editor-body,
+        .task-editor-body text {
+            font-size: 16px;
+            line-height: 1.55;
+            background: transparent;
+        }
+        .task-editor-body {
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+        }
+        .task-editor-body:focus,
+        .task-editor-body:focus-within {
+            border-color: @accent_color;
+        }
+        .task-editor-field-label {
+            color: @dim_label_color;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .task-editor-field,
+        .task-editor-button {
+            min-height: 38px;
+            font-size: 15px;
+        }
+        .task-editor-meta {
+            margin-top: 2px;
+            margin-bottom: 2px;
+        }
+        .markdown-preview {
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            font-size: 16px;
+            line-height: 1.55;
         }
         .search-result-row {
             border-radius: 10px;
@@ -1522,6 +1911,7 @@ fn install_css() {
         }
         .task-actions {
             opacity: 0;
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
         .task-row:hover .task-actions {
             opacity: 1;
@@ -1530,6 +1920,13 @@ fn install_css() {
             color: @accent_color;
             font-size: 18px;
             font-weight: 700;
+            min-width: 28px;
+            min-height: 28px;
+            padding: 0;
+            border-radius: 999px;
+        }
+        .status-dot:hover {
+            background: color-mix(in srgb, @accent_color 12%, transparent);
         }
         .task-title {
             font-size: 16px;
@@ -1594,6 +1991,11 @@ fn install_css() {
             background: transparent;
             padding: 4px 0;
         }
+        entry.task-editor-title,
+        entry.task-editor-title text,
+        textview.task-editor-body text {
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+        }
         .notes-card {
             border-radius: 0;
             background: transparent;
@@ -1609,8 +2011,16 @@ fn install_css() {
             font-size: 22px;
             font-weight: 700;
         }
-        "#;
-    provider.load_from_data(css);
+        "#
+    .replace(
+        "__FLOATING_PANEL_FADE_MS__",
+        &FLOATING_PANEL_FADE_MS.to_string(),
+    )
+    .replace(
+        "__TASK_EDITOR_INNER_PADDING__",
+        &TASK_EDITOR_INNER_PADDING.to_string(),
+    );
+    provider.load_from_data(&css);
 
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
