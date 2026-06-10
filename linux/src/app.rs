@@ -5,7 +5,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
-use taskmanager_core::{Task, TaskFilter, TaskManagerCore, TaskPatch, TaskStatus};
+use taskmanager_core::{Task, TaskFilter, TaskManagerCore, TaskStatus};
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
@@ -24,7 +24,6 @@ pub fn run() {
 struct AppState {
     core: TaskManagerCore,
     tasks: RefCell<Vec<Task>>,
-    selected_task_id: RefCell<Option<Uuid>>,
     active_filter: RefCell<TaskFilterState>,
     search_query: RefCell<String>,
     list: gtk::ListBox,
@@ -115,7 +114,6 @@ impl AppState {
     }
 
     fn select_task(self: &Rc<Self>, task_id: Uuid) {
-        self.selected_task_id.replace(Some(task_id));
         match self.core.get_task(task_id) {
             Ok(task) => self.show_task(&task),
             Err(error) => self.toast(format!("Failed to open task: {error}")),
@@ -143,61 +141,6 @@ impl AppState {
                 self.select_task(task.id);
             }
             Err(error) => self.toast(format!("Failed to create task: {error}")),
-        }
-    }
-
-    fn save_selected(self: &Rc<Self>) {
-        let Some(task_id) = *self.selected_task_id.borrow() else {
-            return;
-        };
-        let buffer = self.body_view.buffer();
-        let body = buffer
-            .text(&buffer.start_iter(), &buffer.end_iter(), true)
-            .to_string();
-        let status = match self.status_combo.active() {
-            Some(1) => TaskStatus::InProgress,
-            Some(2) => TaskStatus::Done,
-            _ => TaskStatus::Inbox,
-        };
-        let tags = self
-            .tags_entry
-            .text()
-            .split(',')
-            .map(str::trim)
-            .filter(|tag| !tag.is_empty())
-            .map(ToOwned::to_owned)
-            .collect();
-
-        let patch = TaskPatch {
-            title: Some(self.title_entry.text().to_string()),
-            body: Some(body),
-            status: Some(status),
-            tags: Some(tags),
-            ..TaskPatch::default()
-        };
-
-        match self.core.update_task(task_id, patch) {
-            Ok(task) => {
-                self.show_task(&task);
-                self.load_tasks();
-            }
-            Err(error) => self.toast(format!("Failed to save task: {error}")),
-        }
-    }
-
-    fn delete_selected(self: &Rc<Self>) {
-        let Some(task_id) = *self.selected_task_id.borrow() else {
-            return;
-        };
-        match self.core.delete_task(task_id) {
-            Ok(()) => {
-                self.selected_task_id.replace(None);
-                self.title_entry.set_text("");
-                self.body_view.buffer().set_text("");
-                self.tags_entry.set_text("");
-                self.load_tasks();
-            }
-            Err(error) => self.toast(format!("Failed to delete task: {error}")),
         }
     }
 
@@ -299,11 +242,7 @@ fn build_ui(app: &adw::Application) {
     header.add_css_class("flat");
     header.set_show_start_title_buttons(false);
     let new_button = gtk::Button::with_label("＋");
-    let save_button = gtk::Button::with_label("Save");
-    let delete_button = gtk::Button::with_label("Delete");
     header.pack_start(&new_button);
-    header.pack_end(&delete_button);
-    header.pack_end(&save_button);
 
     let search = gtk::SearchEntry::new();
     search.set_placeholder_text(Some("Search"));
@@ -412,34 +351,9 @@ fn build_ui(app: &adw::Application) {
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
 
-    let editor = gtk::Box::new(gtk::Orientation::Vertical, 16);
-    editor.add_css_class("tsk-editor");
-    editor.set_margin_top(52);
-    editor.set_margin_bottom(28);
-    editor.set_margin_start(44);
-    editor.set_margin_end(44);
-
-    let details = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    details.append(&status_combo);
-    details.append(&tags_entry);
-
-    let notes_frame = gtk::Frame::new(None);
-    notes_frame.add_css_class("notes-card");
-    notes_frame.set_vexpand(true);
-    notes_frame.set_child(Some(&body_view));
-
-    editor.append(&title_entry);
-    editor.append(&details);
-    editor.append(&notes_frame);
-
     let content = gtk::Paned::new(gtk::Orientation::Horizontal);
     content.set_start_child(Some(&sidebar));
-
-    let main = gtk::Paned::new(gtk::Orientation::Horizontal);
-    main.set_start_child(Some(&list_pane));
-    main.set_end_child(Some(&editor));
-    main.set_resize_start_child(false);
-    content.set_end_child(Some(&main));
+    content.set_end_child(Some(&list_pane));
     content.set_resize_start_child(false);
 
     let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -453,7 +367,6 @@ fn build_ui(app: &adw::Application) {
     let state = Rc::new(AppState {
         core,
         tasks: RefCell::new(Vec::new()),
-        selected_task_id: RefCell::new(None),
         active_filter: RefCell::new(TaskFilterState::All),
         search_query: RefCell::new(String::new()),
         list: task_list,
@@ -471,14 +384,6 @@ fn build_ui(app: &adw::Application) {
     new_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| state.create_task()
-    });
-    save_button.connect_clicked({
-        let state = Rc::clone(&state);
-        move |_| state.save_selected()
-    });
-    delete_button.connect_clicked({
-        let state = Rc::clone(&state);
-        move |_| state.delete_selected()
     });
     search.connect_search_changed({
         let state = Rc::clone(&state);
