@@ -1068,7 +1068,7 @@ fn show_settings_window(
 fn font_awesome_label(icon: &str) -> gtk::Label {
     let label = gtk::Label::new(None);
     label.set_markup(&format!(
-        "<span font_desc=\"Font Awesome 7 Free Solid 12\" fallback=\"false\">{icon}</span>"
+        "<span font_desc=\"Tsk Font Awesome 12\" fallback=\"false\">{icon}</span>"
     ));
     label
 }
@@ -1408,16 +1408,19 @@ fn count_for_filter(tasks: &[Task], filter: TaskFilterState, now_ms: i64) -> usi
 
 fn install_css() {
     let provider = gtk::CssProvider::new();
-    provider.load_from_data(
-        r#"
+    let font_path = format!(
+        "file://{}/resources/fonts/fa-solid-900.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let css = r#"
         @font-face {
-            font-family: "Font Awesome 7 Free Solid";
-            src: url("file:///usr/share/fonts/WOFF2/fa-solid-900.woff2");
+            font-family: "Tsk Font Awesome";
+            src: url("__TSK_FONT_AWESOME_PATH__");
         }
         .fa-icon,
         .fa-icon label,
         button.fa-icon label {
-            font-family: "Font Awesome 7 Free Solid", "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
+            font-family: "Tsk Font Awesome", "Font Awesome 7 Free Solid", "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
             font-weight: 900;
         }
         .tsk-sidebar {
@@ -1622,8 +1625,9 @@ fn install_css() {
             font-size: 22px;
             font-weight: 700;
         }
-        "#,
-    );
+        "#
+    .replace("__TSK_FONT_AWESOME_PATH__", &font_path);
+    provider.load_from_data(&css);
 
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
