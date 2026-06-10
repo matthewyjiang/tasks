@@ -24,6 +24,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Basic GTK4/libadwaita app boots and opens the core database.
 - [x] Linux path handling added with `TSK_LINUX_DB` and `TSK_LINUX_CONFIG` overrides.
 - [x] Initial task list, filters, search, editor, create/save/delete flow implemented.
+- [x] Things-inspired three-pane visual polish added with styled sidebar, list cards, empty state, and cleaner editor.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
@@ -498,7 +499,7 @@ pkg-config --modversion libsecret-1
 
 Build a GTK4/libadwaita app that opens the core database and supports offline task CRUD before implementing sync.
 
-Status: complete for the initial native Linux MVP. The implementation currently uses raw gtk-rs/libadwaita instead of Relm4 to keep the first version small and compilable. Future iterations can extract the monolithic `app.rs` into the reserved component modules or introduce Relm4 if the state model grows.
+Status: complete for the initial native Linux MVP. The implementation currently uses raw gtk-rs/libadwaita instead of Relm4 to keep the first version small and compilable. The layout has been polished toward a Things-style desktop app: calm three-pane structure, prominent list title, rounded task cards, status glyphs, empty state, and focused editor. Future iterations can extract the monolithic `app.rs` into the reserved component modules or introduce Relm4 if the state model grows.
 
 ## Latest validation
 
@@ -522,3 +523,15 @@ Results:
 - `taskmanager-cli`: all tests pass.
 - Workspace build passes.
 - GTK4/libadwaita/libsecret development packages are available.
+
+Latest UI polish validation also passed:
+
+```sh
+cargo fmt --check
+cargo check -p tsk-linux
+cargo clippy -p tsk-linux --all-targets -- -D warnings
+cargo test -p tsk-linux
+cargo test -p taskmanager-core
+cargo test -p taskmanager-cli
+cargo build --workspace
+```
