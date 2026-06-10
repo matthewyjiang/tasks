@@ -825,20 +825,21 @@ fn build_ui(app: &adw::Application) {
     editor_panel.append(&body_stack);
     editor_panel.append(&metadata_grid);
 
-    let move_list_panel = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    let move_list_panel = gtk::Box::new(gtk::Orientation::Vertical, 14);
     move_list_panel.add_css_class("move-list-panel");
-    move_list_panel.set_width_request(420);
+    move_list_panel.set_width_request(460);
     move_list_panel.set_halign(gtk::Align::Center);
     move_list_panel.set_valign(gtk::Align::Center);
     move_list_panel.set_opacity(0.0);
     move_list_panel.set_visible(false);
     let move_list_title = gtk::Label::new(Some("Move to list"));
     move_list_title.set_xalign(0.0);
-    move_list_title.add_css_class("pane-title");
+    move_list_title.add_css_class("move-list-title");
     let move_list_search = gtk::SearchEntry::new();
+    move_list_search.add_css_class("move-list-search");
     move_list_search.set_placeholder_text(Some("Search lists with regex"));
     let move_list_results = gtk::ListBox::new();
-    move_list_results.add_css_class("search-results");
+    move_list_results.add_css_class("move-list-results");
     move_list_results.set_selection_mode(gtk::SelectionMode::None);
     let move_list_scroll = gtk::ScrolledWindow::builder()
         .min_content_height(260)
@@ -1932,14 +1933,42 @@ fn install_css() {
         .content-bottom-bar {
             padding: 8px 18px 10px 18px;
         }
-        .search-panel,
-        .move-list-panel {
+        .search-panel {
             padding: 10px;
             border-radius: 16px;
             background: @popover_bg_color;
             color: @popover_fg_color;
             box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
             transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .move-list-panel {
+            padding: 20px;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .move-list-title {
+            font-size: 20px;
+            font-weight: 750;
+        }
+        .move-list-search {
+            min-height: 38px;
+            border-radius: 10px;
+            font-size: 15px;
+        }
+        .move-list-results {
+            background: transparent;
+        }
+        .move-list-results row {
+            border-radius: 10px;
+            margin: 2px 0;
+            background: transparent;
+        }
+        .move-list-results row:hover {
+            background: color-mix(in srgb, @window_fg_color 5%, transparent);
         }
         .search-panel-entry {
             min-height: 40px;
