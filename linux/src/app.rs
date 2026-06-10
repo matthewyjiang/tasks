@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -58,12 +58,9 @@ impl AppState {
                     .into_iter()
                     .filter(|task| task_matches_view(task, view, now))
                     .collect::<Vec<_>>();
-                let task_count = tasks.len();
                 self.tasks.replace(tasks);
-                self.list_heading.set_text(&format!(
-                    "{} · {task_count}",
-                    self.active_filter.borrow().label()
-                ));
+                self.list_heading
+                    .set_text(self.active_filter.borrow().label());
                 self.render_list();
                 self.refresh_sidebar_metadata();
             }
@@ -158,7 +155,13 @@ impl AppState {
             .iter()
             .zip(sidebar_filter_order().iter().copied())
         {
-            label.set_text(&count_for_filter(&tasks, filter, now).to_string());
+            if filter == TaskFilterState::Today {
+                label.set_text(&count_for_filter(&tasks, filter, now).to_string());
+                label.set_visible(true);
+            } else {
+                label.set_text("");
+                label.set_visible(false);
+            }
         }
         self.render_tag_rows(&tasks);
     }
@@ -168,23 +171,20 @@ impl AppState {
             self.tag_box.remove(&row);
         }
 
-        let mut counts = BTreeMap::<String, usize>::new();
+        let mut tags = BTreeSet::<String>::new();
         for task in tasks {
             for tag in &task.tags {
-                *counts.entry(tag.to_owned()).or_default() += 1;
+                tags.insert(tag.to_owned());
             }
         }
 
-        for (tag, count) in counts {
+        for tag in tags {
             let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
             row.add_css_class("sidebar-static-row");
             let name = gtk::Label::new(Some(&format!("# {tag}")));
             name.set_xalign(0.0);
             name.set_hexpand(true);
-            let count_label = gtk::Label::new(Some(&count.to_string()));
-            count_label.add_css_class("sidebar-count");
             row.append(&name);
-            row.append(&count_label);
             self.tag_box.append(&row);
         }
     }
@@ -282,7 +282,7 @@ fn build_ui(app: &adw::Application) {
     let tag_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     sidebar.append(&tag_box);
 
-    let list_heading = gtk::Label::new(Some("Today · 0"));
+    let list_heading = gtk::Label::new(Some("Today"));
     list_heading.set_xalign(0.0);
     list_heading.add_css_class("pane-title");
 

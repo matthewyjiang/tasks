@@ -35,6 +35,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Disabled persistent sidebar row selection so categories return to the sidebar background after click.
 - [x] Simplified core task status to two states: `Open` and `Done`.
 - [x] Updated Linux sidebar views to `Today`, `Upcoming`, `Anytime`, and `Done`.
+- [x] Minimalized counts: only the sidebar `Today` row shows a number; section titles and tags do not.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
