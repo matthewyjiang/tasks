@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=tsk
+Comment=Local-first encrypted task manager
+Exec=tsk-gui
+Icon=io.github.matthewyjiang.tsk
+Terminal=false
+Categories=Office;ProjectManagement;
+StartupNotify=true
