@@ -35,7 +35,7 @@ func TestDeployScriptSupportsDockerComposeOperations(t *testing.T) {
 		t.Fatalf("read deploy script: %v", err)
 	}
 	text := string(data)
-	for _, snippet := range []string{"docker compose", "read -r -p", "docker-compose.deploy.yml", "up -d --build", "/healthz", "HOST_PORT", "PORT=18080", "--yes", "status", "logs", "backup"} {
+	for _, snippet := range []string{"docker compose", "read -r -p", "docker-compose.deploy.yml", "up -d --build", "/healthz", "HOST_PORT", "PORT=18080", "--yes", "status", "logs", "backup", "undeploy", "down --remove-orphans"} {
 		if !strings.Contains(text, snippet) {
 			t.Fatalf("deploy script missing %q", snippet)
 		}

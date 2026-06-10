@@ -206,7 +206,7 @@ tsk generate man > tsk.1
 
 ## Server status
 
-`sync push`, `sync pull`, and `sync run` use the configured `settings server_url` (or `--server` override) plus a locally stored bearer token from `configure`/`auth login` to call the server blob API. `configure` requires network access; `--offline configure` fails before prompting or authenticating.
+`sync push`, `sync pull`, and `sync run` use the configured `settings server_url` (or `--server` override) plus a locally stored bearer token from `configure`/`auth login` to call the server blob API. The server issues short-lived access tokens and longer-lived refresh tokens; automatic refresh is currently implemented in the Linux desktop app, while CLI refresh remains future work. `configure` requires network access; `--offline configure` fails before prompting or authenticating.
 
 A functional local-server workflow looks like this:
 
@@ -251,7 +251,7 @@ Local sync diagnostics are available with `sync status` and `sync retry`. `--ser
 
 The following remain future work:
 
-- auth token refresh
+- CLI auth token refresh
 - device register/list against the server
 - friendly device pairing on top of low-level wrap/unwrap commands
 - conflict persistence/resolution commands (hidden from default help until implemented)
