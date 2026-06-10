@@ -29,13 +29,13 @@ func TestMakefileExposesCheckTarget(t *testing.T) {
 	}
 }
 
-func TestDeployScriptIsInteractiveDockerCompose(t *testing.T) {
+func TestDeployScriptSupportsDockerComposeOperations(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "scripts", "deploy.sh"))
 	if err != nil {
 		t.Fatalf("read deploy script: %v", err)
 	}
 	text := string(data)
-	for _, snippet := range []string{"docker compose", "read -r -p", "docker-compose.deploy.yml", "up -d --build", "/healthz", "HOST_PORT", "PORT=8080"} {
+	for _, snippet := range []string{"docker compose", "read -r -p", "docker-compose.deploy.yml", "up -d --build", "/healthz", "HOST_PORT", "PORT=18080", "--yes", "status", "logs", "backup"} {
 		if !strings.Contains(text, snippet) {
 			t.Fatalf("deploy script missing %q", snippet)
 		}

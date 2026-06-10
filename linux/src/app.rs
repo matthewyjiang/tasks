@@ -1,21 +1,45 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use adw::prelude::*;
+use base64::Engine;
 use gtk4 as gtk;
 use libadwaita as adw;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 use taskmanager_core::{
-    Keybindings, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+    init_account, init_device_keypair, public_key_from_private_key, sync_pull, sync_push, Blob,
+    BlobPush, CoreResult, Keybindings, LocalDatabase, Platform, PullResponse, PushResponse,
+    RemoteBlob, SyncClient, SyncError, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch,
+    TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
-use crate::task_model::{default_sort, format_task_summary, task_matches_view, TaskFilterState};
+use crate::task_model::{default_sort, task_matches_view, TaskFilterState};
 use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::normalize_query;
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
+
+const FLOATING_PANEL_FADE_MS: u64 = 180;
+const TASK_EDITOR_MIN_WIDTH: i32 = 640;
+const TASK_EDITOR_MAX_WIDTH: i32 = 1040;
+const TASK_EDITOR_WIDTH_RATIO: f64 = 0.72;
+const TASK_EDITOR_MIN_HEIGHT: i32 = 420;
+const TASK_EDITOR_MAX_HEIGHT: i32 = 820;
+const TASK_EDITOR_HEIGHT_RATIO: f64 = 0.78;
+const SETTINGS_PANEL_MIN_WIDTH: i32 = 560;
+const SETTINGS_PANEL_MAX_WIDTH: i32 = 900;
+const SETTINGS_PANEL_WIDTH_RATIO: f64 = 0.62;
+const SETTINGS_PANEL_MIN_HEIGHT: i32 = 420;
+const SETTINGS_PANEL_MAX_HEIGHT: i32 = 760;
+const SETTINGS_PANEL_HEIGHT_RATIO: f64 = 0.72;
+const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
+const TASK_EDITOR_INNER_PADDING: i32 = 7;
+const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
+const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
 
 pub fn run() {
     let app = adw::Application::builder().application_id(APP_ID).build();
@@ -26,7 +50,6 @@ pub fn run() {
 struct AppState {
     core: Rc<TaskManagerCore>,
     tasks: RefCell<Vec<Task>>,
-    pending_focus_task_id: RefCell<Option<Uuid>>,
     active_filter: RefCell<TaskFilterState>,
     selected_list_id: RefCell<Option<Uuid>>,
     search_query: RefCell<String>,
@@ -43,19 +66,96 @@ struct AppState {
     body_view: gtk::TextView,
     status_combo: gtk::ComboBoxText,
     tags_entry: gtk::Entry,
+    due_entry: gtk::Entry,
+    list_combo: gtk::ComboBoxText,
+    markdown_preview: gtk::Label,
+    body_stack: gtk::Stack,
+    editor_panel: gtk::Box,
+    current_editing_task_id: RefCell<Option<Uuid>>,
+    move_list_panel: gtk::Box,
+    move_list_search: gtk::SearchEntry,
+    move_list_results: gtk::ListBox,
+    moving_task_id: RefCell<Option<Uuid>>,
     toast_overlay: adw::ToastOverlay,
+    db_path: PathBuf,
+    settings_path: PathBuf,
+    sync_in_progress: RefCell<bool>,
+    sync_pending: RefCell<bool>,
 }
 
 impl AppState {
+    fn request_sync(self: &Rc<Self>) {
+        if *self.sync_in_progress.borrow() {
+            self.sync_pending.replace(true);
+            return;
+        }
+        if !linux_sync_configured(&self.settings_path) {
+            return;
+        }
+        self.sync_in_progress.replace(true);
+        let db_path = self.db_path.clone();
+        let settings_path = self.settings_path.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = run_linux_sync(&db_path, &settings_path);
+            let _ = sender.send(result);
+        });
+        let state = Rc::clone(self);
+        gtk::glib::timeout_add_local(
+            std::time::Duration::from_millis(120),
+            move || match receiver.try_recv() {
+                Ok(result) => {
+                    state.sync_in_progress.replace(false);
+                    match result {
+                        Ok(summary) => {
+                            if summary.changed() {
+                                state.load_tasks();
+                            }
+                        }
+                        Err(error) => state.toast(format!("Sync failed: {error}")),
+                    }
+                    if state.sync_pending.replace(false) {
+                        state.request_sync();
+                    }
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    state.sync_in_progress.replace(false);
+                    state.toast("Sync failed: worker disconnected".to_owned());
+                    gtk::glib::ControlFlow::Break
+                }
+            },
+        );
+    }
+
     fn load_tasks(self: &Rc<Self>) {
         let query = self.search_query.borrow().clone();
         let selected_list_id = *self.selected_list_id.borrow();
         let result = if query.is_empty() {
-            let mut filter = self.active_filter.borrow().to_filter(now_ms());
+            let mut filter = if selected_list_id.is_some() {
+                TaskFilter::default()
+            } else {
+                self.active_filter.borrow().to_filter(now_ms())
+            };
             filter.project_id = selected_list_id;
             self.core.list_tasks(filter, default_sort())
         } else {
-            self.core.search_tasks(query)
+            match regex_from_query(&query) {
+                Ok(regex) => self
+                    .core
+                    .list_tasks(TaskFilter::default(), default_sort())
+                    .map(|tasks| {
+                        tasks
+                            .into_iter()
+                            .filter(|task| regex_matches_task(&regex, task))
+                            .collect()
+                    }),
+                Err(error) => {
+                    self.toast(format!("Invalid regex: {error}"));
+                    Ok(Vec::new())
+                }
+            }
         };
 
         match result {
@@ -111,103 +211,24 @@ impl AppState {
             row.set_widget_name(&task.id.to_string());
 
             let container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-            container.set_margin_top(12);
-            container.set_margin_bottom(12);
+            container.set_margin_top(7);
+            container.set_margin_bottom(7);
             container.set_margin_start(14);
             container.set_margin_end(14);
 
-            let status_dot = gtk::Label::new(Some(match task.status {
+            let status_dot = gtk::Button::with_label(match task.status {
                 TaskStatus::Done => "✓",
                 TaskStatus::Open => "○",
-            }));
+            });
+            status_dot.add_css_class("flat");
             status_dot.add_css_class("status-dot");
-            status_dot.set_valign(gtk::Align::Start);
-
-            let text = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            text.set_hexpand(true);
-            let title = gtk::Entry::new();
-            title.set_text(&task.title);
-            title.add_css_class("task-title");
-            title.add_css_class("rename-entry");
-            title.add_css_class("flat");
-            title.set_hexpand(false);
-            update_entry_width(&title);
-            title.connect_changed(update_entry_width);
-            let task_confirm = gtk::Button::with_label("✓");
-            task_confirm.add_css_class("confirm-button");
-            task_confirm.add_css_class("task-confirm");
-            task_confirm.set_visible(false);
-
-            title.connect_activate({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                let task_confirm = task_confirm.clone();
-                move |entry| {
-                    entry.remove_css_class("renaming");
-                    update_task_title(&state, task_id, &entry.text());
-                    task_confirm.set_visible(false);
-                    state.list.grab_focus();
-                }
-            });
-            let task_title_focus = gtk::EventControllerFocus::new();
-            task_title_focus.connect_enter({
-                let task_confirm = task_confirm.clone();
-                let title = title.clone();
-                move |_| {
-                    title.add_css_class("renaming");
-                    task_confirm.set_visible(true);
-                }
-            });
-            task_title_focus.connect_leave({
-                let task_confirm = task_confirm.clone();
-                let title = title.clone();
-                move |_| {
-                    title.remove_css_class("renaming");
-                    task_confirm.set_visible(false);
-                }
-            });
-            title.add_controller(task_title_focus);
-            task_confirm.connect_clicked({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                let title = title.clone();
-                let task_confirm = task_confirm.clone();
-                move |_| {
-                    title.remove_css_class("renaming");
-                    update_task_title(&state, task_id, &title.text());
-                    task_confirm.set_visible(false);
-                    state.list.grab_focus();
-                }
-            });
-            if self.pending_focus_task_id.borrow().as_ref() == Some(&task.id) {
-                let title_to_focus = title.clone();
-                gtk::glib::idle_add_local_once(move || {
-                    title_to_focus.grab_focus();
-                    title_to_focus.select_region(0, -1);
-                });
-                self.pending_focus_task_id.replace(None);
-            }
-            let summary = gtk::Label::new(Some(&format_task_row_summary(task)));
-            summary.set_xalign(0.0);
-            summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
-            summary.add_css_class("task-summary");
-
-            text.append(&title);
-            text.append(&summary);
-
-            let actions = gtk::MenuButton::new();
-            actions.set_label("⋯");
-            actions.add_css_class("flat");
-            actions.add_css_class("task-actions");
-            let popover = gtk::Popover::new();
-            let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            let toggle_done = gtk::Button::with_label(if task.status == TaskStatus::Done {
-                "Mark Open"
+            status_dot.set_valign(gtk::Align::Center);
+            status_dot.set_tooltip_text(Some(if task.status == TaskStatus::Done {
+                "Mark open"
             } else {
-                "Mark Done"
-            });
-            toggle_done.add_css_class("flat");
-            toggle_done.connect_clicked({
+                "Mark done"
+            }));
+            status_dot.connect_clicked({
                 let state = Rc::clone(self);
                 let task_id = task.id;
                 let next_status = if task.status == TaskStatus::Done {
@@ -222,130 +243,78 @@ impl AppState {
                     };
                     if let Err(error) = state.core.update_task(task_id, patch) {
                         state.toast(format!("Failed to update task: {error}"));
-                    }
-                    state.load_tasks();
-                }
-            });
-            let due_label = gtk::Label::new(Some("Due date"));
-            due_label.set_xalign(0.0);
-            due_label.add_css_class("task-menu-heading");
-            let calendar = gtk::Calendar::new();
-            calendar.add_css_class("task-calendar");
-            calendar.connect_day_selected({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                move |calendar| {
-                    let date = calendar.date();
-                    // Store the selected calendar day at local noon. Noon avoids
-                    // day-shift surprises around timezone/DST boundaries while
-                    // preserving the user-selected date.
-                    let due_at = gtk::glib::DateTime::from_local(
-                        date.year(),
-                        date.month(),
-                        date.day_of_month(),
-                        12,
-                        0,
-                        0.0,
-                    )
-                    .map(|date_time| date_time.to_unix() * 1000);
-                    match due_at {
-                        Ok(due_at) => {
-                            let patch = TaskPatch {
-                                due_at: Some(Some(due_at)),
-                                ..TaskPatch::default()
-                            };
-                            if let Err(error) = state.core.update_task(task_id, patch) {
-                                state.toast(format!("Failed to set due date: {error}"));
-                            }
-                            state.load_tasks();
-                        }
-                        Err(error) => state.toast(format!("Failed to read due date: {error}")),
-                    }
-                }
-            });
-            let clear_due = gtk::Button::with_label("Clear Due Date");
-            clear_due.add_css_class("flat");
-            clear_due.connect_clicked({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                move |_| {
-                    let patch = TaskPatch {
-                        due_at: Some(None),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to clear due date: {error}"));
+                    } else {
+                        state.request_sync();
                     }
                     state.load_tasks();
                 }
             });
 
-            let list_label = gtk::Label::new(Some("List"));
-            list_label.set_xalign(0.0);
-            list_label.add_css_class("task-menu-heading");
-            let inbox_button = gtk::Button::with_label("Inbox");
-            inbox_button.add_css_class("flat");
-            inbox_button.connect_clicked({
+            let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+            text.set_hexpand(true);
+            text.set_valign(gtk::Align::Center);
+            let title = gtk::Label::new(Some(&task.title));
+            title.set_xalign(0.0);
+            title.set_hexpand(true);
+            title.set_valign(gtk::Align::Center);
+            title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            title.add_css_class("task-title");
+            let summary_text = format_task_row_summary(task);
+            let summary = gtk::Label::new(Some(&summary_text));
+            summary.set_xalign(0.0);
+            summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            summary.add_css_class("task-summary");
+            summary.set_visible(!summary_text.is_empty());
+
+            text.append(&title);
+            text.append(&summary);
+
+            let sync_status = font_awesome_label("\u{f071}");
+            sync_status.add_css_class("sync-status");
+            sync_status.set_tooltip_text(Some("Out of date"));
+            sync_status.set_visible(task.dirty);
+
+            let actions = gtk::MenuButton::new();
+            actions.set_label("⋯");
+            actions.add_css_class("flat");
+            actions.add_css_class("task-actions");
+            let popover = gtk::Popover::new();
+            let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            let move_task = gtk::Button::with_label("Move");
+            move_task.add_css_class("flat");
+            move_task.connect_clicked({
                 let state = Rc::clone(self);
+                let popover = popover.clone();
                 let task_id = task.id;
                 move |_| {
-                    let patch = TaskPatch {
-                        project_id: Some(None),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to move task: {error}"));
-                    }
-                    state.load_tasks();
+                    popover.popdown();
+                    state.show_move_list_panel(task_id);
                 }
             });
-
-            action_box.append(&due_label);
-            action_box.append(&calendar);
-            action_box.append(&clear_due);
-            action_box.append(&list_label);
-            action_box.append(&inbox_button);
-            for list in self.user_lists.borrow().iter() {
-                let list_button = gtk::Button::with_label(&list.name);
-                list_button.add_css_class("flat");
-                list_button.connect_clicked({
-                    let state = Rc::clone(self);
-                    let task_id = task.id;
-                    let list_id = list.id;
-                    move |_| {
-                        let patch = TaskPatch {
-                            project_id: Some(Some(list_id)),
-                            ..TaskPatch::default()
-                        };
-                        if let Err(error) = state.core.update_task(task_id, patch) {
-                            state.toast(format!("Failed to move task: {error}"));
-                        }
-                        state.load_tasks();
-                    }
-                });
-                action_box.append(&list_button);
-            }
 
             let delete = gtk::Button::with_label("Delete");
             delete.add_css_class("flat");
+            delete.add_css_class("destructive-action");
             delete.connect_clicked({
                 let state = Rc::clone(self);
                 let task_id = task.id;
                 move |_| {
                     if let Err(error) = state.core.delete_task(task_id) {
                         state.toast(format!("Failed to delete task: {error}"));
+                    } else {
+                        state.request_sync();
                     }
                     state.load_tasks();
                 }
             });
-            action_box.append(&toggle_done);
+            action_box.append(&move_task);
             action_box.append(&delete);
             popover.set_child(Some(&action_box));
             actions.set_popover(Some(&popover));
 
             container.append(&status_dot);
             container.append(&text);
-            container.append(&task_confirm);
+            container.append(&sync_status);
             container.append(&actions);
             row.set_child(Some(&container));
             self.list.append(&row);
@@ -353,20 +322,101 @@ impl AppState {
     }
 
     fn select_task(self: &Rc<Self>, task_id: Uuid) {
+        self.select_task_with_focus(task_id, false);
+    }
+
+    fn select_task_with_focus(self: &Rc<Self>, task_id: Uuid, focus_title: bool) {
         match self.core.get_task(task_id) {
-            Ok(task) => self.show_task(&task),
+            Ok(task) => self.show_task(&task, focus_title),
             Err(error) => self.toast(format!("Failed to open task: {error}")),
         }
     }
 
-    fn show_task(&self, task: &Task) {
+    fn show_task(&self, task: &Task, focus_title: bool) {
+        self.current_editing_task_id.replace(Some(task.id));
         self.title_entry.set_text(&task.title);
         self.body_view.buffer().set_text(&task.body);
+        self.markdown_preview
+            .set_markup(&markdown_to_pango_markup(&task.body));
+        self.body_stack.set_visible_child_name("preview");
         self.status_combo.set_active(Some(match task.status {
             TaskStatus::Open => 0,
             TaskStatus::Done => 1,
         }));
         self.tags_entry.set_text(&task.tags.join(", "));
+        self.due_entry
+            .set_text(&task.due_at.map(format_due_date_value).unwrap_or_default());
+        self.list_combo.set_active_id(Some(
+            task.project_id
+                .map(|id| id.to_string())
+                .as_deref()
+                .unwrap_or("inbox"),
+        ));
+        show_floating_panel(&self.editor_panel);
+        if focus_title {
+            self.title_entry.grab_focus();
+        }
+    }
+
+    fn hide_task_editor(&self) {
+        self.current_editing_task_id.replace(None);
+        hide_floating_panel(&self.editor_panel);
+    }
+
+    fn show_move_list_panel(self: &Rc<Self>, task_id: Uuid) {
+        self.moving_task_id.replace(Some(task_id));
+        self.move_list_search.set_text("");
+        render_move_list_results(self, "");
+        show_floating_panel(&self.move_list_panel);
+        self.move_list_search.grab_focus();
+    }
+
+    fn hide_move_list_panel(&self) {
+        self.moving_task_id.replace(None);
+        hide_floating_panel(&self.move_list_panel);
+    }
+
+    fn save_task_editor(self: &Rc<Self>) {
+        let Some(task_id) = *self.current_editing_task_id.borrow() else {
+            return;
+        };
+        let body = text_buffer_string(&self.body_view.buffer());
+        let due_at = match parse_due_date_entry(&self.due_entry.text()) {
+            Ok(due_at) => due_at,
+            Err(error) => {
+                self.toast(error);
+                return;
+            }
+        };
+        let project_id = match self.list_combo.active_id().as_deref() {
+            Some("inbox") | None => Some(None),
+            Some(id) => match Uuid::parse_str(id) {
+                Ok(id) => Some(Some(id)),
+                Err(error) => {
+                    self.toast(format!("Invalid list id: {error}"));
+                    return;
+                }
+            },
+        };
+        let patch = TaskPatch {
+            title: Some(self.title_entry.text().trim().to_owned()),
+            body: Some(body),
+            status: Some(if self.status_combo.active() == Some(1) {
+                TaskStatus::Done
+            } else {
+                TaskStatus::Open
+            }),
+            due_at: Some(due_at),
+            project_id,
+            tags: Some(parse_tags(&self.tags_entry.text())),
+        };
+        if let Err(error) = self.core.update_task(task_id, patch) {
+            self.toast(format!("Failed to save task: {error}"));
+            return;
+        }
+        self.hide_task_editor();
+        self.load_tasks();
+        self.request_sync();
     }
 
     fn create_task(self: &Rc<Self>) {
@@ -377,9 +427,9 @@ impl AppState {
             Ok(task) => {
                 self.selected_list_id.replace(None);
                 self.active_filter.replace(TaskFilterState::Inbox);
-                self.pending_focus_task_id.replace(Some(task.id));
                 self.load_tasks();
-                self.select_task(task.id);
+                self.select_task_with_focus(task.id, true);
+                self.request_sync();
             }
             Err(error) => self.toast(format!("Failed to create task: {error}")),
         }
@@ -419,6 +469,7 @@ impl AppState {
             }
         };
         self.user_lists.replace(lists.clone());
+        self.refresh_editor_list_choices(&lists);
 
         for list in lists {
             let row = gtk::ListBoxRow::new();
@@ -443,6 +494,19 @@ impl AppState {
         }
     }
 
+    fn refresh_editor_list_choices(&self, lists: &[TaskList]) {
+        let active_id = self.list_combo.active_id().map(|id| id.to_string());
+        self.list_combo.remove_all();
+        self.list_combo.append(Some("inbox"), "Inbox");
+        for list in lists {
+            self.list_combo
+                .append(Some(&list.id.to_string()), &list.name);
+        }
+        if let Some(active_id) = active_id {
+            self.list_combo.set_active_id(Some(&active_id));
+        }
+    }
+
     fn rename_selected_list(self: &Rc<Self>) {
         let Some(list_id) = *self.selected_list_id.borrow() else {
             return;
@@ -455,6 +519,7 @@ impl AppState {
         }
         self.render_user_lists();
         self.load_tasks();
+        self.request_sync();
         self.list.grab_focus();
     }
 
@@ -465,6 +530,7 @@ impl AppState {
                 self.active_filter.replace(TaskFilterState::Upcoming);
                 self.render_user_lists();
                 self.load_tasks();
+                self.request_sync();
                 self.list_name_entry.grab_focus();
                 self.list_name_entry.select_region(0, -1);
             }
@@ -496,7 +562,7 @@ fn build_ui(app: &adw::Application) {
 
     let platform = LinuxPlatform::new();
     if needs_onboarding(&platform) {
-        if let Err(error) = taskmanager_core::init_account(&platform) {
+        if let Err(error) = init_account(&platform) {
             eprintln!("Failed to initialize local account: {error}");
         }
     }
@@ -683,13 +749,30 @@ fn build_ui(app: &adw::Application) {
     let body_view = gtk::TextView::new();
     body_view.set_vexpand(true);
     body_view.set_wrap_mode(gtk::WrapMode::Word);
+    body_view.set_size_request(-1, TASK_EDITOR_BODY_HEIGHT);
     body_view.add_css_class("editor-notes");
+    let markdown_preview = gtk::Label::new(None);
+    markdown_preview.set_xalign(0.0);
+    markdown_preview.set_yalign(0.0);
+    markdown_preview.set_wrap(true);
+    markdown_preview.set_selectable(false);
+    markdown_preview.set_tooltip_text(Some("Click to edit notes"));
+    markdown_preview.add_css_class("markdown-preview");
     let status_combo = gtk::ComboBoxText::new();
     status_combo.append_text("Open");
     status_combo.append_text("Done");
     status_combo.set_active(Some(0));
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
+    let due_entry = gtk::Entry::new();
+    due_entry.set_placeholder_text(Some("Due date: YYYY-MM-DD, timestamp ms, or blank"));
+    let list_combo = gtk::ComboBoxText::new();
+    list_combo.append(Some("inbox"), "Inbox");
+    if let Ok(lists) = core.list_task_lists() {
+        for list in lists {
+            list_combo.append(Some(&list.id.to_string()), &list.name);
+        }
+    }
 
     let content_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     content_bottom_bar.set_homogeneous(true);
@@ -721,8 +804,9 @@ fn build_ui(app: &adw::Application) {
     search_panel.add_css_class("search-panel");
     search_panel.set_width_request(560);
     search_panel.set_halign(gtk::Align::Center);
-    search_panel.set_valign(gtk::Align::Center);
-    search_panel.set_margin_bottom(140);
+    search_panel.set_valign(gtk::Align::Start);
+    search_panel.set_margin_top(120);
+    search_panel.set_opacity(0.0);
     search_panel.set_visible(false);
     let overlay_search = gtk::SearchEntry::new();
     overlay_search.set_placeholder_text(Some("Search tasks"));
@@ -730,12 +814,165 @@ fn build_ui(app: &adw::Application) {
     let search_results = gtk::ListBox::new();
     search_results.add_css_class("search-results");
     search_results.set_selection_mode(gtk::SelectionMode::None);
+    search_results.set_visible(false);
     search_panel.append(&overlay_search);
     search_panel.append(&search_results);
 
+    let editor_panel = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    editor_panel.add_css_class("task-editor-panel");
+    editor_panel.set_size_request(TASK_EDITOR_MIN_WIDTH, TASK_EDITOR_MIN_HEIGHT);
+    editor_panel.set_focusable(true);
+    editor_panel.set_halign(gtk::Align::Center);
+    editor_panel.set_valign(gtk::Align::Center);
+    editor_panel.set_opacity(0.0);
+    editor_panel.set_visible(false);
+
+    title_entry.add_css_class("task-editor-title");
+    body_view.add_css_class("task-editor-body");
+    status_combo.add_css_class("task-editor-field");
+    list_combo.add_css_class("task-editor-field");
+    due_entry.add_css_class("task-editor-field");
+    tags_entry.add_css_class("task-editor-field");
+    status_combo.set_hexpand(true);
+    list_combo.set_hexpand(true);
+    due_entry.set_hexpand(true);
+    tags_entry.set_hexpand(true);
+
+    let body_stack = gtk::Stack::new();
+    body_stack.set_vexpand(true);
+    body_stack.add_named(&body_view, Some("write"));
+    let preview_scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(TASK_EDITOR_BODY_HEIGHT)
+        .vexpand(true)
+        .child(&markdown_preview)
+        .build();
+    body_stack.add_named(&preview_scroll, Some("preview"));
+    body_stack.set_visible_child_name("preview");
+
+    let due_calendar = gtk::Calendar::new();
+    due_calendar.add_css_class("task-calendar");
+    let due_popover = gtk::Popover::new();
+    due_popover.set_child(Some(&due_calendar));
+    let due_icon = font_awesome_label("\u{f073}");
+    let due_button = gtk::MenuButton::builder()
+        .child(&due_icon)
+        .tooltip_text("Calendar")
+        .build();
+    due_button.add_css_class("task-editor-button");
+    due_button.set_popover(Some(&due_popover));
+    let clear_due_button = gtk::Button::with_label("Clear");
+    clear_due_button.add_css_class("task-editor-button");
+    let due_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    due_row.set_hexpand(true);
+    due_row.append(&due_entry);
+    due_row.append(&due_button);
+    due_row.append(&clear_due_button);
+
+    let metadata_grid = gtk::Grid::new();
+    metadata_grid.add_css_class("task-editor-meta");
+    metadata_grid.set_column_spacing(14);
+    metadata_grid.set_row_spacing(12);
+    metadata_grid.attach(&field_label("Status"), 0, 0, 1, 1);
+    metadata_grid.attach(&status_combo, 1, 0, 1, 1);
+    metadata_grid.attach(&field_label("List"), 0, 1, 1, 1);
+    metadata_grid.attach(&list_combo, 1, 1, 1, 1);
+    metadata_grid.attach(&field_label("Due"), 0, 2, 1, 1);
+    metadata_grid.attach(&due_row, 1, 2, 1, 1);
+    metadata_grid.attach(&field_label("Tags"), 0, 3, 1, 1);
+    metadata_grid.attach(&tags_entry, 1, 3, 1, 1);
+
+    editor_panel.append(&title_entry);
+    editor_panel.append(&body_stack);
+    editor_panel.append(&metadata_grid);
+
+    let move_list_panel = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    move_list_panel.add_css_class("move-list-panel");
+    move_list_panel.set_width_request(460);
+    move_list_panel.set_halign(gtk::Align::Center);
+    move_list_panel.set_valign(gtk::Align::Center);
+    move_list_panel.set_opacity(0.0);
+    move_list_panel.set_visible(false);
+    let move_list_search = gtk::SearchEntry::new();
+    move_list_search.add_css_class("move-list-search");
+    move_list_search.set_placeholder_text(Some("Search lists with regex"));
+    let move_list_results = gtk::ListBox::new();
+    move_list_results.add_css_class("move-list-results");
+    move_list_results.set_selection_mode(gtk::SelectionMode::None);
+    let move_list_scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(260)
+        .child(&move_list_results)
+        .build();
+    move_list_panel.append(&move_list_search);
+    move_list_panel.append(&move_list_scroll);
+
+    let setup_panel = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    setup_panel.add_css_class("setup-panel");
+    setup_panel.set_halign(gtk::Align::Fill);
+    setup_panel.set_valign(gtk::Align::Fill);
+    setup_panel.set_visible(!sync_auth_configured(&platform, &settings));
+    let setup_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    setup_card.set_halign(gtk::Align::Center);
+    setup_card.set_valign(gtk::Align::Center);
+    setup_card.set_width_request(460);
+    let setup_title = gtk::Label::new(Some("Set up sync"));
+    setup_title.set_xalign(0.0);
+    setup_title.add_css_class("pane-title");
+    let setup_subtitle = gtk::Label::new(Some(
+        "Sign in to sync tasks across devices, or keep working locally.",
+    ));
+    setup_subtitle.set_xalign(0.0);
+    setup_subtitle.set_wrap(true);
+    setup_subtitle.add_css_class("dim-label");
+    let setup_server = gtk::Entry::new();
+    setup_server.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    setup_server.set_text(&settings.server_url);
+    let setup_email = gtk::Entry::new();
+    setup_email.set_placeholder_text(Some("Email"));
+    let setup_password = gtk::PasswordEntry::new();
+    setup_password.set_placeholder_text(Some("Password"));
+    let setup_status = gtk::Label::new(None);
+    setup_status.set_xalign(0.0);
+    setup_status.add_css_class("dim-label");
+    let setup_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    setup_actions.set_halign(gtk::Align::End);
+    let setup_local = gtk::Button::with_label("Work local");
+    let setup_login = gtk::Button::with_label("Login / Register");
+    setup_login.add_css_class("suggested-action");
+    setup_actions.append(&setup_local);
+    setup_actions.append(&setup_login);
+    setup_card.append(&setup_title);
+    setup_card.append(&setup_subtitle);
+    setup_card.append(&setup_server);
+    setup_card.append(&setup_email);
+    setup_card.append(&setup_password);
+    setup_card.append(&setup_status);
+    setup_card.append(&setup_actions);
+    let setup_top_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    setup_top_spacer.set_vexpand(true);
+    let setup_bottom_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    setup_bottom_spacer.set_vexpand(true);
+    setup_panel.append(&setup_top_spacer);
+    setup_panel.append(&setup_card);
+    setup_panel.append(&setup_bottom_spacer);
+
+    let settings_panel = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    settings_panel.add_css_class("settings-panel");
+    settings_panel.set_size_request(SETTINGS_PANEL_MIN_WIDTH, SETTINGS_PANEL_MIN_HEIGHT);
+    settings_panel.set_halign(gtk::Align::Center);
+    settings_panel.set_valign(gtk::Align::Center);
+    settings_panel.set_opacity(0.0);
+    settings_panel.set_visible(false);
+
+    let page_click = gtk::GestureClick::new();
+    page.add_controller(page_click.clone());
+
     let root_overlay = gtk::Overlay::new();
     root_overlay.set_child(Some(&page));
+    root_overlay.add_overlay(&editor_panel);
+    root_overlay.add_overlay(&move_list_panel);
     root_overlay.add_overlay(&search_panel);
+    root_overlay.add_overlay(&settings_panel);
+    root_overlay.add_overlay(&setup_panel);
 
     let toast_overlay = adw::ToastOverlay::new();
     toast_overlay.set_child(Some(&root_overlay));
@@ -743,10 +980,35 @@ fn build_ui(app: &adw::Application) {
 
     let keybindings = core.vault_settings().unwrap_or_default().keybindings;
 
+    setup_local.connect_clicked({
+        let setup_panel = setup_panel.clone();
+        move |_| setup_panel.set_visible(false)
+    });
+    setup_login.connect_clicked({
+        let settings_path = paths.settings_path.clone();
+        let setup_panel = setup_panel.clone();
+        move |_| {
+            setup_status.set_text("Signing in…");
+            let platform = LinuxPlatform::new();
+            match configure_sync_auth(
+                &platform,
+                &settings_path,
+                &setup_server.text(),
+                &setup_email.text(),
+                &setup_password.text(),
+            ) {
+                Ok(()) => {
+                    setup_status.set_text("Sync configured.");
+                    setup_panel.set_visible(false);
+                }
+                Err(error) => setup_status.set_text(&format!("Sync setup failed: {error}")),
+            }
+        }
+    });
+
     let state = Rc::new(AppState {
         core: Rc::new(core),
         tasks: RefCell::new(Vec::new()),
-        pending_focus_task_id: RefCell::new(None),
         active_filter: RefCell::new(TaskFilterState::Inbox),
         selected_list_id: RefCell::new(None),
         search_query: RefCell::new(String::new()),
@@ -763,7 +1025,138 @@ fn build_ui(app: &adw::Application) {
         body_view,
         status_combo,
         tags_entry,
+        due_entry,
+        list_combo,
+        markdown_preview,
+        body_stack,
+        editor_panel,
+        current_editing_task_id: RefCell::new(None),
+        move_list_panel,
+        move_list_search,
+        move_list_results,
+        moving_task_id: RefCell::new(None),
         toast_overlay,
+        db_path: paths.database_path.clone(),
+        settings_path: paths.settings_path.clone(),
+        sync_in_progress: RefCell::new(false),
+        sync_pending: RefCell::new(false),
+    });
+
+    setup_login.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| state.request_sync()
+    });
+
+    due_calendar.connect_day_selected({
+        let due_entry = state.due_entry.clone();
+        let due_popover = due_popover.clone();
+        move |calendar| {
+            let date = calendar.date();
+            due_entry.set_text(&format!(
+                "{:04}-{:02}-{:02}",
+                date.year(),
+                date.month(),
+                date.day_of_month()
+            ));
+            due_popover.popdown();
+        }
+    });
+    clear_due_button.connect_clicked({
+        let due_entry = state.due_entry.clone();
+        move |_| due_entry.set_text("")
+    });
+    state.move_list_search.connect_search_changed({
+        let state = Rc::clone(&state);
+        move |entry| render_move_list_results(&state, &normalize_query(&entry.text()))
+    });
+    state.move_list_results.connect_row_activated({
+        let state = Rc::clone(&state);
+        move |_, row| {
+            let Some(task_id) = *state.moving_task_id.borrow() else {
+                return;
+            };
+            let project_id = if row.widget_name() == "inbox" {
+                None
+            } else {
+                match Uuid::parse_str(&row.widget_name()) {
+                    Ok(id) => Some(id),
+                    Err(error) => {
+                        state.toast(format!("Invalid list id: {error}"));
+                        return;
+                    }
+                }
+            };
+            let patch = TaskPatch {
+                project_id: Some(project_id),
+                ..TaskPatch::default()
+            };
+            if let Err(error) = state.core.update_task(task_id, patch) {
+                state.toast(format!("Failed to move task: {error}"));
+            } else {
+                state.request_sync();
+            }
+            state.hide_move_list_panel();
+            state.load_tasks();
+        }
+    });
+
+    state.body_view.buffer().connect_changed({
+        let markdown_preview = state.markdown_preview.clone();
+        move |buffer| {
+            markdown_preview.set_markup(&markdown_to_pango_markup(&text_buffer_string(buffer)))
+        }
+    });
+    let preview_click = gtk::GestureClick::new();
+    preview_click.connect_released({
+        let body_stack = state.body_stack.clone();
+        let body_view = state.body_view.clone();
+        move |_, _, _, _| {
+            body_stack.set_visible_child_name("write");
+            body_view.grab_focus();
+        }
+    });
+    state.markdown_preview.add_controller(preview_click);
+    let editor_click = gtk::GestureClick::new();
+    editor_click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    editor_click.connect_pressed({
+        let editor_panel = state.editor_panel.clone();
+        let title_entry = state.title_entry.clone();
+        let body_view = state.body_view.clone();
+        move |_, _, x, y| {
+            let Some(widget) = editor_panel.pick(x, y, gtk::PickFlags::DEFAULT) else {
+                return;
+            };
+            if widget.is::<gtk::Entry>()
+                || widget.is::<gtk::TextView>()
+                || widget.ancestor(gtk::Entry::static_type()).is_some()
+                || widget.ancestor(gtk::TextView::static_type()).is_some()
+            {
+                return;
+            }
+            title_entry.set_position(-1);
+            body_view
+                .buffer()
+                .place_cursor(&body_view.buffer().end_iter());
+            editor_panel.grab_focus();
+        }
+    });
+    state.editor_panel.add_controller(editor_click);
+    let body_focus = gtk::EventControllerFocus::new();
+    body_focus.connect_leave({
+        let body_stack = state.body_stack.clone();
+        move |_| body_stack.set_visible_child_name("preview")
+    });
+    state.body_view.add_controller(body_focus);
+    page_click.connect_pressed({
+        let state = Rc::clone(&state);
+        move |_, _, _, _| {
+            if state.editor_panel.is_visible() {
+                state.save_task_editor();
+            }
+            if state.move_list_panel.is_visible() {
+                state.hide_move_list_panel();
+            }
+        }
     });
 
     let create_task_action: Rc<dyn Fn()> = Rc::new({
@@ -789,10 +1182,22 @@ fn build_ui(app: &adw::Application) {
         move |_| state.create_list()
     });
     settings_button.connect_clicked({
-        let window = window.clone();
+        let settings_panel = settings_panel.clone();
         let settings_path = paths.settings_path.clone();
         let core = Rc::clone(&state.core);
-        move |_| show_settings_window(&window, settings_path.clone(), Rc::clone(&core))
+        let state = Rc::clone(&state);
+        move |_| {
+            let request_sync: Rc<dyn Fn()> = Rc::new({
+                let state = Rc::clone(&state);
+                move || state.request_sync()
+            });
+            show_settings_panel(
+                &settings_panel,
+                settings_path.clone(),
+                Rc::clone(&core),
+                Some(request_sync),
+            )
+        }
     });
     let list_name_focus = gtk::EventControllerFocus::new();
     list_name_focus.connect_enter({
@@ -848,6 +1253,8 @@ fn build_ui(app: &adw::Application) {
             };
             if let Err(error) = state.core.delete_list(list_id) {
                 state.toast(format!("Failed to delete list: {error}"));
+            } else {
+                state.request_sync();
             }
             state.selected_list_id.replace(None);
             state.active_filter.replace(TaskFilterState::Inbox);
@@ -859,7 +1266,7 @@ fn build_ui(app: &adw::Application) {
         let search_panel = search_panel.clone();
         let overlay_search = overlay_search.clone();
         move || {
-            search_panel.set_visible(true);
+            show_floating_panel(&search_panel);
             overlay_search.grab_focus();
         }
     });
@@ -872,7 +1279,7 @@ fn build_ui(app: &adw::Application) {
         let search_panel = search_panel.clone();
         move |_, key, _, _| {
             if key == gtk::gdk::Key::Escape {
-                search_panel.set_visible(false);
+                hide_floating_panel(&search_panel);
                 gtk::glib::Propagation::Stop
             } else {
                 gtk::glib::Propagation::Proceed
@@ -893,7 +1300,7 @@ fn build_ui(app: &adw::Application) {
                 match state.core.get_task(task_id) {
                     Ok(task) => {
                         open_task_from_search(&state, &task);
-                        search_panel.set_visible(false);
+                        hide_floating_panel(&search_panel);
                     }
                     Err(error) => state.toast(format!("Failed to open task: {error}")),
                 }
@@ -916,6 +1323,7 @@ fn build_ui(app: &adw::Application) {
             state.selected_list_id.replace(None);
             state.active_filter.replace(filter);
             state.load_tasks();
+            state.request_sync();
         }
     });
     state.user_list_box.connect_row_activated({
@@ -927,18 +1335,28 @@ fn build_ui(app: &adw::Application) {
                 state.selected_list_id.replace(Some(list_id));
                 state.active_filter.replace(TaskFilterState::Upcoming);
                 state.load_tasks();
+                state.request_sync();
             }
         }
     });
-    state.list.connect_row_selected({
+    state.list.connect_row_activated({
         let state = Rc::clone(&state);
         move |_, row| {
-            let Some(row) = row else {
-                return;
-            };
             if let Ok(task_id) = Uuid::parse_str(&row.widget_name()) {
                 state.select_task(task_id);
             }
+        }
+    });
+
+    resize_task_editor_panel(&window, &state.editor_panel);
+    window.add_tick_callback({
+        let window = window.clone();
+        let editor_panel = state.editor_panel.clone();
+        let settings_panel = settings_panel.clone();
+        move |_, _| {
+            resize_task_editor_panel(&window, &editor_panel);
+            resize_settings_panel(&window, &settings_panel);
+            gtk::glib::ControlFlow::Continue
         }
     });
 
@@ -955,7 +1373,240 @@ fn build_ui(app: &adw::Application) {
         filter_list.select_row(Some(&row));
     }
     state.load_tasks();
+    state.request_sync();
     window.present();
+}
+
+#[derive(Default)]
+struct LinuxSyncSummary {
+    pushed: usize,
+    pulled: usize,
+    failed: usize,
+}
+
+impl LinuxSyncSummary {
+    fn changed(&self) -> bool {
+        self.pushed > 0 || self.pulled > 0 || self.failed > 0
+    }
+}
+
+fn linux_sync_configured(settings_path: &Path) -> bool {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    sync_auth_configured(&LinuxPlatform::new(), &settings)
+}
+
+fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult<LinuxSyncSummary> {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    if !sync_auth_configured(&LinuxPlatform::new(), &settings) {
+        return Ok(LinuxSyncSummary::default());
+    }
+    let platform = LinuxPlatform::new();
+    let token = String::from_utf8(platform.load_key(AUTH_ACCESS_TOKEN_ID)?).map_err(|error| {
+        taskmanager_core::PlatformError::OperationFailed(format!(
+            "stored access token is not UTF-8: {error}"
+        ))
+    })?;
+    let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
+    let database = LocalDatabase::open(db_path)?;
+    let client = LinuxHttpSyncClient::new(settings.server_url, token);
+    let pull = sync_pull(&database, &client, &data_key)?;
+    let push = sync_push(&database, &platform, &client, &data_key)?;
+    Ok(LinuxSyncSummary {
+        pushed: push.pushed,
+        pulled: pull.pulled,
+        failed: pull.failed + push.failed,
+    })
+}
+
+struct LinuxHttpSyncClient {
+    base_url: String,
+    token: String,
+    client: reqwest::blocking::Client,
+}
+
+impl LinuxHttpSyncClient {
+    fn new(base_url: String, token: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            token,
+            client: reqwest::blocking::Client::new(),
+        }
+    }
+
+    fn auth(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        request.bearer_auth(&self.token)
+    }
+}
+
+impl SyncClient for LinuxHttpSyncClient {
+    fn push_blobs(&self, blobs: Vec<BlobPush>) -> CoreResult<PushResponse> {
+        let request = LinuxBatchRequest {
+            blobs: blobs.into_iter().map(LinuxBlobRequest::from).collect(),
+        };
+        let response: LinuxBatchResponse = self
+            .auth(self.client.post(format!("{}/blobs/batch", self.base_url)))
+            .json(&request)
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(PushResponse {
+            accepted_task_ids: response
+                .results
+                .into_iter()
+                .filter(|result| result.status == "ok")
+                .map(|result| result.task_id)
+                .collect(),
+            failed_task_ids: Vec::new(),
+        })
+    }
+
+    fn delete_blobs(&self, task_ids: Vec<Uuid>) -> CoreResult<PushResponse> {
+        let mut accepted_task_ids = Vec::new();
+        for task_id in task_ids {
+            self.auth(
+                self.client
+                    .delete(format!("{}/blobs/{}", self.base_url, task_id)),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?;
+            accepted_task_ids.push(task_id);
+        }
+        Ok(PushResponse {
+            accepted_task_ids,
+            failed_task_ids: Vec::new(),
+        })
+    }
+
+    fn pull_blobs(&self, since: i64) -> CoreResult<PullResponse> {
+        let response: LinuxPullWireResponse = self
+            .auth(
+                self.client
+                    .get(format!("{}/blobs", self.base_url))
+                    .query(&[("since", since)]),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(PullResponse {
+            blobs: response
+                .blobs
+                .into_iter()
+                .filter_map(linux_remote_blob_from_wire)
+                .collect(),
+            cursor: response.cursor,
+        })
+    }
+}
+
+fn linux_http_error(error: reqwest::Error) -> SyncError {
+    if error.status() == Some(reqwest::StatusCode::UNAUTHORIZED) {
+        SyncError::AuthExpired
+    } else {
+        SyncError::ServerError {
+            status: error.status().map_or(0, |status| status.as_u16()),
+            body: error.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct LinuxBatchRequest {
+    blobs: Vec<LinuxBlobRequest>,
+}
+
+#[derive(Serialize)]
+struct LinuxBlobRequest {
+    task_id: Uuid,
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    ciphertext: Vec<u8>,
+    #[serde(serialize_with = "serialize_base64_nonce")]
+    nonce: [u8; 12],
+}
+
+impl From<BlobPush> for LinuxBlobRequest {
+    fn from(push: BlobPush) -> Self {
+        Self {
+            task_id: push.task_id,
+            ciphertext: push.blob.ciphertext,
+            nonce: push.blob.nonce,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct LinuxBatchResponse {
+    results: Vec<LinuxBatchResult>,
+}
+
+#[derive(Deserialize)]
+struct LinuxBatchResult {
+    task_id: Uuid,
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct LinuxPullWireResponse {
+    blobs: Vec<LinuxPullWireBlob>,
+    cursor: i64,
+}
+
+#[derive(Deserialize)]
+struct LinuxPullWireBlob {
+    task_id: Uuid,
+    ciphertext: Option<String>,
+    nonce: Option<String>,
+    updated_at: i64,
+    deleted: bool,
+}
+
+fn linux_remote_blob_from_wire(blob: LinuxPullWireBlob) -> Option<RemoteBlob> {
+    if blob.deleted {
+        return None;
+    }
+    let ciphertext = base64::engine::general_purpose::STANDARD
+        .decode(blob.ciphertext?)
+        .ok()?;
+    let nonce = base64::engine::general_purpose::STANDARD
+        .decode(blob.nonce?)
+        .ok()?
+        .try_into()
+        .ok()?;
+    Some(RemoteBlob {
+        task_id: blob.task_id,
+        blob: Blob { ciphertext, nonce },
+        updated_at: blob.updated_at,
+    })
+}
+
+fn serialize_base64_bytes<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+fn serialize_base64_nonce<S>(bytes: &[u8; 12], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 fn apply_theme_choice(theme: ThemeChoice) {
@@ -967,39 +1618,95 @@ fn apply_theme_choice(theme: ThemeChoice) {
     adw::StyleManager::default().set_color_scheme(color_scheme);
 }
 
-fn show_settings_window(
-    parent: &adw::ApplicationWindow,
+fn show_settings_panel(
+    panel: &gtk::Box,
     settings_path: PathBuf,
     core: Rc<TaskManagerCore>,
+    on_auth_changed: Option<Rc<dyn Fn()>>,
 ) {
     let settings = read_settings(&settings_path).unwrap_or_default();
     let vault_settings = core.vault_settings().unwrap_or_default();
-    let dialog = gtk::Window::builder()
-        .title("Settings")
-        .transient_for(parent)
-        .modal(true)
-        .default_width(420)
-        .default_height(260)
-        .build();
+    while let Some(child) = panel.first_child() {
+        panel.remove(&child);
+    }
 
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 16);
-    content.set_margin_top(18);
-    content.set_margin_bottom(18);
-    content.set_margin_start(18);
-    content.set_margin_end(18);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 18);
+    content.set_margin_top(0);
+    content.set_margin_bottom(0);
+    content.set_margin_start(0);
+    content.set_margin_end(0);
+    content.set_vexpand(true);
+    content.set_hexpand(true);
 
-    let title = gtk::Label::new(Some("Settings"));
+    let settings_nav = gtk::ListBox::new();
+    settings_nav.add_css_class("settings-nav");
+    settings_nav.set_selection_mode(gtk::SelectionMode::Single);
+    settings_nav.set_width_request(170);
+    settings_nav.set_vexpand(true);
+    for name in ["Sync", "Appearance", "Keybindings"] {
+        let row = gtk::ListBoxRow::new();
+        row.add_css_class("sidebar-row");
+        let label = gtk::Label::new(Some(name));
+        label.set_xalign(0.0);
+        label.set_margin_top(8);
+        label.set_margin_bottom(8);
+        label.set_margin_start(10);
+        label.set_margin_end(10);
+        row.set_child(Some(&label));
+        settings_nav.append(&row);
+    }
+
+    let settings_stack = gtk::Stack::new();
+    settings_stack.add_css_class("settings-content");
+    settings_stack.set_hexpand(true);
+    settings_stack.set_vexpand(true);
+
+    let sync_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    let appearance_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    let keybindings_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+
+    let title = gtk::Label::new(Some("Sync"));
     title.set_xalign(0.0);
     title.add_css_class("pane-title");
-    content.append(&title);
+    sync_page.append(&title);
 
     let server_label = gtk::Label::new(Some("Server URL"));
     server_label.set_xalign(0.0);
     let server_entry = gtk::Entry::new();
     server_entry.set_placeholder_text(Some("Optional sync server URL"));
     server_entry.set_text(&settings.server_url);
-    content.append(&server_label);
-    content.append(&server_entry);
+    sync_page.append(&server_label);
+    sync_page.append(&server_entry);
+
+    let platform = LinuxPlatform::new();
+    let signed_in = sync_auth_configured(&platform, &settings);
+    let sync_setup_button = gtk::Button::with_label("Sync login / setup…");
+    sync_setup_button.set_halign(gtk::Align::Start);
+    sync_setup_button.set_visible(!signed_in);
+    sync_page.append(&sync_setup_button);
+
+    let sync_account_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    sync_account_row.set_visible(signed_in);
+    let sync_account = gtk::Label::new(Some(&format!(
+        "Signed in as {}",
+        if settings.sync_email.is_empty() {
+            "unknown account"
+        } else {
+            &settings.sync_email
+        }
+    )));
+    sync_account.set_xalign(0.0);
+    sync_account.set_hexpand(true);
+    let sync_logout_button = gtk::Button::with_label("Log out");
+    sync_logout_button.add_css_class("destructive-action");
+    sync_account_row.append(&sync_account);
+    sync_account_row.append(&sync_logout_button);
+    sync_page.append(&sync_account_row);
+
+    let appearance_title = gtk::Label::new(Some("Appearance"));
+    appearance_title.set_xalign(0.0);
+    appearance_title.add_css_class("pane-title");
+    appearance_page.append(&appearance_title);
 
     let theme_label = gtk::Label::new(Some("Theme"));
     theme_label.set_xalign(0.0);
@@ -1012,55 +1719,162 @@ fn show_settings_window(
         ThemeChoice::Light => "light",
         ThemeChoice::Dark => "dark",
     }));
-    content.append(&theme_label);
-    content.append(&theme_combo);
+    appearance_page.append(&theme_label);
+    appearance_page.append(&theme_combo);
 
     let show_completed = gtk::CheckButton::with_label("Show completed tasks");
     show_completed.set_active(vault_settings.show_completed);
-    content.append(&show_completed);
+    appearance_page.append(&show_completed);
 
     let keybind_label = gtk::Label::new(Some("Keybindings (encrypted + synced)"));
     keybind_label.set_xalign(0.0);
     keybind_label.add_css_class("task-menu-heading");
-    content.append(&keybind_label);
-    let add_task_key = settings_entry("Add task", &vault_settings.keybindings.add_task, &content);
-    let search_key = settings_entry("Search", &vault_settings.keybindings.search, &content);
+    let keybindings_title = gtk::Label::new(Some("Keybindings"));
+    keybindings_title.set_xalign(0.0);
+    keybindings_title.add_css_class("pane-title");
+    keybindings_page.append(&keybindings_title);
+    keybindings_page.append(&keybind_label);
+    let add_task_key = settings_entry(
+        "Add task",
+        &vault_settings.keybindings.add_task,
+        &keybindings_page,
+    );
+    let search_key = settings_entry(
+        "Search",
+        &vault_settings.keybindings.search,
+        &keybindings_page,
+    );
     let close_overlay_key = settings_entry(
         "Close overlay",
         &vault_settings.keybindings.close_overlay,
-        &content,
+        &keybindings_page,
     );
     let confirm_rename_key = settings_entry(
         "Confirm rename",
         &vault_settings.keybindings.confirm_rename,
-        &content,
+        &keybindings_page,
     );
     let delete_task_key = settings_entry(
         "Delete task",
         &vault_settings.keybindings.delete_task,
-        &content,
+        &keybindings_page,
     );
     let toggle_done_key = settings_entry(
         "Toggle done",
         &vault_settings.keybindings.toggle_done,
-        &content,
+        &keybindings_page,
     );
 
     let save_button = gtk::Button::with_label("Save");
     save_button.add_css_class("suggested-action");
     save_button.set_halign(gtk::Align::End);
-    content.append(&save_button);
+    save_button.set_margin_end(22);
+    save_button.set_margin_bottom(22);
+
+    settings_stack.add_named(&sync_page, Some("sync"));
+    settings_stack.add_named(&appearance_page, Some("appearance"));
+    settings_stack.add_named(&keybindings_page, Some("keybindings"));
+    settings_stack.set_visible_child_name("sync");
+    settings_nav.connect_row_selected({
+        let settings_stack = settings_stack.clone();
+        move |_, row| {
+            let Some(row) = row else {
+                return;
+            };
+            settings_stack.set_visible_child_name(match row.index() {
+                0 => "sync",
+                1 => "appearance",
+                2 => "keybindings",
+                _ => "sync",
+            });
+        }
+    });
+    if let Some(row) = settings_nav.row_at_index(0) {
+        settings_nav.select_row(Some(&row));
+    }
+    let settings_body = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    settings_body.set_hexpand(true);
+    settings_body.set_vexpand(true);
+    settings_body.append(&settings_stack);
+    settings_body.append(&save_button);
+    content.append(&settings_nav);
+    content.append(&settings_body);
+
+    sync_setup_button.connect_clicked({
+        let panel = panel.clone();
+        let settings_path = settings_path.clone();
+        let sync_setup_button = sync_setup_button.clone();
+        let sync_account_row = sync_account_row.clone();
+        let sync_account = sync_account.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        move |_| {
+            let refresh_settings_sync_state: Rc<dyn Fn()> = Rc::new({
+                let settings_path = settings_path.clone();
+                let sync_setup_button = sync_setup_button.clone();
+                let sync_account_row = sync_account_row.clone();
+                let sync_account = sync_account.clone();
+                let on_auth_changed = on_auth_changed.clone();
+                move || {
+                    let settings = read_settings(&settings_path).unwrap_or_default();
+                    let signed_in = sync_auth_configured(&LinuxPlatform::new(), &settings);
+                    sync_setup_button.set_visible(!signed_in);
+                    sync_account_row.set_visible(signed_in);
+                    if signed_in {
+                        sync_account.set_text(&format!(
+                            "Signed in as {}",
+                            if settings.sync_email.is_empty() {
+                                "unknown account"
+                            } else {
+                                &settings.sync_email
+                            }
+                        ));
+                    }
+                    if let Some(on_auth_changed) = &on_auth_changed {
+                        on_auth_changed();
+                    }
+                }
+            });
+            let Some(root) = panel
+                .root()
+                .and_then(|root| root.downcast::<gtk::Window>().ok())
+            else {
+                return;
+            };
+            show_sync_setup_window(
+                &root,
+                settings_path.clone(),
+                false,
+                Some(refresh_settings_sync_state),
+            );
+        }
+    });
+    sync_logout_button.connect_clicked({
+        let panel = panel.clone();
+        let settings_path = settings_path.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        move |_| {
+            if let Err(error) = logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
+                eprintln!("Failed to log out: {error}");
+            }
+            if let Some(on_auth_changed) = &on_auth_changed {
+                on_auth_changed();
+            }
+            hide_floating_panel(&panel);
+        }
+    });
 
     save_button.connect_clicked({
-        let dialog = dialog.clone();
+        let panel = panel.clone();
         move |_| {
             let theme = match theme_combo.active_id().as_deref() {
                 Some("light") => ThemeChoice::Light,
                 Some("dark") => ThemeChoice::Dark,
                 _ => ThemeChoice::System,
             };
+            let current_settings = read_settings(&settings_path).unwrap_or_default();
             let settings = LinuxSettings {
                 server_url: server_entry.text().to_string(),
+                sync_email: current_settings.sync_email,
                 theme,
                 show_completed: false,
             };
@@ -1080,13 +1894,13 @@ fn show_settings_window(
                 eprintln!("Failed to save encrypted settings: {error}");
             } else {
                 apply_theme_choice(theme);
-                dialog.close();
+                hide_floating_panel(&panel);
             }
         }
     });
 
-    dialog.set_child(Some(&content));
-    dialog.present();
+    panel.append(&content);
+    show_floating_panel(panel);
 }
 
 fn font_awesome_label(icon: &str) -> gtk::Label {
@@ -1119,7 +1933,7 @@ fn install_keybindings(
     state: Rc<AppState>,
 ) {
     let key_controller = gtk::EventControllerKey::new();
-    key_controller.set_propagation_phase(gtk::PropagationPhase::Bubble);
+    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
     let add_task = parse_accel(&keybindings.add_task);
     let search = parse_accel(&keybindings.search);
     let search_fallback = parse_accel("<Primary>f");
@@ -1137,8 +1951,14 @@ fn install_keybindings(
         {
             open_search_action();
             gtk::glib::Propagation::Stop
-        } else if accel_matches(close_overlay, key, modifiers) {
-            search_panel.set_visible(false);
+        } else if key == gtk::gdk::Key::Escape || accel_matches(close_overlay, key, modifiers) {
+            hide_floating_panel(&search_panel);
+            if state.editor_panel.is_visible() {
+                state.save_task_editor();
+            }
+            if state.move_list_panel.is_visible() {
+                state.hide_move_list_panel();
+            }
             gtk::glib::Propagation::Stop
         } else if accel_matches(delete_task, key, modifiers) {
             if editing_text {
@@ -1187,10 +2007,13 @@ fn accel_matches(
 }
 
 fn delete_selected_task(state: &Rc<AppState>) {
-    if let Some(task_id) = selected_task_id(state) {
+    let editing_task_id = *state.current_editing_task_id.borrow();
+    let task_id = editing_task_id.or_else(|| selected_task_id(state));
+    if let Some(task_id) = task_id {
         if let Err(error) = state.core.delete_task(task_id) {
             state.toast(format!("Failed to delete task: {error}"));
         }
+        state.hide_task_editor();
         state.load_tasks();
     }
 }
@@ -1224,6 +2047,242 @@ fn selected_task_id(state: &AppState) -> Option<Uuid> {
         .and_then(|row| Uuid::parse_str(&row.widget_name()).ok())
 }
 
+fn sync_auth_configured(platform: &LinuxPlatform, settings: &LinuxSettings) -> bool {
+    !settings.server_url.trim().is_empty()
+        && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
+        && platform.load_key(AUTH_REFRESH_TOKEN_ID).is_ok()
+        && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
+        && platform.load_key(DEVICE_PRIVATE_KEY_ID).is_ok()
+}
+
+#[derive(Serialize)]
+struct AuthRequest {
+    email: String,
+    password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    jwt: String,
+    refresh_token: String,
+}
+
+fn show_sync_setup_window(
+    parent: &impl IsA<gtk::Window>,
+    settings_path: PathBuf,
+    first_run: bool,
+    on_auth_changed: Option<Rc<dyn Fn()>>,
+) -> gtk::Window {
+    let settings = read_settings(&settings_path).unwrap_or_default();
+    let dialog = gtk::Window::builder()
+        .title("Sync setup")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(440)
+        .default_height(320)
+        .build();
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    content.set_margin_top(20);
+    content.set_margin_bottom(20);
+    content.set_margin_start(20);
+    content.set_margin_end(20);
+
+    let title = gtk::Label::new(Some("Set up sync"));
+    title.set_xalign(0.0);
+    title.add_css_class("pane-title");
+    content.append(&title);
+
+    let configured = sync_auth_configured(&LinuxPlatform::new(), &settings);
+    let subtitle_text = if configured {
+        format!(
+            "Signed in as {}.",
+            if settings.sync_email.is_empty() {
+                "unknown account"
+            } else {
+                &settings.sync_email
+            }
+        )
+    } else {
+        "Sign in to sync tasks across devices, or keep working locally.".to_owned()
+    };
+    let subtitle = gtk::Label::new(Some(&subtitle_text));
+    subtitle.set_xalign(0.0);
+    subtitle.set_wrap(true);
+    subtitle.add_css_class("dim-label");
+    content.append(&subtitle);
+
+    let server_entry = gtk::Entry::new();
+    server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    server_entry.set_text(&settings.server_url);
+    server_entry.set_visible(!configured);
+    content.append(&server_entry);
+
+    let email_entry = gtk::Entry::new();
+    email_entry.set_placeholder_text(Some("Email"));
+    email_entry.set_visible(!configured);
+    content.append(&email_entry);
+
+    let password_entry = gtk::PasswordEntry::new();
+    password_entry.set_placeholder_text(Some("Password"));
+    password_entry.set_visible(!configured);
+    content.append(&password_entry);
+
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    status.add_css_class("dim-label");
+    content.append(&status);
+
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    actions.set_halign(gtk::Align::End);
+    let local_button = gtk::Button::with_label(if configured { "Close" } else { "Work local" });
+    let login_button = gtk::Button::with_label("Login / Register");
+    login_button.add_css_class("suggested-action");
+    let logout_button = gtk::Button::with_label("Log out");
+    logout_button.add_css_class("destructive-action");
+    actions.append(&local_button);
+    if configured {
+        actions.append(&logout_button);
+    } else {
+        actions.append(&login_button);
+    }
+    content.append(&actions);
+
+    local_button.connect_clicked({
+        let dialog = dialog.clone();
+        move |_| dialog.close()
+    });
+
+    logout_button.connect_clicked({
+        let dialog = dialog.clone();
+        let settings_path = settings_path.clone();
+        let status = status.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        move |_| match logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
+            Ok(()) => {
+                if let Some(on_auth_changed) = &on_auth_changed {
+                    on_auth_changed();
+                }
+                dialog.close()
+            }
+            Err(error) => status.set_text(&format!("Logout failed: {error}")),
+        }
+    });
+
+    login_button.connect_clicked({
+        let dialog = dialog.clone();
+        let status = status.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        move |_| {
+            status.set_text("Signing in…");
+            let platform = LinuxPlatform::new();
+            match configure_sync_auth(
+                &platform,
+                &settings_path,
+                &server_entry.text(),
+                &email_entry.text(),
+                &password_entry.text(),
+            ) {
+                Ok(()) => {
+                    status.set_text("Sync configured.");
+                    if let Some(on_auth_changed) = &on_auth_changed {
+                        on_auth_changed();
+                    }
+                    dialog.close();
+                }
+                Err(error) => status.set_text(&format!("Sync setup failed: {error}")),
+            }
+        }
+    });
+
+    if first_run {
+        dialog.connect_close_request(|_| gtk::glib::Propagation::Proceed);
+    }
+    dialog.set_child(Some(&content));
+    dialog.present();
+    dialog
+}
+
+fn configure_sync_auth(
+    platform: &LinuxPlatform,
+    settings_path: &Path,
+    server_url: &str,
+    email: &str,
+    password: &str,
+) -> Result<(), String> {
+    let server_url = server_url.trim().trim_end_matches('/').to_owned();
+    let email = email.trim().to_owned();
+    let password = password.to_string();
+    if server_url.is_empty() || email.is_empty() || password.is_empty() {
+        return Err("server, email, and password are required".to_owned());
+    }
+
+    let public_key = match platform.load_key(DEVICE_PRIVATE_KEY_ID) {
+        Ok(private_key) => {
+            public_key_from_private_key(&private_key).map_err(|error| error.to_string())?
+        }
+        Err(_) => init_device_keypair(platform).map_err(|error| error.to_string())?,
+    };
+    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_err() {
+        init_account(platform).map_err(|error| error.to_string())?;
+    }
+
+    let client = reqwest::blocking::Client::new();
+    let register = AuthRequest {
+        email: email.clone(),
+        password: password.clone(),
+        pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
+    };
+    let login = AuthRequest {
+        email: email.clone(),
+        password,
+        pub_key: None,
+    };
+    let tokens = client
+        .post(format!("{server_url}/auth/register"))
+        .json(&register)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.json::<TokenResponse>())
+        .or_else(|_| {
+            client
+                .post(format!("{server_url}/auth/login"))
+                .json(&login)
+                .send()
+                .and_then(|response| response.error_for_status())
+                .and_then(|response| response.json::<TokenResponse>())
+        })
+        .map_err(|error| error.to_string())?;
+
+    platform
+        .store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())
+        .map_err(|error| error.to_string())?;
+    platform
+        .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
+        .map_err(|error| error.to_string())?;
+
+    let mut settings = read_settings(settings_path).unwrap_or_default();
+    settings.server_url = server_url;
+    settings.sync_email = email;
+    write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn logout_sync_auth(platform: &LinuxPlatform, settings_path: &Path) -> Result<(), String> {
+    platform
+        .delete_key(AUTH_ACCESS_TOKEN_ID)
+        .map_err(|error| error.to_string())?;
+    platform
+        .delete_key(AUTH_REFRESH_TOKEN_ID)
+        .map_err(|error| error.to_string())?;
+    let mut settings = read_settings(settings_path).unwrap_or_default();
+    settings.sync_email.clear();
+    write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gtk::Entry {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let name = gtk::Label::new(Some(label));
@@ -1242,13 +2301,27 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
     while let Some(row) = results.first_child() {
         results.remove(&row);
     }
+    results.set_visible(false);
     if query.is_empty() {
         return;
     }
 
-    match state.core.search_tasks(query.to_owned()) {
+    let regex = match regex_from_query(query) {
+        Ok(regex) => regex,
+        Err(error) => {
+            state.toast(format!("Invalid regex: {error}"));
+            return;
+        }
+    };
+    match state.core.list_tasks(TaskFilter::default(), default_sort()) {
         Ok(tasks) => {
-            for task in tasks.into_iter().take(10) {
+            let mut has_results = false;
+            for task in tasks
+                .into_iter()
+                .filter(|task| regex_matches_task(&regex, task))
+                .take(10)
+            {
+                has_results = true;
                 let row = gtk::ListBoxRow::new();
                 row.set_widget_name(&task.id.to_string());
                 row.add_css_class("search-result-row");
@@ -1269,9 +2342,57 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
                 row.set_child(Some(&content));
                 results.append(&row);
             }
+            results.set_visible(has_results);
         }
         Err(error) => state.toast(format!("Search failed: {error}")),
     }
+}
+
+fn render_move_list_results(state: &Rc<AppState>, results_query: &str) {
+    while let Some(row) = state.move_list_results.first_child() {
+        state.move_list_results.remove(&row);
+    }
+    let regex = match regex_from_query(results_query) {
+        Ok(regex) => regex,
+        Err(error) => {
+            state.toast(format!("Invalid regex: {error}"));
+            return;
+        }
+    };
+    append_move_list_row(state, "inbox", "Inbox");
+    for list in state
+        .user_lists
+        .borrow()
+        .iter()
+        .filter(|list| regex.is_match(&list.name))
+    {
+        append_move_list_row(state, &list.id.to_string(), &list.name);
+    }
+}
+
+fn append_move_list_row(state: &Rc<AppState>, id: &str, name: &str) {
+    let row = gtk::ListBoxRow::new();
+    row.set_widget_name(id);
+    row.add_css_class("search-result-row");
+    let label = gtk::Label::new(Some(name));
+    label.set_xalign(0.0);
+    label.set_margin_top(10);
+    label.set_margin_bottom(10);
+    label.set_margin_start(12);
+    label.set_margin_end(12);
+    row.set_child(Some(&label));
+    state.move_list_results.append(&row);
+}
+
+fn regex_from_query(query: &str) -> Result<Regex, regex::Error> {
+    let pattern = if query.is_empty() { ".*" } else { query };
+    Regex::new(&format!("(?i){pattern}"))
+}
+
+fn regex_matches_task(regex: &Regex, task: &Task) -> bool {
+    regex.is_match(&task.title)
+        || regex.is_match(&task.body)
+        || task.tags.iter().any(|tag| regex.is_match(tag))
 }
 
 fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
@@ -1289,21 +2410,165 @@ fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
     state.select_task(task.id);
 }
 
+fn resize_settings_panel(window: &adw::ApplicationWindow, settings_panel: &gtk::Box) {
+    let width = window.allocated_width();
+    let height = window.allocated_height();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let panel_width = ((width as f64) * SETTINGS_PANEL_WIDTH_RATIO) as i32;
+    let panel_height = ((height as f64) * SETTINGS_PANEL_HEIGHT_RATIO) as i32;
+    settings_panel.set_size_request(
+        panel_width.clamp(SETTINGS_PANEL_MIN_WIDTH, SETTINGS_PANEL_MAX_WIDTH),
+        panel_height.clamp(SETTINGS_PANEL_MIN_HEIGHT, SETTINGS_PANEL_MAX_HEIGHT),
+    );
+}
+
+fn resize_task_editor_panel(window: &adw::ApplicationWindow, editor_panel: &gtk::Box) {
+    let width = window.allocated_width();
+    let height = window.allocated_height();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let editor_width = ((width as f64) * TASK_EDITOR_WIDTH_RATIO) as i32;
+    let editor_height = ((height as f64) * TASK_EDITOR_HEIGHT_RATIO) as i32;
+    editor_panel.set_size_request(
+        editor_width.clamp(TASK_EDITOR_MIN_WIDTH, TASK_EDITOR_MAX_WIDTH),
+        editor_height.clamp(TASK_EDITOR_MIN_HEIGHT, TASK_EDITOR_MAX_HEIGHT),
+    );
+}
+
+fn show_floating_panel<W>(widget: &W)
+where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    widget.set_opacity(0.0);
+    widget.set_visible(true);
+    animate_opacity(widget, 0.0, 1.0, FLOATING_PANEL_FADE_MS, None);
+}
+
+fn hide_floating_panel<W>(widget: &W)
+where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    let start = widget.opacity();
+    let widget_to_hide = widget.clone();
+    animate_opacity(
+        widget,
+        start,
+        0.0,
+        FLOATING_PANEL_FADE_MS,
+        Some(Box::new(move || widget_to_hide.set_visible(false))),
+    );
+}
+
+fn animate_opacity<W>(
+    widget: &W,
+    from: f64,
+    to: f64,
+    duration_ms: u64,
+    done: Option<Box<dyn FnOnce() + 'static>>,
+) where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    let widget = widget.clone();
+    let started = std::time::Instant::now();
+    let done = Rc::new(RefCell::new(done));
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+        let progress = (started.elapsed().as_millis() as f64 / duration_ms as f64).min(1.0);
+        let eased = 1.0 - (1.0 - progress).powi(3);
+        widget.set_opacity(from + (to - from) * eased);
+        if progress >= 1.0 {
+            if let Some(done) = done.borrow_mut().take() {
+                done();
+            }
+            gtk::glib::ControlFlow::Break
+        } else {
+            gtk::glib::ControlFlow::Continue
+        }
+    });
+}
+
+fn field_label(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.set_valign(gtk::Align::Center);
+    label.add_css_class("task-editor-field-label");
+    label
+}
+
+fn text_buffer_string(buffer: &gtk::TextBuffer) -> String {
+    buffer
+        .text(&buffer.start_iter(), &buffer.end_iter(), true)
+        .to_string()
+}
+
+fn parse_tags(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn parse_due_date_entry(text: &str) -> Result<Option<i64>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(value) = text.parse::<i64>() {
+        return Ok(Some(value));
+    }
+    let parts = text
+        .split('-')
+        .map(str::parse::<i32>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Use due date format YYYY-MM-DD".to_owned())?;
+    if parts.len() != 3 {
+        return Err("Use due date format YYYY-MM-DD".to_owned());
+    }
+    gtk::glib::DateTime::from_local(parts[0], parts[1], parts[2], 12, 0, 0.0)
+        .map(|date_time| Some(date_time.to_unix() * 1000))
+        .map_err(|error| format!("Invalid due date: {error}"))
+}
+
+fn format_due_date_value(due_at_ms: i64) -> String {
+    gtk::glib::DateTime::from_unix_local(due_at_ms / 1000)
+        .and_then(|date_time| date_time.format("%Y-%m-%d"))
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| due_at_ms.to_string())
+}
+
+fn markdown_to_pango_markup(markdown: &str) -> String {
+    if markdown.trim().is_empty() {
+        return "<span foreground=\"#888888\">No notes</span>".to_owned();
+    }
+    markdown
+        .lines()
+        .map(|line| {
+            let escaped = gtk::glib::markup_escape_text(line).to_string();
+            if let Some(text) = escaped.strip_prefix("# ") {
+                format!("<span size=\"x-large\" weight=\"bold\">{text}</span>")
+            } else if let Some(text) = escaped.strip_prefix("## ") {
+                format!("<span size=\"large\" weight=\"bold\">{text}</span>")
+            } else if let Some(text) = escaped.strip_prefix("### ") {
+                format!("<b>{text}</b>")
+            } else if let Some(text) = escaped.strip_prefix("- ") {
+                format!("• {text}")
+            } else if let Some(text) = escaped.strip_prefix("* ") {
+                format!("• {text}")
+            } else {
+                escaped
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn update_entry_width(entry: &gtk::Entry) {
     let width = entry.text().chars().count().clamp(1, 48) as i32;
     entry.set_width_chars(width);
     entry.set_max_width_chars(width);
-}
-
-fn update_task_title(state: &Rc<AppState>, task_id: Uuid, title: &str) {
-    let patch = TaskPatch {
-        title: Some(title.to_owned()),
-        ..TaskPatch::default()
-    };
-    if let Err(error) = state.core.update_task(task_id, patch) {
-        state.toast(format!("Failed to update task: {error}"));
-    }
-    state.load_tasks();
 }
 
 fn format_task_row_summary(task: &Task) -> String {
@@ -1311,9 +2576,8 @@ fn format_task_row_summary(task: &Task) -> String {
     if let Some(due_at) = task.due_at {
         parts.push(format!("Due {}", format_due_date(due_at)));
     }
-    let base = format_task_summary(task);
-    if !base.is_empty() {
-        parts.push(base);
+    if !task.tags.is_empty() {
+        parts.push(format!("#{}", task.tags.join(" #")));
     }
     parts.join(" · ")
 }
@@ -1407,6 +2671,22 @@ fn install_css() {
             font-family: "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
             font-weight: 900;
         }
+        button,
+        row,
+        entry,
+        textview,
+        .sidebar-row,
+        .task-row,
+        .markdown-preview,
+        .task-editor-title,
+        .task-editor-body,
+        .task-calendar,
+        .task-calendar label {
+            transition: background __FLOATING_PANEL_FADE_MS__ms ease-out,
+                        border-color __FLOATING_PANEL_FADE_MS__ms ease-out,
+                        color __FLOATING_PANEL_FADE_MS__ms ease-out,
+                        opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
         .tsk-sidebar {
             background: @sidebar_bg_color;
             padding: 10px 10px 0 12px;
@@ -1482,6 +2762,69 @@ fn install_css() {
             background: @popover_bg_color;
             color: @popover_fg_color;
             box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .move-list-panel {
+            padding: 20px;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .settings-panel {
+            padding: 0;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .settings-nav {
+            background: @sidebar_bg_color;
+            padding: 12px 10px;
+            border-radius: 20px 0 0 20px;
+        }
+        .settings-nav row {
+            background: transparent;
+            border-radius: 10px;
+            margin: 2px 0;
+            color: @window_fg_color;
+        }
+        .settings-nav row:hover {
+            background: color-mix(in srgb, @window_fg_color 6%, transparent);
+        }
+        .settings-nav row:selected {
+            background: color-mix(in srgb, @window_fg_color 8%, transparent);
+        }
+        .settings-content {
+            padding: 22px;
+        }
+        .move-list-title {
+            font-size: 20px;
+            font-weight: 750;
+        }
+        .move-list-search {
+            min-height: 38px;
+            border-radius: 10px;
+            font-size: 15px;
+        }
+        .move-list-results {
+            background: transparent;
+        }
+        .move-list-results row {
+            border-radius: 10px;
+            margin: 2px 0;
+            background: transparent;
+        }
+        .move-list-results row:hover {
+            background: color-mix(in srgb, @window_fg_color 5%, transparent);
+        }
+        .setup-panel {
+            background: @window_bg_color;
+            padding: 28px;
         }
         .search-panel-entry {
             min-height: 40px;
@@ -1489,6 +2832,67 @@ fn install_css() {
         }
         .search-results {
             background: transparent;
+        }
+        .task-editor-panel {
+            padding: 24px;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .task-editor-panel .pane-title {
+            font-size: 20px;
+            font-weight: 750;
+        }
+        .task-editor-title {
+            font-size: 28px;
+            font-weight: 800;
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+            margin-bottom: 2px;
+            border-radius: 8px;
+        }
+        .task-editor-title:hover,
+        .markdown-preview:hover {
+            background: color-mix(in srgb, @window_fg_color 5%, transparent);
+        }
+        .task-editor-body,
+        .task-editor-body text {
+            font-size: 16px;
+            line-height: 1.55;
+            background: transparent;
+        }
+        .task-editor-body {
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+        }
+        .task-editor-body:focus,
+        .task-editor-body:focus-within {
+            border-color: @accent_color;
+        }
+        .task-editor-field-label {
+            color: @dim_label_color;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .task-editor-field,
+        .task-editor-button {
+            min-height: 38px;
+            font-size: 15px;
+        }
+        .task-editor-meta {
+            margin-top: 2px;
+            margin-bottom: 2px;
+        }
+        .markdown-preview {
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            font-size: 16px;
+            line-height: 1.55;
         }
         .search-result-row {
             border-radius: 10px;
@@ -1522,6 +2926,12 @@ fn install_css() {
         }
         .task-actions {
             opacity: 0;
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .sync-status {
+            color: @dim_label_color;
+            font-size: 12px;
+            opacity: 0.75;
         }
         .task-row:hover .task-actions {
             opacity: 1;
@@ -1530,6 +2940,13 @@ fn install_css() {
             color: @accent_color;
             font-size: 18px;
             font-weight: 700;
+            min-width: 28px;
+            min-height: 28px;
+            padding: 0;
+            border-radius: 999px;
+        }
+        .status-dot:hover {
+            background: color-mix(in srgb, @accent_color 12%, transparent);
         }
         .task-title {
             font-size: 16px;
@@ -1561,6 +2978,10 @@ fn install_css() {
             font-size: 12px;
             font-weight: 700;
             margin-top: 6px;
+        }
+        .task-calendar,
+        .task-calendar * {
+            font-family: sans-serif;
         }
         .task-calendar {
             border-radius: 12px;
@@ -1594,6 +3015,11 @@ fn install_css() {
             background: transparent;
             padding: 4px 0;
         }
+        entry.task-editor-title,
+        entry.task-editor-title text,
+        textview.task-editor-body text {
+            padding: __TASK_EDITOR_INNER_PADDING__px;
+        }
         .notes-card {
             border-radius: 0;
             background: transparent;
@@ -1609,8 +3035,16 @@ fn install_css() {
             font-size: 22px;
             font-weight: 700;
         }
-        "#;
-    provider.load_from_data(css);
+        "#
+    .replace(
+        "__FLOATING_PANEL_FADE_MS__",
+        &FLOATING_PANEL_FADE_MS.to_string(),
+    )
+    .replace(
+        "__TASK_EDITOR_INNER_PADDING__",
+        &TASK_EDITOR_INNER_PADDING.to_string(),
+    );
+    provider.load_from_data(&css);
 
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(

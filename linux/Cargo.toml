@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 taskmanager-core = { path = "../core" }
-gtk4 = "0.9"
+gtk4 = { version = "0.9", features = ["v4_6"] }
 libadwaita = "0.7"
 directories = "5"
 keyring = { version = "3.6", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust"] }
@@ -19,6 +19,9 @@ serde_json = "1"
 uuid = "1"
 thiserror = "1"
 time = { version = "0.3", features = ["formatting", "macros"] }
+regex = "1"
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

@@ -76,7 +76,24 @@ cd server
 ./scripts/deploy.sh
 ```
 
-The script interactively asks for required settings, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the deploy script keeps the app container on `PORT=8080` internally and exposes `HOST_PORT=18080` by default.
+The script interactively asks for non-secret settings, automatically generates missing `POSTGRES_PASSWORD` and `JWT_SECRET`, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the deploy script keeps the app container on the default `PORT=18080` internally and exposes `HOST_PORT=18080` by default.
+
+For repeatable or CI-driven deploys, use non-interactive mode. Existing `.env` values are reused, missing secrets are generated automatically, and defaults are applied:
+
+```sh
+./scripts/deploy.sh --yes
+./scripts/deploy.sh --yes --host-port 8080 --health-timeout 120
+```
+
+Operational helpers:
+
+```sh
+./scripts/deploy.sh status   # show Compose service status
+./scripts/deploy.sh logs     # follow app and database logs
+./scripts/deploy.sh backup   # write a gzipped Postgres dump to server/backups/
+```
+
+Use `./scripts/deploy.sh --help` for all options, including `--env-file` and `--skip-health`.
 
 The deploy script URL-encodes database URL components, so generated or user-provided Postgres passwords may contain reserved URL characters such as `@`, `:`, `/`, `#`, and `?`.
 
