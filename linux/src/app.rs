@@ -847,7 +847,6 @@ fn build_ui(app: &adw::Application) {
     setup_panel.set_valign(gtk::Align::Fill);
     setup_panel.set_visible(!sync_auth_configured(&platform, &settings));
     let setup_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    setup_card.add_css_class("setup-card");
     setup_card.set_halign(gtk::Align::Center);
     setup_card.set_valign(gtk::Align::Center);
     setup_card.set_width_request(460);
@@ -2228,14 +2227,6 @@ fn install_css() {
         .setup-panel {
             background: @window_bg_color;
             padding: 28px;
-        }
-        .setup-card {
-            padding: 24px;
-            border-radius: 20px;
-            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
-            color: @popover_fg_color;
-            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
-            box-shadow: 0 18px 48px color-mix(in srgb, black 24%, transparent);
         }
         .search-panel-entry {
             min-height: 40px;
