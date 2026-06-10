@@ -65,7 +65,7 @@ curl -sS http://localhost:18080/auth/register \
   -d '{"email":"dev@example.com","password":"correct horse battery staple","pub_key":"BASE64_DEVICE_PUBLIC_KEY"}'
 ```
 
-Blob sync endpoints require a bearer token returned by `/auth/register` or `/auth/login`; normal users should use the CLI instead of hand-crafting encrypted blob requests.
+Blob sync endpoints require a bearer token returned by `/auth/register` or `/auth/login`; normal users should use a client instead of hand-crafting encrypted blob requests. Access tokens default to 15 minutes, refresh tokens default to 30 days, and clients should call `/auth/refresh` with the stored refresh token when an access token expires.
 
 ## Deploy on a server
 
@@ -88,9 +88,16 @@ For repeatable or CI-driven deploys, use non-interactive mode. Existing `.env` v
 Operational helpers:
 
 ```sh
-./scripts/deploy.sh status   # show Compose service status
-./scripts/deploy.sh logs     # follow app and database logs
-./scripts/deploy.sh backup   # write a gzipped Postgres dump to server/backups/
+./scripts/deploy.sh status     # show Compose service status
+./scripts/deploy.sh logs       # follow app and database logs
+./scripts/deploy.sh backup     # write a gzipped Postgres dump to server/backups/
+./scripts/deploy.sh undeploy   # stop and remove containers, preserving database data
+```
+
+To undeploy and delete the Postgres data volume too:
+
+```sh
+./scripts/deploy.sh undeploy --volumes
 ```
 
 Use `./scripts/deploy.sh --help` for all options, including `--env-file` and `--skip-health`.

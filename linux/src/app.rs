@@ -10,9 +10,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{
     init_account, init_device_keypair, public_key_from_private_key, sync_pull, sync_push, Blob,
-    BlobPush, CoreResult, Keybindings, LocalDatabase, Platform, PullResponse, PushResponse,
-    RemoteBlob, SyncClient, SyncError, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch,
-    TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+    BlobPush, CoreError, CoreResult, Keybindings, LocalDatabase, Platform, PullResponse,
+    PushResponse, RemoteBlob, SyncClient, SyncError, Task, TaskFilter, TaskList, TaskManagerCore,
+    TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -1401,20 +1401,62 @@ fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult<LinuxSyncS
         return Ok(LinuxSyncSummary::default());
     }
     let platform = LinuxPlatform::new();
-    let token = String::from_utf8(platform.load_key(AUTH_ACCESS_TOKEN_ID)?).map_err(|error| {
-        taskmanager_core::PlatformError::OperationFailed(format!(
-            "stored access token is not UTF-8: {error}"
-        ))
-    })?;
     let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
     let database = LocalDatabase::open(db_path)?;
-    let client = LinuxHttpSyncClient::new(settings.server_url, token);
-    let pull = sync_pull(&database, &client, &data_key)?;
-    let push = sync_push(&database, &platform, &client, &data_key)?;
+
+    match run_linux_sync_once(&database, &platform, &settings.server_url, &data_key) {
+        Err(CoreError::Sync(SyncError::AuthExpired)) => {
+            refresh_linux_auth(&platform, &settings.server_url)?;
+            run_linux_sync_once(&database, &platform, &settings.server_url, &data_key)
+        }
+        result => result,
+    }
+}
+
+fn run_linux_sync_once(
+    database: &LocalDatabase,
+    platform: &LinuxPlatform,
+    server_url: &str,
+    data_key: &[u8],
+) -> CoreResult<LinuxSyncSummary> {
+    let token = load_utf8_key(platform, AUTH_ACCESS_TOKEN_ID, "access token")?;
+    let client = LinuxHttpSyncClient::new(server_url.to_owned(), token);
+    let pull = sync_pull(database, &client, data_key)?;
+    let push = sync_push(database, platform, &client, data_key)?;
     Ok(LinuxSyncSummary {
         pushed: push.pushed,
         pulled: pull.pulled,
         failed: pull.failed + push.failed,
+    })
+}
+
+fn refresh_linux_auth(platform: &LinuxPlatform, server_url: &str) -> CoreResult<()> {
+    let refresh_token = load_utf8_key(platform, AUTH_REFRESH_TOKEN_ID, "refresh token")?;
+    let client = reqwest::blocking::Client::new();
+    let tokens = client
+        .post(format!("{}/auth/refresh", server_url.trim_end_matches('/')))
+        .json(&RefreshTokenRequest { refresh_token })
+        .send()
+        .map_err(|_| SyncError::NetworkUnavailable)?
+        .error_for_status()
+        .map_err(linux_http_error)?
+        .json::<TokenResponse>()
+        .map_err(|error| SyncError::ServerError {
+            status: 0,
+            body: error.to_string(),
+        })?;
+
+    platform.store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())?;
+    platform.store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())?;
+    Ok(())
+}
+
+fn load_utf8_key(platform: &LinuxPlatform, key_id: &str, label: &str) -> CoreResult<String> {
+    String::from_utf8(platform.load_key(key_id)?).map_err(|error| {
+        taskmanager_core::PlatformError::OperationFailed(format!(
+            "stored {label} is not UTF-8: {error}"
+        ))
+        .into()
     })
 }
 
@@ -2061,6 +2103,11 @@ struct AuthRequest {
     password: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub_key: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RefreshTokenRequest {
+    refresh_token: String,
 }
 
 #[derive(Deserialize)]

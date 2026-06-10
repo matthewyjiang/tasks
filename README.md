@@ -11,7 +11,7 @@ A local-first, end-to-end encrypted task manager.
 - `android/` — Android app shell
 - `windows/` — Windows app shell
 - `macos/` — macOS app shell
-- `linux/` — Linux app shell
+- `linux/` — GTK/libadwaita Linux desktop app (`tsk-gui`)
 
 ## CLI installation
 
@@ -58,6 +58,16 @@ tsk generate man > tsk.1
 ```
 
 See [`cli/README.md`](./cli/README.md) for usage examples and development setup.
+
+## Linux desktop app
+
+The Linux app is the GTK/libadwaita desktop client. Run it from the repository root with:
+
+```sh
+cargo run -p tsk-linux
+```
+
+The app stores account/device keys and auth tokens in the platform key store, syncs encrypted blobs through the server API, and automatically refreshes expired access tokens during sync when a valid refresh token is available.
 
 ## Specification
 

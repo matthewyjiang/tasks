@@ -11,6 +11,7 @@ SKIP_HEALTH="false"
 HEALTH_TIMEOUT_SECONDS=60
 ACTION="deploy"
 CLI_HOST_PORT=""
+REMOVE_VOLUMES="false"
 
 timestamp() {
   date +%Y%m%d-%H%M%S
@@ -18,10 +19,11 @@ timestamp() {
 
 usage() {
   cat <<EOF_USAGE
-Usage: $0 [deploy|status|logs|backup] [options]
+Usage: $0 [deploy|undeploy|status|logs|backup] [options]
 
 Actions:
   deploy          Configure, build, start, and health-check the server (default)
+  undeploy        Stop and remove deployed containers, preserving database data
   status          Show Docker Compose service status
   logs            Follow recent app and database logs
   backup          Dump the Postgres database to server/backups/
@@ -32,6 +34,7 @@ Deploy options:
       --host-port PORT       Public HTTP port (default: existing env or 18080)
       --health-timeout SECS  Health-check timeout (default: 60)
       --skip-health          Do not wait for /healthz
+      --volumes              With undeploy, also delete the Postgres data volume
   -h, --help                 Show this help
 
 Examples:
@@ -39,6 +42,7 @@ Examples:
   ./scripts/deploy.sh --yes --host-port 8080
   ./scripts/deploy.sh status
   ./scripts/deploy.sh backup
+  ./scripts/deploy.sh undeploy
 EOF_USAGE
 }
 
@@ -140,7 +144,7 @@ compose() {
 parse_args() {
   if [[ $# -gt 0 ]]; then
     case "$1" in
-      deploy|status|logs|backup)
+      deploy|undeploy|status|logs|backup)
         ACTION="$1"
         shift
         ;;
@@ -167,6 +171,10 @@ parse_args() {
         ;;
       --skip-health)
         SKIP_HEALTH="true"
+        shift
+        ;;
+      --volumes)
+        REMOVE_VOLUMES="true"
         shift
         ;;
       -h|--help)
@@ -206,7 +214,7 @@ wait_for_health() {
   echo "Waiting up to ${HEALTH_TIMEOUT_SECONDS}s for http://localhost:$HOST_PORT/healthz ..."
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
   while (( SECONDS < deadline )); do
-    if curl -fsS "http://localhost:$HOST_PORT/healthz" >/dev/null; then
+    if curl -fsS "http://localhost:$HOST_PORT/healthz" >/dev/null 2>&1; then
       echo "Deploy complete. Health check passed."
       return
     fi
@@ -285,10 +293,32 @@ backup() {
   echo "Backup complete: $output"
 }
 
+undeploy() {
+  need_cmd docker
+  load_existing
+
+  if [[ "$REMOVE_VOLUMES" == "true" ]]; then
+    if [[ "$ASSUME_YES" != "true" && is_tty ]]; then
+      echo "WARNING: this will delete the Postgres data volume."
+      read -r -p "Delete containers and database volume? [y/N]: " confirm
+      case "$confirm" in
+        y|Y|yes|YES) ;;
+        *) echo "Aborted."; exit 0 ;;
+      esac
+    fi
+    compose down --volumes --remove-orphans
+  else
+    compose down --remove-orphans
+  fi
+
+  echo "Undeploy complete."
+}
+
 main() {
   parse_args "$@"
   case "$ACTION" in
     deploy) deploy ;;
+    undeploy) undeploy ;;
     status) status ;;
     logs) logs ;;
     backup) backup ;;

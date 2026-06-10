@@ -11,5 +11,5 @@ WORKDIR /app
 COPY --from=build /out/tasks-server /app/tasks-server
 COPY migrations /app/migrations
 USER appuser
-EXPOSE 8080
+EXPOSE 18080
 ENTRYPOINT ["/app/tasks-server"]
