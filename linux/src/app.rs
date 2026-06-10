@@ -1,10 +1,11 @@
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
-use taskmanager_core::{Task, TaskManagerCore, TaskPatch, TaskStatus};
+use taskmanager_core::{Task, TaskFilter, TaskManagerCore, TaskPatch, TaskStatus};
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
@@ -28,6 +29,8 @@ struct AppState {
     search_query: RefCell<String>,
     list: gtk::ListBox,
     list_heading: gtk::Label,
+    filter_count_labels: Vec<gtk::Label>,
+    tag_box: gtk::Box,
     empty_state: gtk::Box,
     title_entry: gtk::Entry,
     body_view: gtk::TextView,
@@ -57,6 +60,7 @@ impl AppState {
                     self.active_filter.borrow().label()
                 ));
                 self.render_list();
+                self.refresh_sidebar_metadata();
             }
             Err(error) => self.toast(format!("Failed to load tasks: {error}")),
         }
@@ -197,6 +201,55 @@ impl AppState {
         }
     }
 
+    fn refresh_sidebar_metadata(&self) {
+        let Ok(tasks) = self.core.list_tasks(TaskFilter::default(), default_sort()) else {
+            return;
+        };
+        let now = now_ms();
+        for (label, filter) in self
+            .filter_count_labels
+            .iter()
+            .zip(sidebar_filter_order().iter().copied())
+        {
+            label.set_text(&count_for_filter(&tasks, filter, now).to_string());
+        }
+        self.render_tag_rows(&tasks);
+    }
+
+    fn render_tag_rows(&self, tasks: &[Task]) {
+        while let Some(row) = self.tag_box.first_child() {
+            self.tag_box.remove(&row);
+        }
+
+        let mut counts = BTreeMap::<String, usize>::new();
+        for task in tasks {
+            for tag in &task.tags {
+                *counts.entry(tag.to_owned()).or_default() += 1;
+            }
+        }
+
+        if counts.is_empty() {
+            let empty = gtk::Label::new(Some("Add tags in a task to organize lists"));
+            empty.set_xalign(0.0);
+            empty.add_css_class("sidebar-empty-note");
+            self.tag_box.append(&empty);
+            return;
+        }
+
+        for (tag, count) in counts {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            row.add_css_class("sidebar-static-row");
+            let name = gtk::Label::new(Some(&format!("# {tag}")));
+            name.set_xalign(0.0);
+            name.set_hexpand(true);
+            let count_label = gtk::Label::new(Some(&count.to_string()));
+            count_label.add_css_class("sidebar-count");
+            row.append(&name);
+            row.append(&count_label);
+            self.tag_box.append(&row);
+        }
+    }
+
     fn toast(&self, message: String) {
         self.toast_overlay.add_toast(adw::Toast::new(&message));
     }
@@ -244,10 +297,11 @@ fn build_ui(app: &adw::Application) {
 
     let header = adw::HeaderBar::new();
     header.add_css_class("flat");
-    let new_button = gtk::Button::with_label("＋ New To-Do");
+    header.set_show_start_title_buttons(false);
+    let new_button = gtk::Button::with_label("＋");
     new_button.add_css_class("suggested-action");
     let save_button = gtk::Button::with_label("Save");
-    let delete_button = gtk::Button::with_label("Delete");
+    let delete_button = gtk::Button::with_label("•••");
     delete_button.add_css_class("destructive-action");
     header.pack_start(&new_button);
     header.pack_end(&delete_button);
@@ -259,38 +313,56 @@ fn build_ui(app: &adw::Application) {
 
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 14);
     sidebar.add_css_class("tsk-sidebar");
-    sidebar.set_margin_top(18);
-    sidebar.set_margin_bottom(18);
-    sidebar.set_margin_start(18);
-    sidebar.set_margin_end(18);
+    sidebar.set_size_request(260, -1);
+    sidebar.set_margin_top(10);
+    sidebar.set_margin_bottom(10);
+    sidebar.set_margin_start(12);
+    sidebar.set_margin_end(10);
 
     let app_label = gtk::Label::new(Some("tsk"));
     app_label.set_xalign(0.0);
-    app_label.add_css_class("app-title");
+    app_label.add_css_class("sidebar-app-title");
     sidebar.append(&app_label);
     sidebar.append(&search);
 
+    let smart_lists_label = gtk::Label::new(Some("Smart Lists"));
+    smart_lists_label.set_xalign(0.0);
+    smart_lists_label.add_css_class("sidebar-section");
+    sidebar.append(&smart_lists_label);
+
     let filter_list = gtk::ListBox::new();
-    for filter in [
-        TaskFilterState::All,
-        TaskFilterState::Inbox,
-        TaskFilterState::InProgress,
-        TaskFilterState::Done,
-        TaskFilterState::DueSoon,
-    ] {
+    let mut filter_count_labels = Vec::new();
+    for filter in sidebar_filter_order() {
         let row = gtk::ListBoxRow::new();
         row.add_css_class("sidebar-row");
         row.set_widget_name(filter.label());
-        let label = gtk::Label::new(Some(filter.label()));
+
+        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row_box.set_margin_top(8);
+        row_box.set_margin_bottom(8);
+        row_box.set_margin_start(10);
+        row_box.set_margin_end(10);
+
+        let label = gtk::Label::new(Some(sidebar_filter_title(filter)));
         label.set_xalign(0.0);
-        label.set_margin_top(8);
-        label.set_margin_bottom(8);
-        label.set_margin_start(10);
-        label.set_margin_end(10);
-        row.set_child(Some(&label));
+        label.set_hexpand(true);
+        let count_label = gtk::Label::new(Some("0"));
+        count_label.add_css_class("sidebar-count");
+
+        row_box.append(&label);
+        row_box.append(&count_label);
+        row.set_child(Some(&row_box));
+        filter_count_labels.push(count_label);
         filter_list.append(&row);
     }
     sidebar.append(&filter_list);
+
+    let tag_label = gtk::Label::new(Some("Tags"));
+    tag_label.set_xalign(0.0);
+    tag_label.add_css_class("sidebar-section");
+    sidebar.append(&tag_label);
+    let tag_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    sidebar.append(&tag_box);
 
     let list_heading = gtk::Label::new(Some("All · 0"));
     list_heading.set_xalign(0.0);
@@ -344,10 +416,10 @@ fn build_ui(app: &adw::Application) {
 
     let editor = gtk::Box::new(gtk::Orientation::Vertical, 16);
     editor.add_css_class("tsk-editor");
-    editor.set_margin_top(28);
+    editor.set_margin_top(52);
     editor.set_margin_bottom(28);
-    editor.set_margin_start(28);
-    editor.set_margin_end(28);
+    editor.set_margin_start(44);
+    editor.set_margin_end(44);
 
     let details = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     details.append(&status_combo);
@@ -363,12 +435,14 @@ fn build_ui(app: &adw::Application) {
     editor.append(&notes_frame);
 
     let content = gtk::Paned::new(gtk::Orientation::Horizontal);
-    let left = gtk::Paned::new(gtk::Orientation::Horizontal);
-    left.set_start_child(Some(&sidebar));
-    left.set_end_child(Some(&list_pane));
-    left.set_resize_start_child(false);
-    content.set_start_child(Some(&left));
-    content.set_end_child(Some(&editor));
+    content.set_start_child(Some(&sidebar));
+
+    let main = gtk::Paned::new(gtk::Orientation::Horizontal);
+    main.set_start_child(Some(&list_pane));
+    main.set_end_child(Some(&editor));
+    main.set_resize_start_child(false);
+    content.set_end_child(Some(&main));
+    content.set_resize_start_child(false);
 
     let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
     page.append(&header);
@@ -386,6 +460,8 @@ fn build_ui(app: &adw::Application) {
         search_query: RefCell::new(String::new()),
         list: task_list,
         list_heading,
+        filter_count_labels,
+        tag_box,
         empty_state,
         title_entry,
         body_view,
@@ -420,10 +496,11 @@ fn build_ui(app: &adw::Application) {
                 return;
             };
             let filter = match row.index() {
-                1 => TaskFilterState::Inbox,
-                2 => TaskFilterState::InProgress,
-                3 => TaskFilterState::Done,
-                4 => TaskFilterState::DueSoon,
+                0 => TaskFilterState::Inbox,
+                1 => TaskFilterState::DueSoon,
+                2 => TaskFilterState::All,
+                3 => TaskFilterState::InProgress,
+                4 => TaskFilterState::Done,
                 _ => TaskFilterState::All,
             };
             state.active_filter.replace(filter);
@@ -446,45 +523,108 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
+fn sidebar_filter_order() -> [TaskFilterState; 5] {
+    [
+        TaskFilterState::Inbox,
+        TaskFilterState::DueSoon,
+        TaskFilterState::All,
+        TaskFilterState::InProgress,
+        TaskFilterState::Done,
+    ]
+}
+
+fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
+    match filter {
+        TaskFilterState::Inbox => "▣  Inbox",
+        TaskFilterState::DueSoon => "★  Due Soon",
+        TaskFilterState::All => "▰  Anytime",
+        TaskFilterState::InProgress => "◐  Working",
+        TaskFilterState::Done => "☑  Completed",
+    }
+}
+
+fn count_for_filter(tasks: &[Task], filter: TaskFilterState, now_ms: i64) -> usize {
+    let due_soon_cutoff = now_ms + 7 * 24 * 60 * 60 * 1000;
+    tasks
+        .iter()
+        .filter(|task| match filter {
+            TaskFilterState::All => true,
+            TaskFilterState::Inbox => task.status == TaskStatus::Inbox,
+            TaskFilterState::InProgress => task.status == TaskStatus::InProgress,
+            TaskFilterState::Done => task.status == TaskStatus::Done,
+            TaskFilterState::DueSoon => task.due_at.is_some_and(|due_at| due_at <= due_soon_cutoff),
+        })
+        .count()
+}
+
 fn install_css() {
     let provider = gtk::CssProvider::new();
     provider.load_from_data(
         r#"
+        window, .background { background: #fbfbfc; }
         .tsk-sidebar {
-            background: color-mix(in srgb, @window_bg_color 90%, @accent_color 10%);
+            background: #f2f3f5;
+            border-right: 1px solid #e1e3e6;
         }
-        .app-title {
-            font-size: 26px;
+        .sidebar-app-title {
+            color: #1f2328;
+            font-size: 20px;
             font-weight: 800;
             letter-spacing: -0.04em;
-            color: @accent_color;
+            margin: 2px 8px 0;
         }
         .sidebar-search {
-            border-radius: 12px;
+            border-radius: 8px;
+            min-height: 30px;
+            background: #ffffff;
         }
         .sidebar-row {
-            border-radius: 10px;
-            margin: 2px 0;
+            border-radius: 6px;
+            margin: 1px 0;
+            color: #34363a;
+        }
+        .sidebar-row:selected { background: #d9dde3; }
+        .sidebar-section {
+            color: #6f747c;
+            font-size: 12px;
+            font-weight: 700;
+            margin: 10px 8px 2px;
+        }
+        .sidebar-static-row {
+            color: #34363a;
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+        .sidebar-count {
+            color: #858b93;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .sidebar-empty-note {
+            color: #858b93;
+            font-size: 12px;
+            margin: 4px 10px;
         }
         .pane-title {
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: -0.04em;
+            font-size: 22px;
+            font-weight: 750;
+            letter-spacing: -0.03em;
         }
         .task-list {
             background: transparent;
         }
         .task-row {
-            border-radius: 14px;
-            margin: 4px 0;
-            background: color-mix(in srgb, @card_bg_color 90%, transparent);
+            border-radius: 6px;
+            margin: 1px 0;
+            background: transparent;
+            border-bottom: 1px solid #eceef1;
         }
-        .task-row:hover {
-            background: color-mix(in srgb, @card_bg_color 84%, @accent_color 16%);
+        .task-row:hover, .task-row:selected {
+            background: #e9edf3;
         }
         .status-dot {
-            color: @accent_color;
-            font-size: 22px;
+            color: #0a84ff;
+            font-size: 18px;
             font-weight: 700;
         }
         .task-title {
@@ -496,19 +636,22 @@ fn install_css() {
             font-size: 13px;
         }
         .editor-title {
-            font-size: 30px;
+            font-size: 26px;
             font-weight: 800;
             letter-spacing: -0.04em;
-            border-radius: 14px;
-            padding: 10px 12px;
+            border: none;
+            box-shadow: none;
+            background: transparent;
+            padding: 4px 0;
         }
         .notes-card {
-            border-radius: 16px;
-            background: @card_bg_color;
-            padding: 12px;
+            border-radius: 0;
+            background: transparent;
+            border-top: 1px solid #e6e8eb;
+            padding: 10px 0;
         }
         .editor-notes {
-            font-size: 15px;
+            font-size: 14px;
             line-height: 1.45;
             background: transparent;
         }
