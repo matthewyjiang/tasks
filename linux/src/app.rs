@@ -2773,6 +2773,14 @@ fn install_css() {
                         color __FLOATING_PANEL_FADE_MS__ms ease-out,
                         opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
+        button:active {
+            background: color-mix(in srgb, @window_fg_color 14%, transparent);
+            box-shadow: inset 0 1px 3px color-mix(in srgb, black 22%, transparent);
+        }
+        button.flat:active {
+            background: color-mix(in srgb, @window_fg_color 12%, transparent);
+            box-shadow: inset 0 1px 3px color-mix(in srgb, black 18%, transparent);
+        }
         .tsk-sidebar {
             background: @sidebar_bg_color;
             padding: 10px 10px 0 12px;
@@ -2794,6 +2802,13 @@ fn install_css() {
         .sidebar-list row:hover,
         .sidebar-row:hover {
             background: color-mix(in srgb, @window_fg_color 6%, transparent);
+        }
+        .sidebar-list row:active,
+        .sidebar-row:active,
+        .tsk-sidebar button:active,
+        .tsk-sidebar button.flat:active {
+            background: color-mix(in srgb, @window_fg_color 14%, transparent);
+            box-shadow: inset 0 1px 3px color-mix(in srgb, black 18%, transparent);
         }
         .sidebar-list row:selected,
         .sidebar-row:selected {
@@ -3010,6 +3025,11 @@ fn install_css() {
             background: color-mix(in srgb, @accent_bg_color 78%, @window_fg_color 22%);
             color: @accent_fg_color;
             box-shadow: 0 2px 8px color-mix(in srgb, @accent_bg_color 35%, transparent);
+        }
+        .confirm-button:active {
+            background: color-mix(in srgb, @accent_bg_color 68%, black 32%);
+            color: @accent_fg_color;
+            box-shadow: inset 0 2px 5px color-mix(in srgb, black 35%, transparent);
         }
         .task-actions {
             opacity: 0;
