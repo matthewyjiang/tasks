@@ -29,7 +29,7 @@ struct AppState {
     list: gtk::ListBox,
     list_heading: gtk::Label,
     list_name_entry: gtk::Entry,
-    list_delete_button: gtk::Button,
+    list_actions_button: gtk::MenuButton,
     filter_count_labels: Vec<gtk::Label>,
     user_lists: RefCell<Vec<TaskList>>,
     user_list_box: gtk::ListBox,
@@ -71,13 +71,13 @@ impl AppState {
                     {
                         self.list_heading.set_visible(false);
                         self.list_name_entry.set_visible(true);
-                        self.list_delete_button.set_visible(true);
+                        self.list_actions_button.set_visible(true);
                         self.list_name_entry.set_text(&list.name);
                     }
                 } else {
                     self.list_heading.set_visible(true);
                     self.list_name_entry.set_visible(false);
-                    self.list_delete_button.set_visible(false);
+                    self.list_actions_button.set_visible(false);
                     self.list_heading
                         .set_text(self.active_filter.borrow().label());
                 }
@@ -362,7 +362,7 @@ fn build_ui(app: &adw::Application) {
 
     let filter_list = gtk::ListBox::new();
     filter_list.add_css_class("sidebar-list");
-    filter_list.set_selection_mode(gtk::SelectionMode::None);
+    filter_list.set_selection_mode(gtk::SelectionMode::Single);
     let mut filter_count_labels = Vec::new();
     for filter in sidebar_filter_order() {
         let row = gtk::ListBoxRow::new();
@@ -396,7 +396,7 @@ fn build_ui(app: &adw::Application) {
 
     let user_list_box = gtk::ListBox::new();
     user_list_box.add_css_class("sidebar-list");
-    user_list_box.set_selection_mode(gtk::SelectionMode::None);
+    user_list_box.set_selection_mode(gtk::SelectionMode::Single);
     sidebar.append(&user_list_box);
 
     let add_list_button = gtk::Button::with_label("＋ List");
@@ -412,14 +412,22 @@ fn build_ui(app: &adw::Application) {
     list_name_entry.add_css_class("flat");
     list_name_entry.set_visible(false);
 
+    let list_actions_button = gtk::MenuButton::new();
+    list_actions_button.set_label("⋯");
+    list_actions_button.add_css_class("flat");
+    list_actions_button.set_visible(false);
+    let list_actions_popover = gtk::Popover::new();
+    let list_actions_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     let list_delete_button = gtk::Button::with_label("Delete List");
     list_delete_button.add_css_class("flat");
-    list_delete_button.set_visible(false);
+    list_actions_box.append(&list_delete_button);
+    list_actions_popover.set_child(Some(&list_actions_box));
+    list_actions_button.set_popover(Some(&list_actions_popover));
 
     let page_title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     page_title.append(&list_heading);
     page_title.append(&list_name_entry);
-    page_title.append(&list_delete_button);
+    page_title.append(&list_actions_button);
 
     let task_list = gtk::ListBox::new();
     task_list.set_vexpand(true);
@@ -499,7 +507,7 @@ fn build_ui(app: &adw::Application) {
         list: task_list,
         list_heading,
         list_name_entry,
-        list_delete_button,
+        list_actions_button,
         filter_count_labels,
         user_lists: RefCell::new(Vec::new()),
         user_list_box,
@@ -532,7 +540,7 @@ fn build_ui(app: &adw::Application) {
             state.load_tasks();
         }
     });
-    state.list_delete_button.connect_clicked({
+    list_delete_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| {
             let Some(list_id) = *state.selected_list_id.borrow() else {
@@ -556,6 +564,7 @@ fn build_ui(app: &adw::Application) {
     });
     filter_list.connect_row_activated({
         let state = Rc::clone(&state);
+        let user_list_box = state.user_list_box.clone();
         move |_, row| {
             let filter = match row.index() {
                 0 => TaskFilterState::Inbox,
@@ -565,6 +574,7 @@ fn build_ui(app: &adw::Application) {
                 4 => TaskFilterState::Done,
                 _ => TaskFilterState::Inbox,
             };
+            user_list_box.unselect_all();
             state.selected_list_id.replace(None);
             state.active_filter.replace(filter);
             state.load_tasks();
@@ -572,8 +582,10 @@ fn build_ui(app: &adw::Application) {
     });
     state.user_list_box.connect_row_activated({
         let state = Rc::clone(&state);
+        let filter_list_for_user_rows = filter_list.clone();
         move |_, row| {
             if let Ok(list_id) = Uuid::parse_str(&row.widget_name()) {
+                filter_list_for_user_rows.unselect_all();
                 state.selected_list_id.replace(Some(list_id));
                 state.active_filter.replace(TaskFilterState::Upcoming);
                 state.load_tasks();
@@ -592,6 +604,9 @@ fn build_ui(app: &adw::Application) {
         }
     });
 
+    if let Some(row) = filter_list.row_at_index(0) {
+        filter_list.select_row(Some(&row));
+    }
     state.load_tasks();
     window.present();
 }
@@ -670,11 +685,15 @@ fn install_css() {
             background: color-mix(in srgb, @window_fg_color 6%, transparent);
         }
         .sidebar-list row:selected,
+        .sidebar-row:selected {
+            background: color-mix(in srgb, @window_fg_color 8%, transparent);
+            color: @window_fg_color;
+        }
         .sidebar-list row:selected:hover,
-        .sidebar-list row:selected label,
-        .sidebar-row:selected,
         .sidebar-row:selected:hover {
-            background: transparent;
+            background: color-mix(in srgb, @window_fg_color 10%, transparent);
+        }
+        .sidebar-list row:selected label {
             color: @window_fg_color;
         }
         .sidebar-static-row {
