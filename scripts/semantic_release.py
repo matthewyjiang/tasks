@@ -42,7 +42,13 @@ class Version:
 
 
 def run(args: list[str], *, check: bool = True) -> str:
-    proc = subprocess.run(args, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if check and proc.returncode != 0:
+        if proc.stdout:
+            print(proc.stdout, file=sys.stdout, end="")
+        if proc.stderr:
+            print(proc.stderr, file=sys.stderr, end="")
+        raise subprocess.CalledProcessError(proc.returncode, proc.args, output=proc.stdout, stderr=proc.stderr)
     return proc.stdout.strip()
 
 
@@ -215,7 +221,21 @@ def main() -> int:
                 ]
             )
             branch = os.environ.get("GITHUB_REF_NAME", "main")
-            run(["git", "push", "origin", f"HEAD:{branch}"])
+            push = subprocess.run(
+                ["git", "push", "origin", f"HEAD:{branch}"],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if push.returncode != 0:
+                if push.stdout:
+                    print(push.stdout, file=sys.stdout, end="")
+                if push.stderr:
+                    print(push.stderr, file=sys.stderr, end="")
+                run(["git", "fetch", "origin", branch])
+                run(["git", "rebase", f"origin/{branch}"])
+                run(["git", "push", "origin", f"HEAD:{branch}"])
             notes = release_notes(tag, previous_tag, args.path)
 
     # Equivalent shell command: git tag -a <tag> -m "Release <tag>"
