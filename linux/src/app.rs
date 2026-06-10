@@ -449,9 +449,20 @@ fn install_css() {
             min-height: 30px;
         }
         .sidebar-row {
-            border-radius: 6px;
-            margin: 1px 0;
+            border-radius: 10px;
+            margin: 2px 0;
             color: @window_fg_color;
+            background: transparent;
+        }
+        .sidebar-row:hover {
+            background: color-mix(in srgb, @window_fg_color 6%, transparent);
+        }
+        .sidebar-row:selected {
+            background: transparent;
+            color: @window_fg_color;
+        }
+        .sidebar-row:selected:hover {
+            background: color-mix(in srgb, @window_fg_color 6%, transparent);
         }
         .sidebar-static-row {
             color: @window_fg_color;
