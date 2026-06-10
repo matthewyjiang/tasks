@@ -126,18 +126,36 @@ impl AppState {
             title.add_css_class("task-title");
             title.add_css_class("flat");
             title.set_hexpand(true);
+            let task_confirm = gtk::Button::with_label("✓");
+            task_confirm.add_css_class("flat");
+            task_confirm.add_css_class("task-confirm");
+            task_confirm.set_visible(false);
+
             title.connect_activate({
                 let state = Rc::clone(self);
                 let task_id = task.id;
+                let task_confirm = task_confirm.clone();
                 move |entry| {
-                    let patch = TaskPatch {
-                        title: Some(entry.text().to_string()),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to update task: {error}"));
-                    }
-                    state.load_tasks();
+                    update_task_title(&state, task_id, &entry.text());
+                    task_confirm.set_visible(false);
+                    state.list.grab_focus();
+                }
+            });
+            let task_title_focus = gtk::EventControllerFocus::new();
+            task_title_focus.connect_enter({
+                let task_confirm = task_confirm.clone();
+                move |_| task_confirm.set_visible(true)
+            });
+            title.add_controller(task_title_focus);
+            task_confirm.connect_clicked({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                let title = title.clone();
+                let task_confirm = task_confirm.clone();
+                move |_| {
+                    update_task_title(&state, task_id, &title.text());
+                    task_confirm.set_visible(false);
+                    state.list.grab_focus();
                 }
             });
             if self.pending_focus_task_id.borrow().as_ref() == Some(&task.id) {
@@ -306,6 +324,7 @@ impl AppState {
 
             container.append(&status_dot);
             container.append(&text);
+            container.append(&task_confirm);
             container.append(&actions);
             row.set_child(Some(&container));
             self.list.append(&row);
@@ -765,6 +784,17 @@ fn build_ui(app: &adw::Application) {
     }
     state.load_tasks();
     window.present();
+}
+
+fn update_task_title(state: &Rc<AppState>, task_id: Uuid, title: &str) {
+    let patch = TaskPatch {
+        title: Some(title.to_owned()),
+        ..TaskPatch::default()
+    };
+    if let Err(error) = state.core.update_task(task_id, patch) {
+        state.toast(format!("Failed to update task: {error}"));
+    }
+    state.load_tasks();
 }
 
 fn format_task_row_summary(task: &Task) -> String {

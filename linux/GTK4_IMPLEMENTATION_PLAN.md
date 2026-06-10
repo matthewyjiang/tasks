@@ -41,6 +41,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Added core-backed user-defined task lists and display them below built-in sidebar views.
 - [x] User-defined lists can be renamed from the selected list page header with Enter or a focus-only confirm button, with delete moved into an out-of-the-way `⋯` page menu.
 - [x] New lists open immediately with the name field focused; new tasks open Inbox and focus the new task title after the row is realized.
+- [x] Task title renames can be confirmed with Enter or a focus-only confirm button that disappears after saving.
 - [x] Sidebar highlights the currently selected built-in view or user list.
 - [x] New tasks are created in Inbox, task titles can be edited inline, and row actions include due date calendar, list assignment, mark open/done, and delete.
 - [x] Due date display/assignment uses local dates to avoid selected-date shifting, and the calendar is themed to match the app with hover/selected date feedback.
