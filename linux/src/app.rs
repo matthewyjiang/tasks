@@ -574,11 +574,14 @@ fn build_ui(app: &adw::Application) {
     sidebar_bottom_bar.add_css_class("sidebar-bottom-bar");
     let add_list_button = gtk::Button::with_label("＋ List");
     add_list_button.add_css_class("flat");
-    add_list_button.set_hexpand(true);
+    add_list_button.set_halign(gtk::Align::Start);
+    let sidebar_bottom_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    sidebar_bottom_spacer.set_hexpand(true);
     let settings_button = gtk::Button::with_label("⚙");
     settings_button.add_css_class("flat");
     settings_button.set_tooltip_text(Some("Settings"));
     sidebar_bottom_bar.append(&add_list_button);
+    sidebar_bottom_bar.append(&sidebar_bottom_spacer);
     sidebar_bottom_bar.append(&settings_button);
     sidebar.append(&sidebar_bottom_bar);
 
