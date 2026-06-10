@@ -139,7 +139,7 @@ impl Default for Keybindings {
     fn default() -> Self {
         Self {
             add_task: "<Primary>n".to_owned(),
-            search: "<Primary>k".to_owned(),
+            search: "<Primary>f".to_owned(),
             close_overlay: "Escape".to_owned(),
             confirm_rename: "Return".to_owned(),
             delete_task: "Delete".to_owned(),
@@ -327,7 +327,7 @@ mod tests {
         assert_eq!(json["first_day_of_week"], 1);
         assert_eq!(json["notification_sound"], "default");
         assert_eq!(json["keybindings"]["add_task"], "<Primary>n");
-        assert_eq!(json["keybindings"]["search"], "<Primary>k");
+        assert_eq!(json["keybindings"]["search"], "<Primary>f");
     }
 
     #[test]

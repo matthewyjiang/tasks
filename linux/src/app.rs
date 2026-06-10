@@ -1080,6 +1080,7 @@ fn install_keybindings(
 ) {
     let controller = gtk::ShortcutController::new();
     controller.set_scope(gtk::ShortcutScope::Global);
+    controller.set_propagation_phase(gtk::PropagationPhase::Capture);
 
     add_shortcut(&controller, &keybindings.add_task, {
         let create_task_action = Rc::clone(&create_task_action);
@@ -1089,6 +1090,12 @@ fn install_keybindings(
         let open_search_action = Rc::clone(&open_search_action);
         move || open_search_action()
     });
+    if keybindings.search != "<Primary>f" {
+        add_shortcut(&controller, "<Primary>f", {
+            let open_search_action = Rc::clone(&open_search_action);
+            move || open_search_action()
+        });
+    }
     add_shortcut(&controller, &keybindings.close_overlay, {
         let search_panel = search_panel.clone();
         move || search_panel.set_visible(false)
@@ -1105,8 +1112,10 @@ fn install_keybindings(
     window.add_controller(controller);
 
     let key_controller = gtk::EventControllerKey::new();
+    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
     let add_task = parse_accel(&keybindings.add_task);
     let search = parse_accel(&keybindings.search);
+    let search_fallback = parse_accel("<Primary>f");
     let close_overlay = parse_accel(&keybindings.close_overlay);
     let delete_task = parse_accel(&keybindings.delete_task);
     let toggle_done = parse_accel(&keybindings.toggle_done);
@@ -1114,7 +1123,9 @@ fn install_keybindings(
         if accel_matches(add_task, key, modifiers) {
             create_task_action();
             gtk::glib::Propagation::Stop
-        } else if accel_matches(search, key, modifiers) {
+        } else if accel_matches(search, key, modifiers)
+            || accel_matches(search_fallback, key, modifiers)
+        {
             open_search_action();
             gtk::glib::Propagation::Stop
         } else if accel_matches(close_overlay, key, modifiers) {
@@ -1384,13 +1395,13 @@ fn install_css() {
     provider.load_from_data(
         r#"
         @font-face {
-            font-family: "Font Awesome 7 Free";
+            font-family: "Font Awesome 7 Free Solid";
             src: url("file:///usr/share/fonts/WOFF2/fa-solid-900.woff2");
         }
         .fa-icon,
         .fa-icon label,
         button.fa-icon label {
-            font-family: "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
+            font-family: "Font Awesome 7 Free Solid", "Font Awesome 7 Free", "Font Awesome 6 Free", sans-serif;
             font-weight: 900;
         }
         .tsk-sidebar {
