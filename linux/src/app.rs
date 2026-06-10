@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
-use crate::task_model::{default_sort, format_task_summary, task_matches_view, TaskFilterState};
+use crate::task_model::{default_sort, task_matches_view, TaskFilterState};
 use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::normalize_query;
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
@@ -193,13 +193,20 @@ impl AppState {
             title.set_hexpand(true);
             title.set_ellipsize(gtk::pango::EllipsizeMode::End);
             title.add_css_class("task-title");
-            let summary = gtk::Label::new(Some(&format_task_row_summary(task)));
+            let summary_text = format_task_row_summary(task);
+            let summary = gtk::Label::new(Some(&summary_text));
             summary.set_xalign(0.0);
             summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
             summary.add_css_class("task-summary");
+            summary.set_visible(!summary_text.is_empty());
 
             text.append(&title);
             text.append(&summary);
+
+            let sync_status = font_awesome_label("\u{f021}");
+            sync_status.add_css_class("sync-status");
+            sync_status.set_tooltip_text(Some("Unsynced"));
+            sync_status.set_visible(task.dirty);
 
             let actions = gtk::MenuButton::new();
             actions.set_label("⋯");
@@ -239,6 +246,7 @@ impl AppState {
 
             container.append(&status_dot);
             container.append(&text);
+            container.append(&sync_status);
             container.append(&actions);
             row.set_child(Some(&container));
             self.list.append(&row);
@@ -1735,9 +1743,8 @@ fn format_task_row_summary(task: &Task) -> String {
     if let Some(due_at) = task.due_at {
         parts.push(format!("Due {}", format_due_date(due_at)));
     }
-    let base = format_task_summary(task);
-    if !base.is_empty() {
-        parts.push(base);
+    if !task.tags.is_empty() {
+        parts.push(format!("#{}", task.tags.join(" #")));
     }
     parts.join(" · ")
 }
@@ -2055,8 +2062,16 @@ fn install_css() {
             opacity: 0;
             transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
+        .sync-status {
+            color: @dim_label_color;
+            font-size: 12px;
+            opacity: 0.75;
+        }
         .task-row:hover .task-actions {
             opacity: 1;
+        }
+        .task-row:hover .sync-status {
+            opacity: 0;
         }
         .status-dot {
             color: @accent_color;
