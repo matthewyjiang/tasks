@@ -841,6 +841,51 @@ fn build_ui(app: &adw::Application) {
     move_list_panel.append(&move_list_search);
     move_list_panel.append(&move_list_scroll);
 
+    let setup_panel = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    setup_panel.add_css_class("setup-panel");
+    setup_panel.set_halign(gtk::Align::Fill);
+    setup_panel.set_valign(gtk::Align::Fill);
+    setup_panel.set_visible(!sync_auth_configured(&platform, &settings));
+    let setup_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    setup_card.add_css_class("setup-card");
+    setup_card.set_halign(gtk::Align::Center);
+    setup_card.set_valign(gtk::Align::Center);
+    setup_card.set_width_request(460);
+    let setup_title = gtk::Label::new(Some("Set up sync"));
+    setup_title.set_xalign(0.0);
+    setup_title.add_css_class("pane-title");
+    let setup_subtitle = gtk::Label::new(Some(
+        "Sign in to sync tasks across devices, or keep working locally.",
+    ));
+    setup_subtitle.set_xalign(0.0);
+    setup_subtitle.set_wrap(true);
+    setup_subtitle.add_css_class("dim-label");
+    let setup_server = gtk::Entry::new();
+    setup_server.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    setup_server.set_text(&settings.server_url);
+    let setup_email = gtk::Entry::new();
+    setup_email.set_placeholder_text(Some("Email"));
+    let setup_password = gtk::PasswordEntry::new();
+    setup_password.set_placeholder_text(Some("Password"));
+    let setup_status = gtk::Label::new(None);
+    setup_status.set_xalign(0.0);
+    setup_status.add_css_class("dim-label");
+    let setup_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    setup_actions.set_halign(gtk::Align::End);
+    let setup_local = gtk::Button::with_label("Work local");
+    let setup_login = gtk::Button::with_label("Login / Register");
+    setup_login.add_css_class("suggested-action");
+    setup_actions.append(&setup_local);
+    setup_actions.append(&setup_login);
+    setup_card.append(&setup_title);
+    setup_card.append(&setup_subtitle);
+    setup_card.append(&setup_server);
+    setup_card.append(&setup_email);
+    setup_card.append(&setup_password);
+    setup_card.append(&setup_status);
+    setup_card.append(&setup_actions);
+    setup_panel.append(&setup_card);
+
     let page_click = gtk::GestureClick::new();
     page.add_controller(page_click.clone());
 
@@ -849,12 +894,39 @@ fn build_ui(app: &adw::Application) {
     root_overlay.add_overlay(&editor_panel);
     root_overlay.add_overlay(&move_list_panel);
     root_overlay.add_overlay(&search_panel);
+    root_overlay.add_overlay(&setup_panel);
 
     let toast_overlay = adw::ToastOverlay::new();
     toast_overlay.set_child(Some(&root_overlay));
     window.set_content(Some(&toast_overlay));
 
     let keybindings = core.vault_settings().unwrap_or_default().keybindings;
+
+    setup_local.connect_clicked({
+        let setup_panel = setup_panel.clone();
+        move |_| setup_panel.set_visible(false)
+    });
+    setup_login.connect_clicked({
+        let settings_path = paths.settings_path.clone();
+        let setup_panel = setup_panel.clone();
+        move |_| {
+            setup_status.set_text("Signing in…");
+            let platform = LinuxPlatform::new();
+            match configure_sync_auth(
+                &platform,
+                &settings_path,
+                &setup_server.text(),
+                &setup_email.text(),
+                &setup_password.text(),
+            ) {
+                Ok(()) => {
+                    setup_status.set_text("Sync configured.");
+                    setup_panel.set_visible(false);
+                }
+                Err(error) => setup_status.set_text(&format!("Sync setup failed: {error}")),
+            }
+        }
+    });
 
     let state = Rc::new(AppState {
         core: Rc::new(core),
@@ -1195,9 +1267,6 @@ fn build_ui(app: &adw::Application) {
     }
     state.load_tasks();
     window.present();
-    if !sync_auth_configured(&platform, &settings) {
-        show_sync_setup_window(&window, paths.settings_path.clone(), true);
-    }
 }
 
 fn apply_theme_choice(theme: ThemeChoice) {
@@ -2155,6 +2224,18 @@ fn install_css() {
         }
         .move-list-results row:hover {
             background: color-mix(in srgb, @window_fg_color 5%, transparent);
+        }
+        .setup-panel {
+            background: @window_bg_color;
+            padding: 28px;
+        }
+        .setup-card {
+            padding: 24px;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 24%, transparent);
         }
         .search-panel-entry {
             min-height: 40px;
