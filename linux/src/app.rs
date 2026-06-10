@@ -205,9 +205,9 @@ impl AppState {
             text.append(&title);
             text.append(&summary);
 
-            let sync_status = font_awesome_label("\u{f021}");
+            let sync_status = font_awesome_label("\u{f071}");
             sync_status.add_css_class("sync-status");
-            sync_status.set_tooltip_text(Some("Unsynced"));
+            sync_status.set_tooltip_text(Some("Out of date"));
             sync_status.set_visible(task.dirty);
 
             let actions = gtk::MenuButton::new();
