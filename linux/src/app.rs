@@ -207,31 +207,6 @@ impl AppState {
             actions.add_css_class("task-actions");
             let popover = gtk::Popover::new();
             let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            let toggle_done = gtk::Button::with_label(if task.status == TaskStatus::Done {
-                "Mark Open"
-            } else {
-                "Mark Done"
-            });
-            toggle_done.add_css_class("flat");
-            toggle_done.connect_clicked({
-                let state = Rc::clone(self);
-                let task_id = task.id;
-                let next_status = if task.status == TaskStatus::Done {
-                    TaskStatus::Open
-                } else {
-                    TaskStatus::Done
-                };
-                move |_| {
-                    let patch = TaskPatch {
-                        status: Some(next_status),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to update task: {error}"));
-                    }
-                    state.load_tasks();
-                }
-            });
             let move_task = gtk::Button::with_label("Move…");
             move_task.add_css_class("flat");
             move_task.connect_clicked({
@@ -246,6 +221,7 @@ impl AppState {
 
             let delete = gtk::Button::with_label("Delete");
             delete.add_css_class("flat");
+            delete.add_css_class("destructive-action");
             delete.connect_clicked({
                 let state = Rc::clone(self);
                 let task_id = task.id;
@@ -256,7 +232,6 @@ impl AppState {
                     state.load_tasks();
                 }
             });
-            action_box.append(&toggle_done);
             action_box.append(&move_task);
             action_box.append(&delete);
             popover.set_child(Some(&action_box));
