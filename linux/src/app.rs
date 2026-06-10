@@ -146,6 +146,10 @@ impl AppState {
                 let task_confirm = task_confirm.clone();
                 move |_| task_confirm.set_visible(true)
             });
+            task_title_focus.connect_leave({
+                let task_confirm = task_confirm.clone();
+                move |_| task_confirm.set_visible(false)
+            });
             title.add_controller(task_title_focus);
             task_confirm.connect_clicked({
                 let state = Rc::clone(self);
@@ -699,6 +703,10 @@ fn build_ui(app: &adw::Application) {
     list_name_focus.connect_enter({
         let state = Rc::clone(&state);
         move |_| state.list_rename_button.set_visible(true)
+    });
+    list_name_focus.connect_leave({
+        let state = Rc::clone(&state);
+        move |_| state.list_rename_button.set_visible(false)
     });
     state.list_name_entry.add_controller(list_name_focus);
     state.list_name_entry.connect_activate({
