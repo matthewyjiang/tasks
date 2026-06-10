@@ -1371,7 +1371,7 @@ fn install_keybindings(
     state: Rc<AppState>,
 ) {
     let key_controller = gtk::EventControllerKey::new();
-    key_controller.set_propagation_phase(gtk::PropagationPhase::Bubble);
+    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
     let add_task = parse_accel(&keybindings.add_task);
     let search = parse_accel(&keybindings.search);
     let search_fallback = parse_accel("<Primary>f");
@@ -1389,7 +1389,7 @@ fn install_keybindings(
         {
             open_search_action();
             gtk::glib::Propagation::Stop
-        } else if accel_matches(close_overlay, key, modifiers) {
+        } else if key == gtk::gdk::Key::Escape || accel_matches(close_overlay, key, modifiers) {
             hide_floating_panel(&search_panel);
             if state.editor_panel.is_visible() {
                 state.save_task_editor();
