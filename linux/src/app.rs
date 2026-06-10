@@ -251,10 +251,6 @@ fn build_ui(app: &adw::Application) {
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 14);
     sidebar.add_css_class("tsk-sidebar");
     sidebar.set_size_request(260, -1);
-    sidebar.set_margin_top(10);
-    sidebar.set_margin_bottom(10);
-    sidebar.set_margin_start(12);
-    sidebar.set_margin_end(10);
 
     let app_label = gtk::Label::new(Some("tsk"));
     app_label.set_xalign(0.0);
@@ -328,6 +324,7 @@ fn build_ui(app: &adw::Application) {
         .build();
 
     let list_pane = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    list_pane.set_hexpand(true);
     list_pane.add_css_class("tsk-list-pane");
     list_pane.set_margin_top(18);
     list_pane.set_margin_bottom(18);
@@ -351,10 +348,9 @@ fn build_ui(app: &adw::Application) {
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
 
-    let content = gtk::Paned::new(gtk::Orientation::Horizontal);
-    content.set_start_child(Some(&sidebar));
-    content.set_end_child(Some(&list_pane));
-    content.set_resize_start_child(false);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    content.append(&sidebar);
+    content.append(&list_pane);
 
     let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
     page.append(&header);
@@ -466,7 +462,7 @@ fn install_css() {
         r#"
         .tsk-sidebar {
             background: @sidebar_bg_color;
-            border-right: 1px solid @borders;
+            padding: 10px 10px 10px 12px;
         }
         .sidebar-app-title {
             color: @window_fg_color;

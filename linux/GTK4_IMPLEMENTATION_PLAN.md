@@ -28,6 +28,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Removed copied placeholder Things content; sidebar now uses core-accurate lists, live counts, and tags derived from actual tasks.
 - [x] Removed hard-coded light colors from CSS so the app follows the system GTK/libadwaita theme.
 - [x] Simplified the layout to one sidebar plus one main task list window.
+- [x] Removed divider lines between sidebar and main content; sidebar distinction now comes from theme background color only.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
