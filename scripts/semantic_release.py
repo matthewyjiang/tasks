@@ -185,6 +185,54 @@ def has_staged_changes() -> bool:
     return proc.returncode != 0
 
 
+def create_version_pr(artifact: str, tag: str, base_branch: str) -> None:
+    branch = f"release/{tag}"
+    run(["git", "branch", "-M", branch])
+    run(["git", "push", "--force-with-lease", "-u", "origin", branch])
+
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print(f"GITHUB_TOKEN not set; pushed {branch} but skipped PR creation.")
+        return
+
+    existing = run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--base",
+            base_branch,
+            "--state",
+            "open",
+            "--json",
+            "number",
+            "--jq",
+            ".[0].number // empty",
+        ]
+    )
+    if existing:
+        print(f"Version bump PR already exists: #{existing}")
+        return
+
+    run(
+        [
+            "gh",
+            "pr",
+            "create",
+            "--base",
+            base_branch,
+            "--head",
+            branch,
+            "--title",
+            f"chore({artifact}): release {tag}",
+            "--body",
+            f"Update package metadata for `{tag}`. The release workflow will create the tag after this PR merges.",
+        ]
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact", required=True, help="Artifact name used as tag prefix, e.g. server")
@@ -223,6 +271,11 @@ def main() -> int:
                 ]
             )
             branch = os.environ.get("GITHUB_REF_NAME", "main")
+            if os.environ.get("RELEASE_VERSION_PR") == "1":
+                create_version_pr(args.artifact, tag, branch)
+                print(f"Opened version bump PR for {tag}; release will be created after it merges.")
+                return 0
+
             push = subprocess.run(
                 ["git", "push", "origin", f"HEAD:{branch}"],
                 check=False,
