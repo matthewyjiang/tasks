@@ -428,8 +428,9 @@ impl AppState {
             row_box.set_margin_bottom(8);
             row_box.set_margin_start(10);
             row_box.set_margin_end(10);
-            let icon = gtk::Label::new(Some("●"));
+            let icon = gtk::Label::new(Some("\u{f03a}"));
             icon.add_css_class("sidebar-icon");
+            icon.add_css_class("fa-icon");
             icon.add_css_class("sidebar-icon-list");
             let name = gtk::Label::new(Some(&list.name));
             name.set_xalign(0.0);
@@ -543,6 +544,7 @@ fn build_ui(app: &adw::Application) {
 
         let icon = gtk::Label::new(Some(sidebar_filter_icon(filter)));
         icon.add_css_class("sidebar-icon");
+        icon.add_css_class("fa-icon");
         icon.add_css_class(sidebar_filter_icon_class(filter));
 
         let label = gtk::Label::new(Some(sidebar_filter_title(filter)));
@@ -572,13 +574,15 @@ fn build_ui(app: &adw::Application) {
 
     let sidebar_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     sidebar_bottom_bar.add_css_class("sidebar-bottom-bar");
-    let add_list_button = gtk::Button::with_label("＋ List");
+    let add_list_button = gtk::Button::with_label("\u{f067}  List");
     add_list_button.add_css_class("flat");
+    add_list_button.add_css_class("fa-icon");
     add_list_button.set_halign(gtk::Align::Start);
     let sidebar_bottom_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     sidebar_bottom_spacer.set_hexpand(true);
-    let settings_button = gtk::Button::with_label("⚙");
+    let settings_button = gtk::Button::with_label("\u{f013}");
     settings_button.add_css_class("flat");
+    settings_button.add_css_class("fa-icon");
     settings_button.set_tooltip_text(Some("Settings"));
     sidebar_bottom_bar.append(&add_list_button);
     sidebar_bottom_bar.append(&sidebar_bottom_spacer);
@@ -683,12 +687,14 @@ fn build_ui(app: &adw::Application) {
     let content_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     content_bottom_bar.set_homogeneous(true);
     content_bottom_bar.add_css_class("content-bottom-bar");
-    let search_button = gtk::Button::with_label("⌕");
+    let search_button = gtk::Button::with_label("\u{f002}");
     search_button.add_css_class("flat");
+    search_button.add_css_class("fa-icon");
     search_button.set_hexpand(true);
     search_button.set_tooltip_text(Some("Search"));
-    let bottom_new_button = gtk::Button::with_label("＋");
+    let bottom_new_button = gtk::Button::with_label("\u{f067}");
     bottom_new_button.add_css_class("flat");
+    bottom_new_button.add_css_class("fa-icon");
     bottom_new_button.set_hexpand(true);
     bottom_new_button.set_tooltip_text(Some("Add Task"));
     content_bottom_bar.append(&search_button);
@@ -1075,49 +1081,56 @@ fn install_keybindings(
     let controller = gtk::ShortcutController::new();
     controller.set_scope(gtk::ShortcutScope::Global);
 
-    add_shortcut(&controller, &keybindings.add_task, move || {
-        create_task_action()
+    add_shortcut(&controller, &keybindings.add_task, {
+        let create_task_action = Rc::clone(&create_task_action);
+        move || create_task_action()
     });
-    add_shortcut(&controller, &keybindings.search, move || {
-        open_search_action()
+    add_shortcut(&controller, &keybindings.search, {
+        let open_search_action = Rc::clone(&open_search_action);
+        move || open_search_action()
     });
-    add_shortcut(&controller, &keybindings.close_overlay, move || {
-        search_panel.set_visible(false);
+    add_shortcut(&controller, &keybindings.close_overlay, {
+        let search_panel = search_panel.clone();
+        move || search_panel.set_visible(false)
     });
     add_shortcut(&controller, &keybindings.delete_task, {
         let state = Rc::clone(&state);
-        move || {
-            if let Some(task_id) = selected_task_id(&state) {
-                if let Err(error) = state.core.delete_task(task_id) {
-                    state.toast(format!("Failed to delete task: {error}"));
-                }
-                state.load_tasks();
-            }
-        }
+        move || delete_selected_task(&state)
     });
-    add_shortcut(&controller, &keybindings.toggle_done, move || {
-        if let Some(task_id) = selected_task_id(&state) {
-            match state.core.get_task(task_id) {
-                Ok(task) => {
-                    let patch = TaskPatch {
-                        status: Some(if task.status == TaskStatus::Done {
-                            TaskStatus::Open
-                        } else {
-                            TaskStatus::Done
-                        }),
-                        ..TaskPatch::default()
-                    };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to update task: {error}"));
-                    }
-                    state.load_tasks();
-                }
-                Err(error) => state.toast(format!("Failed to load task: {error}")),
-            }
-        }
+    add_shortcut(&controller, &keybindings.toggle_done, {
+        let state = Rc::clone(&state);
+        move || toggle_selected_task_done(&state)
     });
 
     window.add_controller(controller);
+
+    let key_controller = gtk::EventControllerKey::new();
+    let add_task = parse_accel(&keybindings.add_task);
+    let search = parse_accel(&keybindings.search);
+    let close_overlay = parse_accel(&keybindings.close_overlay);
+    let delete_task = parse_accel(&keybindings.delete_task);
+    let toggle_done = parse_accel(&keybindings.toggle_done);
+    key_controller.connect_key_pressed(move |_, key, _, modifiers| {
+        if accel_matches(add_task, key, modifiers) {
+            create_task_action();
+            gtk::glib::Propagation::Stop
+        } else if accel_matches(search, key, modifiers) {
+            open_search_action();
+            gtk::glib::Propagation::Stop
+        } else if accel_matches(close_overlay, key, modifiers) {
+            search_panel.set_visible(false);
+            gtk::glib::Propagation::Stop
+        } else if accel_matches(delete_task, key, modifiers) {
+            delete_selected_task(&state);
+            gtk::glib::Propagation::Stop
+        } else if accel_matches(toggle_done, key, modifiers) {
+            toggle_selected_task_done(&state);
+            gtk::glib::Propagation::Stop
+        } else {
+            gtk::glib::Propagation::Proceed
+        }
+    });
+    window.add_controller(key_controller);
 }
 
 fn add_shortcut(
@@ -1137,6 +1150,52 @@ fn add_shortcut(
         })),
     );
     controller.add_shortcut(shortcut);
+}
+
+fn parse_accel(accelerator: &str) -> Option<(gtk::gdk::Key, gtk::gdk::ModifierType)> {
+    gtk::accelerator_parse(accelerator)
+}
+
+fn accel_matches(
+    parsed: Option<(gtk::gdk::Key, gtk::gdk::ModifierType)>,
+    key: gtk::gdk::Key,
+    modifiers: gtk::gdk::ModifierType,
+) -> bool {
+    let Some((expected_key, expected_modifiers)) = parsed else {
+        return false;
+    };
+    key == expected_key && modifiers.contains(expected_modifiers)
+}
+
+fn delete_selected_task(state: &Rc<AppState>) {
+    if let Some(task_id) = selected_task_id(state) {
+        if let Err(error) = state.core.delete_task(task_id) {
+            state.toast(format!("Failed to delete task: {error}"));
+        }
+        state.load_tasks();
+    }
+}
+
+fn toggle_selected_task_done(state: &Rc<AppState>) {
+    if let Some(task_id) = selected_task_id(state) {
+        match state.core.get_task(task_id) {
+            Ok(task) => {
+                let patch = TaskPatch {
+                    status: Some(if task.status == TaskStatus::Done {
+                        TaskStatus::Open
+                    } else {
+                        TaskStatus::Done
+                    }),
+                    ..TaskPatch::default()
+                };
+                if let Err(error) = state.core.update_task(task_id, patch) {
+                    state.toast(format!("Failed to update task: {error}"));
+                }
+                state.load_tasks();
+            }
+            Err(error) => state.toast(format!("Failed to load task: {error}")),
+        }
+    }
 }
 
 fn selected_task_id(state: &AppState) -> Option<Uuid> {
@@ -1295,11 +1354,11 @@ fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
 
 fn sidebar_filter_icon(filter: TaskFilterState) -> &'static str {
     match filter {
-        TaskFilterState::Inbox => "▣",
-        TaskFilterState::Today => "●",
-        TaskFilterState::Upcoming => "◆",
-        TaskFilterState::NoDueDate => "■",
-        TaskFilterState::Done => "✓",
+        TaskFilterState::Inbox => "\u{f01c}",
+        TaskFilterState::Today => "\u{f783}",
+        TaskFilterState::Upcoming => "\u{f073}",
+        TaskFilterState::NoDueDate => "\u{f5fd}",
+        TaskFilterState::Done => "\u{f058}",
     }
 }
 
@@ -1324,6 +1383,14 @@ fn install_css() {
     let provider = gtk::CssProvider::new();
     provider.load_from_data(
         r#"
+        @font-face {
+            font-family: "Font Awesome 6 Free";
+            src: url("file:///usr/share/fonts/WOFF2/fa-solid-900.woff2");
+        }
+        .fa-icon {
+            font-family: "Font Awesome 6 Free";
+            font-weight: 900;
+        }
         .tsk-sidebar {
             background: @sidebar_bg_color;
             padding: 10px 10px 0 12px;
