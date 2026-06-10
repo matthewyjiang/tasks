@@ -686,6 +686,7 @@ fn build_ui(app: &adw::Application) {
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
 
     let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main_area.set_width_request(560);
     main_area.set_hexpand(true);
     main_area.set_vexpand(true);
     main_area.append(&list_pane);
