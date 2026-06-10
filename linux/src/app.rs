@@ -9,9 +9,10 @@ use libadwaita as adw;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{
-    init_account, init_device_keypair, public_key_from_private_key, Keybindings, Platform, Task,
-    TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    init_account, init_device_keypair, public_key_from_private_key, sync_pull, sync_push, Blob,
+    BlobPush, CoreResult, Keybindings, LocalDatabase, Platform, PullResponse, PushResponse,
+    RemoteBlob, SyncClient, SyncError, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch,
+    TaskStatus, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -76,9 +77,58 @@ struct AppState {
     move_list_results: gtk::ListBox,
     moving_task_id: RefCell<Option<Uuid>>,
     toast_overlay: adw::ToastOverlay,
+    db_path: PathBuf,
+    settings_path: PathBuf,
+    sync_in_progress: RefCell<bool>,
+    sync_pending: RefCell<bool>,
 }
 
 impl AppState {
+    fn request_sync(self: &Rc<Self>) {
+        if *self.sync_in_progress.borrow() {
+            self.sync_pending.replace(true);
+            return;
+        }
+        if !linux_sync_configured(&self.settings_path) {
+            return;
+        }
+        self.sync_in_progress.replace(true);
+        let db_path = self.db_path.clone();
+        let settings_path = self.settings_path.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = run_linux_sync(&db_path, &settings_path);
+            let _ = sender.send(result);
+        });
+        let state = Rc::clone(self);
+        gtk::glib::timeout_add_local(
+            std::time::Duration::from_millis(120),
+            move || match receiver.try_recv() {
+                Ok(result) => {
+                    state.sync_in_progress.replace(false);
+                    match result {
+                        Ok(summary) => {
+                            if summary.changed() {
+                                state.load_tasks();
+                            }
+                        }
+                        Err(error) => state.toast(format!("Sync failed: {error}")),
+                    }
+                    if state.sync_pending.replace(false) {
+                        state.request_sync();
+                    }
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    state.sync_in_progress.replace(false);
+                    state.toast("Sync failed: worker disconnected".to_owned());
+                    gtk::glib::ControlFlow::Break
+                }
+            },
+        );
+    }
+
     fn load_tasks(self: &Rc<Self>) {
         let query = self.search_query.borrow().clone();
         let selected_list_id = *self.selected_list_id.borrow();
@@ -193,6 +243,8 @@ impl AppState {
                     };
                     if let Err(error) = state.core.update_task(task_id, patch) {
                         state.toast(format!("Failed to update task: {error}"));
+                    } else {
+                        state.request_sync();
                     }
                     state.load_tasks();
                 }
@@ -249,6 +301,8 @@ impl AppState {
                 move |_| {
                     if let Err(error) = state.core.delete_task(task_id) {
                         state.toast(format!("Failed to delete task: {error}"));
+                    } else {
+                        state.request_sync();
                     }
                     state.load_tasks();
                 }
@@ -362,6 +416,7 @@ impl AppState {
         }
         self.hide_task_editor();
         self.load_tasks();
+        self.request_sync();
     }
 
     fn create_task(self: &Rc<Self>) {
@@ -374,6 +429,7 @@ impl AppState {
                 self.active_filter.replace(TaskFilterState::Inbox);
                 self.load_tasks();
                 self.select_task_with_focus(task.id, true);
+                self.request_sync();
             }
             Err(error) => self.toast(format!("Failed to create task: {error}")),
         }
@@ -463,6 +519,7 @@ impl AppState {
         }
         self.render_user_lists();
         self.load_tasks();
+        self.request_sync();
         self.list.grab_focus();
     }
 
@@ -473,6 +530,7 @@ impl AppState {
                 self.active_filter.replace(TaskFilterState::Upcoming);
                 self.render_user_lists();
                 self.load_tasks();
+                self.request_sync();
                 self.list_name_entry.grab_focus();
                 self.list_name_entry.select_region(0, -1);
             }
@@ -978,6 +1036,15 @@ fn build_ui(app: &adw::Application) {
         move_list_results,
         moving_task_id: RefCell::new(None),
         toast_overlay,
+        db_path: paths.database_path.clone(),
+        settings_path: paths.settings_path.clone(),
+        sync_in_progress: RefCell::new(false),
+        sync_pending: RefCell::new(false),
+    });
+
+    setup_login.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| state.request_sync()
     });
 
     due_calendar.connect_day_selected({
@@ -1025,6 +1092,8 @@ fn build_ui(app: &adw::Application) {
             };
             if let Err(error) = state.core.update_task(task_id, patch) {
                 state.toast(format!("Failed to move task: {error}"));
+            } else {
+                state.request_sync();
             }
             state.hide_move_list_panel();
             state.load_tasks();
@@ -1116,7 +1185,19 @@ fn build_ui(app: &adw::Application) {
         let settings_panel = settings_panel.clone();
         let settings_path = paths.settings_path.clone();
         let core = Rc::clone(&state.core);
-        move |_| show_settings_panel(&settings_panel, settings_path.clone(), Rc::clone(&core))
+        let state = Rc::clone(&state);
+        move |_| {
+            let request_sync: Rc<dyn Fn()> = Rc::new({
+                let state = Rc::clone(&state);
+                move || state.request_sync()
+            });
+            show_settings_panel(
+                &settings_panel,
+                settings_path.clone(),
+                Rc::clone(&core),
+                Some(request_sync),
+            )
+        }
     });
     let list_name_focus = gtk::EventControllerFocus::new();
     list_name_focus.connect_enter({
@@ -1172,6 +1253,8 @@ fn build_ui(app: &adw::Application) {
             };
             if let Err(error) = state.core.delete_list(list_id) {
                 state.toast(format!("Failed to delete list: {error}"));
+            } else {
+                state.request_sync();
             }
             state.selected_list_id.replace(None);
             state.active_filter.replace(TaskFilterState::Inbox);
@@ -1240,6 +1323,7 @@ fn build_ui(app: &adw::Application) {
             state.selected_list_id.replace(None);
             state.active_filter.replace(filter);
             state.load_tasks();
+            state.request_sync();
         }
     });
     state.user_list_box.connect_row_activated({
@@ -1251,6 +1335,7 @@ fn build_ui(app: &adw::Application) {
                 state.selected_list_id.replace(Some(list_id));
                 state.active_filter.replace(TaskFilterState::Upcoming);
                 state.load_tasks();
+                state.request_sync();
             }
         }
     });
@@ -1288,7 +1373,240 @@ fn build_ui(app: &adw::Application) {
         filter_list.select_row(Some(&row));
     }
     state.load_tasks();
+    state.request_sync();
     window.present();
+}
+
+#[derive(Default)]
+struct LinuxSyncSummary {
+    pushed: usize,
+    pulled: usize,
+    failed: usize,
+}
+
+impl LinuxSyncSummary {
+    fn changed(&self) -> bool {
+        self.pushed > 0 || self.pulled > 0 || self.failed > 0
+    }
+}
+
+fn linux_sync_configured(settings_path: &Path) -> bool {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    sync_auth_configured(&LinuxPlatform::new(), &settings)
+}
+
+fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult<LinuxSyncSummary> {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    if !sync_auth_configured(&LinuxPlatform::new(), &settings) {
+        return Ok(LinuxSyncSummary::default());
+    }
+    let platform = LinuxPlatform::new();
+    let token = String::from_utf8(platform.load_key(AUTH_ACCESS_TOKEN_ID)?).map_err(|error| {
+        taskmanager_core::PlatformError::OperationFailed(format!(
+            "stored access token is not UTF-8: {error}"
+        ))
+    })?;
+    let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
+    let database = LocalDatabase::open(db_path)?;
+    let client = LinuxHttpSyncClient::new(settings.server_url, token);
+    let pull = sync_pull(&database, &client, &data_key)?;
+    let push = sync_push(&database, &platform, &client, &data_key)?;
+    Ok(LinuxSyncSummary {
+        pushed: push.pushed,
+        pulled: pull.pulled,
+        failed: pull.failed + push.failed,
+    })
+}
+
+struct LinuxHttpSyncClient {
+    base_url: String,
+    token: String,
+    client: reqwest::blocking::Client,
+}
+
+impl LinuxHttpSyncClient {
+    fn new(base_url: String, token: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            token,
+            client: reqwest::blocking::Client::new(),
+        }
+    }
+
+    fn auth(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        request.bearer_auth(&self.token)
+    }
+}
+
+impl SyncClient for LinuxHttpSyncClient {
+    fn push_blobs(&self, blobs: Vec<BlobPush>) -> CoreResult<PushResponse> {
+        let request = LinuxBatchRequest {
+            blobs: blobs.into_iter().map(LinuxBlobRequest::from).collect(),
+        };
+        let response: LinuxBatchResponse = self
+            .auth(self.client.post(format!("{}/blobs/batch", self.base_url)))
+            .json(&request)
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(PushResponse {
+            accepted_task_ids: response
+                .results
+                .into_iter()
+                .filter(|result| result.status == "ok")
+                .map(|result| result.task_id)
+                .collect(),
+            failed_task_ids: Vec::new(),
+        })
+    }
+
+    fn delete_blobs(&self, task_ids: Vec<Uuid>) -> CoreResult<PushResponse> {
+        let mut accepted_task_ids = Vec::new();
+        for task_id in task_ids {
+            self.auth(
+                self.client
+                    .delete(format!("{}/blobs/{}", self.base_url, task_id)),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?;
+            accepted_task_ids.push(task_id);
+        }
+        Ok(PushResponse {
+            accepted_task_ids,
+            failed_task_ids: Vec::new(),
+        })
+    }
+
+    fn pull_blobs(&self, since: i64) -> CoreResult<PullResponse> {
+        let response: LinuxPullWireResponse = self
+            .auth(
+                self.client
+                    .get(format!("{}/blobs", self.base_url))
+                    .query(&[("since", since)]),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(PullResponse {
+            blobs: response
+                .blobs
+                .into_iter()
+                .filter_map(linux_remote_blob_from_wire)
+                .collect(),
+            cursor: response.cursor,
+        })
+    }
+}
+
+fn linux_http_error(error: reqwest::Error) -> SyncError {
+    if error.status() == Some(reqwest::StatusCode::UNAUTHORIZED) {
+        SyncError::AuthExpired
+    } else {
+        SyncError::ServerError {
+            status: error.status().map_or(0, |status| status.as_u16()),
+            body: error.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct LinuxBatchRequest {
+    blobs: Vec<LinuxBlobRequest>,
+}
+
+#[derive(Serialize)]
+struct LinuxBlobRequest {
+    task_id: Uuid,
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    ciphertext: Vec<u8>,
+    #[serde(serialize_with = "serialize_base64_nonce")]
+    nonce: [u8; 12],
+}
+
+impl From<BlobPush> for LinuxBlobRequest {
+    fn from(push: BlobPush) -> Self {
+        Self {
+            task_id: push.task_id,
+            ciphertext: push.blob.ciphertext,
+            nonce: push.blob.nonce,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct LinuxBatchResponse {
+    results: Vec<LinuxBatchResult>,
+}
+
+#[derive(Deserialize)]
+struct LinuxBatchResult {
+    task_id: Uuid,
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct LinuxPullWireResponse {
+    blobs: Vec<LinuxPullWireBlob>,
+    cursor: i64,
+}
+
+#[derive(Deserialize)]
+struct LinuxPullWireBlob {
+    task_id: Uuid,
+    ciphertext: Option<String>,
+    nonce: Option<String>,
+    updated_at: i64,
+    deleted: bool,
+}
+
+fn linux_remote_blob_from_wire(blob: LinuxPullWireBlob) -> Option<RemoteBlob> {
+    if blob.deleted {
+        return None;
+    }
+    let ciphertext = base64::engine::general_purpose::STANDARD
+        .decode(blob.ciphertext?)
+        .ok()?;
+    let nonce = base64::engine::general_purpose::STANDARD
+        .decode(blob.nonce?)
+        .ok()?
+        .try_into()
+        .ok()?;
+    Some(RemoteBlob {
+        task_id: blob.task_id,
+        blob: Blob { ciphertext, nonce },
+        updated_at: blob.updated_at,
+    })
+}
+
+fn serialize_base64_bytes<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+fn serialize_base64_nonce<S>(bytes: &[u8; 12], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 fn apply_theme_choice(theme: ThemeChoice) {
@@ -1300,7 +1618,12 @@ fn apply_theme_choice(theme: ThemeChoice) {
     adw::StyleManager::default().set_color_scheme(color_scheme);
 }
 
-fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskManagerCore>) {
+fn show_settings_panel(
+    panel: &gtk::Box,
+    settings_path: PathBuf,
+    core: Rc<TaskManagerCore>,
+    on_auth_changed: Option<Rc<dyn Fn()>>,
+) {
     let settings = read_settings(&settings_path).unwrap_or_default();
     let vault_settings = core.vault_settings().unwrap_or_default();
     while let Some(child) = panel.first_child() {
@@ -1483,12 +1806,14 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
         let sync_setup_button = sync_setup_button.clone();
         let sync_account_row = sync_account_row.clone();
         let sync_account = sync_account.clone();
+        let on_auth_changed = on_auth_changed.clone();
         move |_| {
             let refresh_settings_sync_state: Rc<dyn Fn()> = Rc::new({
                 let settings_path = settings_path.clone();
                 let sync_setup_button = sync_setup_button.clone();
                 let sync_account_row = sync_account_row.clone();
                 let sync_account = sync_account.clone();
+                let on_auth_changed = on_auth_changed.clone();
                 move || {
                     let settings = read_settings(&settings_path).unwrap_or_default();
                     let signed_in = sync_auth_configured(&LinuxPlatform::new(), &settings);
@@ -1503,6 +1828,9 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
                                 &settings.sync_email
                             }
                         ));
+                    }
+                    if let Some(on_auth_changed) = &on_auth_changed {
+                        on_auth_changed();
                     }
                 }
             });
@@ -1523,9 +1851,13 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
     sync_logout_button.connect_clicked({
         let panel = panel.clone();
         let settings_path = settings_path.clone();
+        let on_auth_changed = on_auth_changed.clone();
         move |_| {
             if let Err(error) = logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
                 eprintln!("Failed to log out: {error}");
+            }
+            if let Some(on_auth_changed) = &on_auth_changed {
+                on_auth_changed();
             }
             hide_floating_panel(&panel);
         }
