@@ -124,6 +124,7 @@ impl AppState {
             let title = gtk::Entry::new();
             title.set_text(&task.title);
             title.add_css_class("task-title");
+            title.add_css_class("rename-entry");
             title.add_css_class("flat");
             title.set_hexpand(true);
             let task_confirm = gtk::Button::with_label("✓");
@@ -566,6 +567,7 @@ fn build_ui(app: &adw::Application) {
     let list_name_entry = gtk::Entry::new();
     list_name_entry.set_hexpand(true);
     list_name_entry.add_css_class("pane-title");
+    list_name_entry.add_css_class("rename-entry");
     list_name_entry.add_css_class("flat");
     list_name_entry.set_visible(false);
 
@@ -996,6 +998,24 @@ fn install_css() {
         .task-title {
             font-size: 16px;
             font-weight: 650;
+        }
+        entry.rename-entry,
+        entry.rename-entry:focus,
+        entry.rename-entry:focus-within {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            outline: none;
+            padding-left: 0;
+            padding-right: 0;
+        }
+        entry.rename-entry text,
+        entry.rename-entry:focus text,
+        entry.rename-entry:focus-within text {
+            text-decoration-line: underline;
+            text-decoration-color: @accent_color;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 3px;
         }
         .task-summary {
             color: @dim_label_color;
