@@ -299,10 +299,8 @@ fn build_ui(app: &adw::Application) {
     header.add_css_class("flat");
     header.set_show_start_title_buttons(false);
     let new_button = gtk::Button::with_label("＋");
-    new_button.add_css_class("suggested-action");
     let save_button = gtk::Button::with_label("Save");
-    let delete_button = gtk::Button::with_label("•••");
-    delete_button.add_css_class("destructive-action");
+    let delete_button = gtk::Button::with_label("Delete");
     header.pack_start(&new_button);
     header.pack_end(&delete_button);
     header.pack_end(&save_button);
@@ -497,10 +495,10 @@ fn build_ui(app: &adw::Application) {
             };
             let filter = match row.index() {
                 0 => TaskFilterState::Inbox,
-                1 => TaskFilterState::DueSoon,
-                2 => TaskFilterState::All,
-                3 => TaskFilterState::InProgress,
-                4 => TaskFilterState::Done,
+                1 => TaskFilterState::InProgress,
+                2 => TaskFilterState::Done,
+                3 => TaskFilterState::DueSoon,
+                4 => TaskFilterState::All,
                 _ => TaskFilterState::All,
             };
             state.active_filter.replace(filter);
@@ -526,20 +524,20 @@ fn build_ui(app: &adw::Application) {
 fn sidebar_filter_order() -> [TaskFilterState; 5] {
     [
         TaskFilterState::Inbox,
-        TaskFilterState::DueSoon,
-        TaskFilterState::All,
         TaskFilterState::InProgress,
         TaskFilterState::Done,
+        TaskFilterState::DueSoon,
+        TaskFilterState::All,
     ]
 }
 
 fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
     match filter {
-        TaskFilterState::Inbox => "▣  Inbox",
-        TaskFilterState::DueSoon => "★  Due Soon",
-        TaskFilterState::All => "▰  Anytime",
-        TaskFilterState::InProgress => "◐  Working",
-        TaskFilterState::Done => "☑  Completed",
+        TaskFilterState::Inbox => "Inbox",
+        TaskFilterState::InProgress => "In Progress",
+        TaskFilterState::Done => "Done",
+        TaskFilterState::DueSoon => "Due Soon",
+        TaskFilterState::All => "All Tasks",
     }
 }
 
@@ -561,13 +559,12 @@ fn install_css() {
     let provider = gtk::CssProvider::new();
     provider.load_from_data(
         r#"
-        window, .background { background: #fbfbfc; }
         .tsk-sidebar {
-            background: #f2f3f5;
-            border-right: 1px solid #e1e3e6;
+            background: @sidebar_bg_color;
+            border-right: 1px solid @borders;
         }
         .sidebar-app-title {
-            color: #1f2328;
+            color: @window_fg_color;
             font-size: 20px;
             font-weight: 800;
             letter-spacing: -0.04em;
@@ -576,32 +573,30 @@ fn install_css() {
         .sidebar-search {
             border-radius: 8px;
             min-height: 30px;
-            background: #ffffff;
         }
         .sidebar-row {
             border-radius: 6px;
             margin: 1px 0;
-            color: #34363a;
+            color: @window_fg_color;
         }
-        .sidebar-row:selected { background: #d9dde3; }
         .sidebar-section {
-            color: #6f747c;
+            color: @dim_label_color;
             font-size: 12px;
             font-weight: 700;
             margin: 10px 8px 2px;
         }
         .sidebar-static-row {
-            color: #34363a;
+            color: @window_fg_color;
             padding: 4px 10px;
             border-radius: 6px;
         }
         .sidebar-count {
-            color: #858b93;
+            color: @dim_label_color;
             font-size: 12px;
             font-weight: 700;
         }
         .sidebar-empty-note {
-            color: #858b93;
+            color: @dim_label_color;
             font-size: 12px;
             margin: 4px 10px;
         }
@@ -617,13 +612,10 @@ fn install_css() {
             border-radius: 6px;
             margin: 1px 0;
             background: transparent;
-            border-bottom: 1px solid #eceef1;
-        }
-        .task-row:hover, .task-row:selected {
-            background: #e9edf3;
+            border-bottom: 1px solid @borders;
         }
         .status-dot {
-            color: #0a84ff;
+            color: @accent_color;
             font-size: 18px;
             font-weight: 700;
         }
@@ -647,7 +639,7 @@ fn install_css() {
         .notes-card {
             border-radius: 0;
             background: transparent;
-            border-top: 1px solid #e6e8eb;
+            border-top: 1px solid @borders;
             padding: 10px 0;
         }
         .editor-notes {
