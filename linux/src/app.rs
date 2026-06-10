@@ -1395,7 +1395,34 @@ fn show_settings_window(
     sync_setup_button.connect_clicked({
         let dialog = dialog.clone();
         let settings_path = settings_path.clone();
-        move |_| show_sync_setup_window(&dialog, settings_path.clone(), false)
+        let sync_setup_button = sync_setup_button.clone();
+        let sync_account_row = sync_account_row.clone();
+        let sync_account = sync_account.clone();
+        move |_| {
+            let setup = show_sync_setup_window(&dialog, settings_path.clone(), false);
+            setup.connect_destroy({
+                let settings_path = settings_path.clone();
+                let sync_setup_button = sync_setup_button.clone();
+                let sync_account_row = sync_account_row.clone();
+                let sync_account = sync_account.clone();
+                move |_| {
+                    let settings = read_settings(&settings_path).unwrap_or_default();
+                    let signed_in = sync_auth_configured(&LinuxPlatform::new(), &settings);
+                    sync_setup_button.set_visible(!signed_in);
+                    sync_account_row.set_visible(signed_in);
+                    if signed_in {
+                        sync_account.set_text(&format!(
+                            "Signed in as {}",
+                            if settings.sync_email.is_empty() {
+                                "unknown account"
+                            } else {
+                                &settings.sync_email
+                            }
+                        ));
+                    }
+                }
+            });
+        }
     });
     sync_logout_button.connect_clicked({
         let dialog = dialog.clone();
@@ -1613,7 +1640,11 @@ struct TokenResponse {
     refresh_token: String,
 }
 
-fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf, first_run: bool) {
+fn show_sync_setup_window(
+    parent: &impl IsA<gtk::Window>,
+    settings_path: PathBuf,
+    first_run: bool,
+) -> gtk::Window {
     let settings = read_settings(&settings_path).unwrap_or_default();
     let dialog = gtk::Window::builder()
         .title("Sync setup")
@@ -1731,6 +1762,7 @@ fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf
     }
     dialog.set_child(Some(&content));
     dialog.present();
+    dialog
 }
 
 fn configure_sync_auth(
