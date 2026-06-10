@@ -167,6 +167,8 @@ def update_cargo_lock_package(lockfile: Path, package: str, version: Version) ->
 
 
 def update_artifact_version(artifact: str, version: Version) -> list[str]:
+    if os.environ.get("RELEASE_UPDATE_PACKAGE_VERSION") != "1":
+        return []
     if artifact == "cli":
         replace_package_version(Path("cli/Cargo.toml"), version)
         update_cargo_lock_package(Path("Cargo.lock"), "taskmanager-cli", version)

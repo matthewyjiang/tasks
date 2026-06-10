@@ -29,6 +29,8 @@ For each artifact with releasable changes, the workflow creates:
 - an annotated Git tag like `server-v1.2.3`
 - a GitHub Release with generated notes for that artifact's path-scoped commits
 
+The release workflow does not push package-version commits directly to `main`, because repository rules require changes to land through pull requests. Package manifest versions should be updated in normal PRs when needed.
+
 ## Commit examples
 
 ```text
