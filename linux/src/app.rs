@@ -5,7 +5,6 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus};
-use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
@@ -180,18 +179,22 @@ impl AppState {
             due_label.set_xalign(0.0);
             due_label.add_css_class("task-menu-heading");
             let calendar = gtk::Calendar::new();
+            calendar.add_css_class("task-calendar");
             calendar.connect_day_selected({
                 let state = Rc::clone(self);
                 let task_id = task.id;
                 move |calendar| {
                     let date = calendar.date();
+                    // Store the selected calendar day at local noon. Noon avoids
+                    // day-shift surprises around timezone/DST boundaries while
+                    // preserving the user-selected date.
                     let due_at = gtk::glib::DateTime::from_local(
                         date.year(),
                         date.month(),
                         date.day_of_month(),
-                        23,
-                        59,
-                        59.0,
+                        12,
+                        0,
+                        0.0,
                     )
                     .map(|date_time| date_time.to_unix() * 1000);
                     match due_at {
@@ -502,15 +505,18 @@ fn build_ui(app: &adw::Application) {
 
     let list_heading = gtk::Label::new(Some("Inbox"));
     list_heading.set_xalign(0.0);
+    list_heading.set_hexpand(true);
     list_heading.add_css_class("pane-title");
 
     let list_name_entry = gtk::Entry::new();
+    list_name_entry.set_hexpand(true);
     list_name_entry.add_css_class("pane-title");
     list_name_entry.add_css_class("flat");
     list_name_entry.set_visible(false);
 
     let list_actions_button = gtk::MenuButton::new();
     list_actions_button.set_label("⋯");
+    list_actions_button.set_halign(gtk::Align::End);
     list_actions_button.add_css_class("flat");
     list_actions_button.set_visible(false);
     let list_actions_popover = gtk::Popover::new();
@@ -522,6 +528,7 @@ fn build_ui(app: &adw::Application) {
     list_actions_button.set_popover(Some(&list_actions_popover));
 
     let page_title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    page_title.set_hexpand(true);
     page_title.append(&list_heading);
     page_title.append(&list_name_entry);
     page_title.append(&list_actions_button);
@@ -721,22 +728,36 @@ fn format_task_row_summary(task: &Task) -> String {
 }
 
 fn format_due_date(due_at_ms: i64) -> String {
-    let Ok(date_time) = OffsetDateTime::from_unix_timestamp(due_at_ms / 1000) else {
+    let Ok(date_time) = gtk::glib::DateTime::from_unix_local(due_at_ms / 1000) else {
         return "unknown".to_owned();
     };
-    let now = OffsetDateTime::now_utc();
-    if date_time.date() == now.date() {
+    let Ok(now) = gtk::glib::DateTime::now_local() else {
+        return date_time
+            .format("%b %d, %Y")
+            .map(|value| value.to_string())
+            .unwrap_or_else(|_| "unknown".to_owned());
+    };
+
+    if same_local_day(&date_time, &now) {
         "today".to_owned()
-    } else if date_time.date() == (now + Duration::days(1)).date() {
+    } else if now
+        .add_days(1)
+        .map(|tomorrow| same_local_day(&date_time, &tomorrow))
+        .unwrap_or(false)
+    {
         "tomorrow".to_owned()
     } else {
-        format!(
-            "{} {:02}, {}",
-            date_time.month(),
-            date_time.day(),
-            date_time.year()
-        )
+        date_time
+            .format("%b %d, %Y")
+            .map(|value| value.to_string())
+            .unwrap_or_else(|_| "unknown".to_owned())
     }
+}
+
+fn same_local_day(left: &gtk::glib::DateTime, right: &gtk::glib::DateTime) -> bool {
+    left.year() == right.year()
+        && left.month() == right.month()
+        && left.day_of_month() == right.day_of_month()
 }
 
 fn sidebar_filter_order() -> [TaskFilterState; 5] {
@@ -885,6 +906,23 @@ fn install_css() {
             font-size: 12px;
             font-weight: 700;
             margin-top: 6px;
+        }
+        .task-calendar {
+            border-radius: 12px;
+            padding: 6px;
+            background: @card_bg_color;
+            color: @window_fg_color;
+        }
+        .task-calendar button {
+            border-radius: 8px;
+            color: @window_fg_color;
+        }
+        .task-calendar button:hover {
+            background: color-mix(in srgb, @window_fg_color 6%, transparent);
+        }
+        .task-calendar:selected {
+            background: @accent_bg_color;
+            color: @accent_fg_color;
         }
         .editor-title {
             font-size: 26px;
