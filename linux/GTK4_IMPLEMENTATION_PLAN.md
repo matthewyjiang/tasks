@@ -49,7 +49,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Selected-list page menu is aligned to the right side of the page header.
 - [x] Cleared the top app bar, moved new task/search to a bottom content bar, and moved list/settings actions into a bottom sidebar bar with a shared divider.
 - [x] Added a settings window for server URL, theme, and completed-task preference.
-- [x] Added configurable keybindings to encrypted vault settings so they sync via the encrypted cloud settings blob, not plaintext settings.
+- [x] Added configurable keybindings to encrypted vault settings so they sync via the encrypted cloud settings blob, not plaintext settings, and wired them into GTK shortcuts for add/search/close/delete/toggle.
 - [x] Settings separation clarified: theme/server URL stay local plaintext; show completed/keybindings live in encrypted synced vault settings.
 - [x] Added in-window centered search overlay with up to 10 results.
 - [x] Task list layout expands to fill the available vertical space.

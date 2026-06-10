@@ -730,6 +730,8 @@ fn build_ui(app: &adw::Application) {
     toast_overlay.set_child(Some(&root_overlay));
     window.set_content(Some(&toast_overlay));
 
+    let keybindings = core.vault_settings().unwrap_or_default().keybindings;
+
     let state = Rc::new(AppState {
         core: Rc::new(core),
         tasks: RefCell::new(Vec::new()),
@@ -767,7 +769,10 @@ fn build_ui(app: &adw::Application) {
         let create_task_action = Rc::clone(&create_task_action);
         move |_| create_task_action()
     });
-    bottom_new_button.connect_clicked(move |_| create_task_action());
+    bottom_new_button.connect_clicked({
+        let create_task_action = Rc::clone(&create_task_action);
+        move |_| create_task_action()
+    });
     add_list_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| state.create_list()
@@ -825,13 +830,17 @@ fn build_ui(app: &adw::Application) {
             state.load_tasks();
         }
     });
-    search_button.connect_clicked({
+    let open_search_action: Rc<dyn Fn()> = Rc::new({
         let search_panel = search_panel.clone();
         let overlay_search = overlay_search.clone();
-        move |_| {
+        move || {
             search_panel.set_visible(true);
             overlay_search.grab_focus();
         }
+    });
+    search_button.connect_clicked({
+        let open_search_action = Rc::clone(&open_search_action);
+        move |_| open_search_action()
     });
     let search_key_controller = gtk::EventControllerKey::new();
     search_key_controller.connect_key_pressed({
@@ -907,6 +916,15 @@ fn build_ui(app: &adw::Application) {
             }
         }
     });
+
+    install_keybindings(
+        &window,
+        &keybindings,
+        Rc::clone(&create_task_action),
+        Rc::clone(&open_search_action),
+        search_panel.clone(),
+        Rc::clone(&state),
+    );
 
     if let Some(row) = filter_list.row_at_index(0) {
         filter_list.select_row(Some(&row));
@@ -1044,6 +1062,88 @@ fn show_settings_window(
 
     dialog.set_child(Some(&content));
     dialog.present();
+}
+
+fn install_keybindings(
+    window: &adw::ApplicationWindow,
+    keybindings: &Keybindings,
+    create_task_action: Rc<dyn Fn()>,
+    open_search_action: Rc<dyn Fn()>,
+    search_panel: gtk::Box,
+    state: Rc<AppState>,
+) {
+    let controller = gtk::ShortcutController::new();
+    controller.set_scope(gtk::ShortcutScope::Global);
+
+    add_shortcut(&controller, &keybindings.add_task, move || {
+        create_task_action()
+    });
+    add_shortcut(&controller, &keybindings.search, move || {
+        open_search_action()
+    });
+    add_shortcut(&controller, &keybindings.close_overlay, move || {
+        search_panel.set_visible(false);
+    });
+    add_shortcut(&controller, &keybindings.delete_task, {
+        let state = Rc::clone(&state);
+        move || {
+            if let Some(task_id) = selected_task_id(&state) {
+                if let Err(error) = state.core.delete_task(task_id) {
+                    state.toast(format!("Failed to delete task: {error}"));
+                }
+                state.load_tasks();
+            }
+        }
+    });
+    add_shortcut(&controller, &keybindings.toggle_done, move || {
+        if let Some(task_id) = selected_task_id(&state) {
+            match state.core.get_task(task_id) {
+                Ok(task) => {
+                    let patch = TaskPatch {
+                        status: Some(if task.status == TaskStatus::Done {
+                            TaskStatus::Open
+                        } else {
+                            TaskStatus::Done
+                        }),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to update task: {error}"));
+                    }
+                    state.load_tasks();
+                }
+                Err(error) => state.toast(format!("Failed to load task: {error}")),
+            }
+        }
+    });
+
+    window.add_controller(controller);
+}
+
+fn add_shortcut(
+    controller: &gtk::ShortcutController,
+    accelerator: &str,
+    action: impl Fn() + 'static,
+) {
+    let Some(trigger) = gtk::ShortcutTrigger::parse_string(accelerator) else {
+        eprintln!("Ignoring invalid keybinding: {accelerator}");
+        return;
+    };
+    let shortcut = gtk::Shortcut::new(
+        Some(trigger),
+        Some(gtk::CallbackAction::new(move |_, _| {
+            action();
+            gtk::glib::Propagation::Stop
+        })),
+    );
+    controller.add_shortcut(shortcut);
+}
+
+fn selected_task_id(state: &AppState) -> Option<Uuid> {
+    state
+        .list
+        .selected_row()
+        .and_then(|row| Uuid::parse_str(&row.widget_name()).ok())
 }
 
 fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gtk::Entry {
