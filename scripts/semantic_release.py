@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Path-scoped semantic release helper for this monorepo.
 
-Creates independent tags/releases per artifact, e.g. artifact-v1.2.3 or server-v1.2.3, by analyzing
+Creates independent tags/releases per artifact, e.g. linux-app-v1.2.3 or server-v1.2.3, by analyzing
 Conventional Commits that touched the artifact path since that artifact's latest tag.
 """
 
@@ -177,6 +177,10 @@ def update_artifact_version(artifact: str, version: Version) -> list[str]:
         replace_package_version(Path("core/Cargo.toml"), version)
         update_cargo_lock_package(Path("Cargo.lock"), "taskmanager-core", version)
         return ["core/Cargo.toml", "Cargo.lock"]
+    if artifact == "linux-app":
+        replace_package_version(Path("linux/Cargo.toml"), version)
+        update_cargo_lock_package(Path("Cargo.lock"), "tsk-linux", version)
+        return ["linux/Cargo.toml", "Cargo.lock"]
     return []
 
 

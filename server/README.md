@@ -76,7 +76,7 @@ cd server
 ./scripts/deploy.sh
 ```
 
-The script interactively asks for non-secret settings, automatically generates missing `POSTGRES_PASSWORD` and `JWT_SECRET`, writes `.env`, builds the app image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the deploy script keeps the app container on the default `PORT=18080` internally and exposes `HOST_PORT=18080` by default.
+The script interactively asks for non-secret settings, automatically generates missing `POSTGRES_PASSWORD` and `JWT_SECRET`, writes `.env`, builds the `tasks-server-api:latest` image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the deploy script keeps the app container on the default `PORT=18080` internally and exposes `HOST_PORT=18080` by default.
 
 For repeatable or CI-driven deploys, use non-interactive mode. Existing `.env` values are reused, missing secrets are generated automatically, and defaults are applied:
 
