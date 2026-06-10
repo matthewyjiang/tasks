@@ -2936,9 +2936,6 @@ fn install_css() {
         .task-row:hover .task-actions {
             opacity: 1;
         }
-        .task-row:hover .sync-status {
-            opacity: 0;
-        }
         .status-dot {
             color: @accent_color;
             font-size: 18px;
