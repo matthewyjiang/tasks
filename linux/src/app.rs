@@ -137,6 +137,7 @@ impl AppState {
                 let task_id = task.id;
                 let task_confirm = task_confirm.clone();
                 move |entry| {
+                    entry.remove_css_class("renaming");
                     update_task_title(&state, task_id, &entry.text());
                     task_confirm.set_visible(false);
                     state.list.grab_focus();
@@ -166,6 +167,7 @@ impl AppState {
                 let title = title.clone();
                 let task_confirm = task_confirm.clone();
                 move |_| {
+                    title.remove_css_class("renaming");
                     update_task_title(&state, task_id, &title.text());
                     task_confirm.set_visible(false);
                     state.list.grab_focus();
@@ -728,6 +730,7 @@ fn build_ui(app: &adw::Application) {
     state.list_name_entry.connect_activate({
         let state = Rc::clone(&state);
         move |_| {
+            state.list_name_entry.remove_css_class("renaming");
             state.rename_selected_list();
             state.list_rename_button.set_visible(false);
         }
@@ -735,6 +738,7 @@ fn build_ui(app: &adw::Application) {
     state.list_rename_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| {
+            state.list_name_entry.remove_css_class("renaming");
             state.rename_selected_list();
             state.list_rename_button.set_visible(false);
         }
@@ -1024,14 +1028,14 @@ fn install_css() {
             padding-right: 0;
         }
         entry.rename-entry text {
-            text-decoration-line: none;
+            text-decoration-line: underline;
+            text-decoration-color: transparent;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 3px;
         }
         entry.rename-entry.renaming text,
         entry.rename-entry.renaming:focus text {
-            text-decoration-line: underline;
             text-decoration-color: @accent_color;
-            text-decoration-thickness: 2px;
-            text-underline-offset: 3px;
         }
         .task-summary {
             color: @dim_label_color;
