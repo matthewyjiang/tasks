@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::db::LocalDatabase;
 use crate::error::CoreResult;
+use crate::settings::VaultSettings;
 use crate::types::{RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort};
 
 pub struct TaskManagerCore {
@@ -66,6 +67,14 @@ impl TaskManagerCore {
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         self.database.search_tasks(query)
+    }
+
+    pub fn vault_settings(&self) -> CoreResult<VaultSettings> {
+        self.database.vault_settings()
+    }
+
+    pub fn update_vault_settings(&self, settings: VaultSettings) -> CoreResult<VaultSettings> {
+        self.database.update_vault_settings(&settings)
     }
 
     pub fn sync_status(&self) -> CoreResult<SyncStatus> {

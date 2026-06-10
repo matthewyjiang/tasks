@@ -167,7 +167,7 @@ impl Default for VaultSettings {
 
 impl VaultSettings {
     pub fn encrypt(&self, key: &[u8]) -> CoreResult<VaultSettingsBlob> {
-        let task = self.to_reserved_task()?;
+        let task = self.to_reserved_task(0)?;
         Ok(VaultSettingsBlob {
             id: VAULT_SETTINGS_ID.to_owned(),
             blob: encrypt_blob(&task, key)?,
@@ -193,7 +193,7 @@ impl VaultSettings {
         }
     }
 
-    fn to_reserved_task(&self) -> CoreResult<Task> {
+    pub(crate) fn to_reserved_task(&self, updated_at: i64) -> CoreResult<Task> {
         self.validate_schema_version()?;
 
         Ok(Task {
@@ -205,10 +205,16 @@ impl VaultSettings {
             project_id: None,
             tags: Vec::new(),
             created_at: 0,
-            updated_at: 0,
+            updated_at,
             deleted: false,
             dirty: true,
         })
+    }
+
+    pub(crate) fn from_reserved_task(task: &Task) -> CoreResult<Self> {
+        let settings: Self = serde_json::from_str(&task.body)?;
+        settings.validate_schema_version()?;
+        Ok(settings)
     }
 
     fn validate_schema_version(&self) -> CoreResult<()> {
@@ -410,7 +416,7 @@ mod tests {
 
     #[test]
     fn vault_settings_conflict_resolution_uses_last_write_wins() {
-        let mut local = VaultSettings::default().to_reserved_task().unwrap();
+        let mut local = VaultSettings::default().to_reserved_task(0).unwrap();
         let mut remote = local.clone();
         local.updated_at = 10;
         remote.updated_at = 20;
@@ -425,7 +431,7 @@ mod tests {
         let mut settings = VaultSettings::default();
         settings.schema_version = 2;
 
-        let error = settings.to_reserved_task().unwrap_err();
+        let error = settings.to_reserved_task(0).unwrap_err();
 
         assert!(matches!(
             error,

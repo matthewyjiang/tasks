@@ -5,7 +5,9 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
-use taskmanager_core::{Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus};
+use taskmanager_core::{
+    Keybindings, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+};
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
@@ -773,7 +775,8 @@ fn build_ui(app: &adw::Application) {
     settings_button.connect_clicked({
         let window = window.clone();
         let settings_path = paths.settings_path.clone();
-        move |_| show_settings_window(&window, settings_path.clone())
+        let core = Rc::clone(&state.core);
+        move |_| show_settings_window(&window, settings_path.clone(), Rc::clone(&core))
     });
     let list_name_focus = gtk::EventControllerFocus::new();
     list_name_focus.connect_enter({
@@ -921,8 +924,13 @@ fn apply_theme_choice(theme: ThemeChoice) {
     adw::StyleManager::default().set_color_scheme(color_scheme);
 }
 
-fn show_settings_window(parent: &adw::ApplicationWindow, settings_path: PathBuf) {
+fn show_settings_window(
+    parent: &adw::ApplicationWindow,
+    settings_path: PathBuf,
+    core: Rc<TaskManagerCore>,
+) {
     let settings = read_settings(&settings_path).unwrap_or_default();
+    let vault_settings = core.vault_settings().unwrap_or_default();
     let dialog = gtk::Window::builder()
         .title("Settings")
         .transient_for(parent)
@@ -965,8 +973,35 @@ fn show_settings_window(parent: &adw::ApplicationWindow, settings_path: PathBuf)
     content.append(&theme_combo);
 
     let show_completed = gtk::CheckButton::with_label("Show completed tasks");
-    show_completed.set_active(settings.show_completed);
+    show_completed.set_active(vault_settings.show_completed);
     content.append(&show_completed);
+
+    let keybind_label = gtk::Label::new(Some("Keybindings (encrypted + synced)"));
+    keybind_label.set_xalign(0.0);
+    keybind_label.add_css_class("task-menu-heading");
+    content.append(&keybind_label);
+    let add_task_key = settings_entry("Add task", &vault_settings.keybindings.add_task, &content);
+    let search_key = settings_entry("Search", &vault_settings.keybindings.search, &content);
+    let close_overlay_key = settings_entry(
+        "Close overlay",
+        &vault_settings.keybindings.close_overlay,
+        &content,
+    );
+    let confirm_rename_key = settings_entry(
+        "Confirm rename",
+        &vault_settings.keybindings.confirm_rename,
+        &content,
+    );
+    let delete_task_key = settings_entry(
+        "Delete task",
+        &vault_settings.keybindings.delete_task,
+        &content,
+    );
+    let toggle_done_key = settings_entry(
+        "Toggle done",
+        &vault_settings.keybindings.toggle_done,
+        &content,
+    );
 
     let save_button = gtk::Button::with_label("Save");
     save_button.add_css_class("suggested-action");
@@ -984,10 +1019,22 @@ fn show_settings_window(parent: &adw::ApplicationWindow, settings_path: PathBuf)
             let settings = LinuxSettings {
                 server_url: server_entry.text().to_string(),
                 theme,
-                show_completed: show_completed.is_active(),
+                show_completed: false,
+            };
+            let mut vault_settings = core.vault_settings().unwrap_or_default();
+            vault_settings.show_completed = show_completed.is_active();
+            vault_settings.keybindings = Keybindings {
+                add_task: add_task_key.text().to_string(),
+                search: search_key.text().to_string(),
+                close_overlay: close_overlay_key.text().to_string(),
+                confirm_rename: confirm_rename_key.text().to_string(),
+                delete_task: delete_task_key.text().to_string(),
+                toggle_done: toggle_done_key.text().to_string(),
             };
             if let Err(error) = write_settings(&settings_path, &settings) {
-                eprintln!("Failed to save settings: {error}");
+                eprintln!("Failed to save local settings: {error}");
+            } else if let Err(error) = core.update_vault_settings(vault_settings) {
+                eprintln!("Failed to save encrypted settings: {error}");
             } else {
                 apply_theme_choice(theme);
                 dialog.close();
@@ -997,6 +1044,20 @@ fn show_settings_window(parent: &adw::ApplicationWindow, settings_path: PathBuf)
 
     dialog.set_child(Some(&content));
     dialog.present();
+}
+
+fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gtk::Entry {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let name = gtk::Label::new(Some(label));
+    name.set_xalign(0.0);
+    name.set_hexpand(true);
+    let entry = gtk::Entry::new();
+    entry.set_text(value);
+    entry.set_width_chars(18);
+    row.append(&name);
+    row.append(&entry);
+    content.append(&row);
+    entry
 }
 
 fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &str) {

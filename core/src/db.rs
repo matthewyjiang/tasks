@@ -6,6 +6,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::error::{CoreResult, DbError};
+use crate::settings::{VaultSettings, VAULT_SETTINGS_ID};
 use crate::types::{Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus};
 
 pub struct LocalDatabase {
@@ -198,14 +199,34 @@ impl LocalDatabase {
         collect_tasks(tasks)
     }
 
+    pub fn vault_settings(&self) -> CoreResult<VaultSettings> {
+        let task = self
+            .connection
+            .query_row(
+                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1 AND title = ?2",
+                params![Uuid::nil().to_string(), VAULT_SETTINGS_ID],
+                read_task,
+            )
+            .optional()?;
+        task.as_ref()
+            .map(VaultSettings::from_reserved_task)
+            .unwrap_or_else(|| Ok(VaultSettings::default()))
+    }
+
+    pub fn update_vault_settings(&self, settings: &VaultSettings) -> CoreResult<VaultSettings> {
+        let task = settings.to_reserved_task(now_ms())?;
+        self.upsert_task(&task)?;
+        Ok(settings.clone())
+    }
+
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         let mut statement = self.connection.prepare(
             "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
              FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
-             WHERE tasks_fts MATCH ?1 AND t.deleted = 0
+             WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
              ORDER BY rank, t.updated_at DESC, t.id ASC",
         )?;
-        let tasks = statement.query_map(params![query], read_task)?;
+        let tasks = statement.query_map(params![query, Uuid::nil().to_string()], read_task)?;
         collect_tasks(tasks)
     }
 
