@@ -1000,6 +1000,9 @@ fn build_ui(app: &adw::Application) {
             if state.editor_panel.is_visible() {
                 state.save_task_editor();
             }
+            if state.move_list_panel.is_visible() {
+                state.hide_move_list_panel();
+            }
         }
     });
 
