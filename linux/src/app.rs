@@ -1308,17 +1308,18 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
     }
 
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 18);
-    content.set_margin_top(18);
-    content.set_margin_bottom(18);
-    content.set_margin_start(18);
-    content.set_margin_end(18);
+    content.set_margin_top(0);
+    content.set_margin_bottom(0);
+    content.set_margin_start(0);
+    content.set_margin_end(0);
     content.set_vexpand(true);
     content.set_hexpand(true);
 
     let settings_nav = gtk::ListBox::new();
     settings_nav.add_css_class("settings-nav");
     settings_nav.set_selection_mode(gtk::SelectionMode::Single);
-    settings_nav.set_width_request(150);
+    settings_nav.set_width_request(170);
+    settings_nav.set_vexpand(true);
     for name in ["Sync", "Appearance", "Keybindings"] {
         let row = gtk::ListBoxRow::new();
         row.add_css_class("sidebar-row");
@@ -1333,6 +1334,7 @@ fn show_settings_panel(panel: &gtk::Box, settings_path: PathBuf, core: Rc<TaskMa
     }
 
     let settings_stack = gtk::Stack::new();
+    settings_stack.add_css_class("settings-content");
     settings_stack.set_hexpand(true);
     settings_stack.set_vexpand(true);
 
@@ -2424,8 +2426,7 @@ fn install_css() {
             box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
             transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
-        .move-list-panel,
-        .settings-panel {
+        .move-list-panel {
             padding: 20px;
             border-radius: 20px;
             background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
@@ -2433,6 +2434,35 @@ fn install_css() {
             border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
             box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
             transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .settings-panel {
+            padding: 0;
+            border-radius: 20px;
+            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
+            color: @popover_fg_color;
+            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
+            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
+            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
+        }
+        .settings-nav {
+            background: @sidebar_bg_color;
+            padding: 12px 10px;
+            border-radius: 20px 0 0 20px;
+        }
+        .settings-nav row {
+            background: transparent;
+            border-radius: 10px;
+            margin: 2px 0;
+            color: @window_fg_color;
+        }
+        .settings-nav row:hover {
+            background: color-mix(in srgb, @window_fg_color 6%, transparent);
+        }
+        .settings-nav row:selected {
+            background: color-mix(in srgb, @window_fg_color 8%, transparent);
+        }
+        .settings-content {
+            padding: 22px;
         }
         .move-list-title {
             font-size: 20px;
