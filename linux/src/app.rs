@@ -28,6 +28,8 @@ struct AppState {
     search_query: RefCell<String>,
     list: gtk::ListBox,
     list_heading: gtk::Label,
+    list_name_entry: gtk::Entry,
+    list_delete_button: gtk::Button,
     filter_count_labels: Vec<gtk::Label>,
     user_lists: RefCell<Vec<TaskList>>,
     user_list_box: gtk::ListBox,
@@ -67,9 +69,15 @@ impl AppState {
                         .iter()
                         .find(|list| list.id == list_id)
                     {
-                        self.list_heading.set_text(&list.name);
+                        self.list_heading.set_visible(false);
+                        self.list_name_entry.set_visible(true);
+                        self.list_delete_button.set_visible(true);
+                        self.list_name_entry.set_text(&list.name);
                     }
                 } else {
+                    self.list_heading.set_visible(true);
+                    self.list_name_entry.set_visible(false);
+                    self.list_delete_button.set_visible(false);
                     self.list_heading
                         .set_text(self.active_filter.borrow().label());
                 }
@@ -269,49 +277,11 @@ impl AppState {
             let icon = gtk::Label::new(Some("●"));
             icon.add_css_class("sidebar-icon");
             icon.add_css_class("sidebar-icon-list");
-            let name = gtk::Entry::new();
-            name.set_text(&list.name);
+            let name = gtk::Label::new(Some(&list.name));
+            name.set_xalign(0.0);
             name.set_hexpand(true);
-            name.add_css_class("flat");
-            name.connect_activate({
-                let state = Rc::clone(self);
-                let list_id = list.id;
-                move |entry| {
-                    if let Err(error) = state.core.update_list(list_id, entry.text().to_string()) {
-                        state.toast(format!("Failed to rename list: {error}"));
-                    }
-                    state.render_user_lists();
-                    state.load_tasks();
-                }
-            });
-            let actions = gtk::MenuButton::new();
-            actions.set_label("⋯");
-            actions.add_css_class("flat");
-            let popover = gtk::Popover::new();
-            let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            let delete = gtk::Button::with_label("Delete List");
-            delete.add_css_class("flat");
-            delete.connect_clicked({
-                let state = Rc::clone(self);
-                let list_id = list.id;
-                move |_| {
-                    if let Err(error) = state.core.delete_list(list_id) {
-                        state.toast(format!("Failed to delete list: {error}"));
-                    }
-                    if *state.selected_list_id.borrow() == Some(list_id) {
-                        state.selected_list_id.replace(None);
-                        state.active_filter.replace(TaskFilterState::Inbox);
-                    }
-                    state.render_user_lists();
-                    state.load_tasks();
-                }
-            });
-            action_box.append(&delete);
-            popover.set_child(Some(&action_box));
-            actions.set_popover(Some(&popover));
             row_box.append(&icon);
             row_box.append(&name);
-            row_box.append(&actions);
             row.set_child(Some(&row_box));
             self.user_list_box.append(&row);
         }
@@ -437,6 +407,20 @@ fn build_ui(app: &adw::Application) {
     list_heading.set_xalign(0.0);
     list_heading.add_css_class("pane-title");
 
+    let list_name_entry = gtk::Entry::new();
+    list_name_entry.add_css_class("pane-title");
+    list_name_entry.add_css_class("flat");
+    list_name_entry.set_visible(false);
+
+    let list_delete_button = gtk::Button::with_label("Delete List");
+    list_delete_button.add_css_class("flat");
+    list_delete_button.set_visible(false);
+
+    let page_title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    page_title.append(&list_heading);
+    page_title.append(&list_name_entry);
+    page_title.append(&list_delete_button);
+
     let task_list = gtk::ListBox::new();
     task_list.set_vexpand(true);
     task_list.set_hexpand(true);
@@ -473,7 +457,7 @@ fn build_ui(app: &adw::Application) {
     list_pane.set_margin_bottom(18);
     list_pane.set_margin_start(18);
     list_pane.set_margin_end(18);
-    list_pane.append(&list_heading);
+    list_pane.append(&page_title);
     list_pane.append(&scrolled_list);
 
     let title_entry = gtk::Entry::new();
@@ -514,6 +498,8 @@ fn build_ui(app: &adw::Application) {
         search_query: RefCell::new(String::new()),
         list: task_list,
         list_heading,
+        list_name_entry,
+        list_delete_button,
         filter_count_labels,
         user_lists: RefCell::new(Vec::new()),
         user_list_box,
@@ -532,6 +518,34 @@ fn build_ui(app: &adw::Application) {
     add_list_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| state.create_list()
+    });
+    state.list_name_entry.connect_activate({
+        let state = Rc::clone(&state);
+        move |entry| {
+            let Some(list_id) = *state.selected_list_id.borrow() else {
+                return;
+            };
+            if let Err(error) = state.core.update_list(list_id, entry.text().to_string()) {
+                state.toast(format!("Failed to rename list: {error}"));
+            }
+            state.render_user_lists();
+            state.load_tasks();
+        }
+    });
+    state.list_delete_button.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| {
+            let Some(list_id) = *state.selected_list_id.borrow() else {
+                return;
+            };
+            if let Err(error) = state.core.delete_list(list_id) {
+                state.toast(format!("Failed to delete list: {error}"));
+            }
+            state.selected_list_id.replace(None);
+            state.active_filter.replace(TaskFilterState::Inbox);
+            state.render_user_lists();
+            state.load_tasks();
+        }
     });
     search.connect_search_changed({
         let state = Rc::clone(&state);
@@ -562,14 +576,6 @@ fn build_ui(app: &adw::Application) {
             if let Ok(list_id) = Uuid::parse_str(&row.widget_name()) {
                 state.selected_list_id.replace(Some(list_id));
                 state.active_filter.replace(TaskFilterState::Upcoming);
-                if let Some(list) = state
-                    .user_lists
-                    .borrow()
-                    .iter()
-                    .find(|list| list.id == list_id)
-                {
-                    state.list_heading.set_text(&list.name);
-                }
                 state.load_tasks();
             }
         }
