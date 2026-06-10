@@ -786,8 +786,19 @@ fn build_ui(app: &adw::Application) {
 
     let due_calendar = gtk::Calendar::new();
     due_calendar.add_css_class("task-calendar");
-    let clear_due_button = gtk::Button::with_label("Clear due date");
+    let due_popover = gtk::Popover::new();
+    due_popover.set_child(Some(&due_calendar));
+    let due_button = gtk::MenuButton::new();
+    due_button.set_label("Calendar");
+    due_button.add_css_class("task-editor-button");
+    due_button.set_popover(Some(&due_popover));
+    let clear_due_button = gtk::Button::with_label("Clear");
     clear_due_button.add_css_class("task-editor-button");
+    let due_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    due_row.set_hexpand(true);
+    due_row.append(&due_entry);
+    due_row.append(&due_button);
+    due_row.append(&clear_due_button);
 
     let metadata_grid = gtk::Grid::new();
     metadata_grid.add_css_class("task-editor-meta");
@@ -798,11 +809,9 @@ fn build_ui(app: &adw::Application) {
     metadata_grid.attach(&field_label("List"), 0, 1, 1, 1);
     metadata_grid.attach(&list_combo, 1, 1, 1, 1);
     metadata_grid.attach(&field_label("Due"), 0, 2, 1, 1);
-    metadata_grid.attach(&due_entry, 1, 2, 1, 1);
-    metadata_grid.attach(&due_calendar, 1, 3, 1, 1);
-    metadata_grid.attach(&clear_due_button, 1, 4, 1, 1);
-    metadata_grid.attach(&field_label("Tags"), 0, 5, 1, 1);
-    metadata_grid.attach(&tags_entry, 1, 5, 1, 1);
+    metadata_grid.attach(&due_row, 1, 2, 1, 1);
+    metadata_grid.attach(&field_label("Tags"), 0, 3, 1, 1);
+    metadata_grid.attach(&tags_entry, 1, 3, 1, 1);
 
     editor_panel.append(&title_entry);
     editor_panel.append(&body_stack);
@@ -880,6 +889,7 @@ fn build_ui(app: &adw::Application) {
 
     due_calendar.connect_day_selected({
         let due_entry = state.due_entry.clone();
+        let due_popover = due_popover.clone();
         move |calendar| {
             let date = calendar.date();
             due_entry.set_text(&format!(
@@ -888,6 +898,7 @@ fn build_ui(app: &adw::Application) {
                 date.month(),
                 date.day_of_month()
             ));
+            due_popover.popdown();
         }
     });
     clear_due_button.connect_clicked({
