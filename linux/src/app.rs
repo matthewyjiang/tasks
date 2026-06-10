@@ -507,20 +507,41 @@ impl AppState {
         }
     }
 
-    fn rename_selected_list(self: &Rc<Self>) {
+    fn show_list_rename_editor(&self) {
+        self.list_heading.set_visible(false);
+        self.list_name_entry.set_visible(true);
+        self.list_rename_button.set_visible(true);
+        update_entry_width(&self.list_name_entry);
+        self.list_name_entry.grab_focus();
+        self.list_name_entry.select_region(0, -1);
+    }
+
+    fn rename_selected_list(self: &Rc<Self>) -> bool {
         let Some(list_id) = *self.selected_list_id.borrow() else {
-            return;
+            return false;
         };
-        if let Err(error) = self
-            .core
-            .update_list(list_id, self.list_name_entry.text().to_string())
-        {
-            self.toast(format!("Failed to rename list: {error}"));
+        let name = self.list_name_entry.text().trim().to_owned();
+        if name.is_empty() {
+            self.toast("List name cannot be empty".to_owned());
+            self.show_list_rename_editor();
+            return false;
         }
-        self.render_user_lists();
-        self.load_tasks();
-        self.request_sync();
-        self.list.grab_focus();
+        match self.core.update_list(list_id, name) {
+            Ok(list) => {
+                self.list_heading.set_text(&list.name);
+                self.list_name_entry.set_text(&list.name);
+                self.render_user_lists();
+                self.load_tasks();
+                self.request_sync();
+                self.list.grab_focus();
+                true
+            }
+            Err(error) => {
+                self.toast(format!("Failed to rename list: {error}"));
+                self.show_list_rename_editor();
+                false
+            }
+        }
     }
 
     fn create_list(self: &Rc<Self>) {
@@ -530,9 +551,8 @@ impl AppState {
                 self.active_filter.replace(TaskFilterState::Upcoming);
                 self.render_user_lists();
                 self.load_tasks();
+                self.show_list_rename_editor();
                 self.request_sync();
-                self.list_name_entry.grab_focus();
-                self.list_name_entry.select_region(0, -1);
             }
             Err(error) => self.toast(format!("Failed to create list: {error}")),
         }
@@ -1211,39 +1231,34 @@ fn build_ui(app: &adw::Application) {
         let state = Rc::clone(&state);
         move |_| {
             state.list_name_entry.remove_css_class("renaming");
-            state.list_rename_button.set_visible(false);
         }
     });
     state.list_name_entry.add_controller(list_name_focus);
     state.list_name_entry.connect_activate({
         let state = Rc::clone(&state);
         move |_| {
-            state.list_name_entry.remove_css_class("renaming");
-            state.rename_selected_list();
-            state.list_heading.set_visible(true);
-            state.list_name_entry.set_visible(false);
-            state.list_rename_button.set_visible(false);
+            if state.rename_selected_list() {
+                state.list_name_entry.remove_css_class("renaming");
+                state.list_heading.set_visible(true);
+                state.list_name_entry.set_visible(false);
+                state.list_rename_button.set_visible(false);
+            }
         }
     });
     state.list_rename_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| {
-            state.list_name_entry.remove_css_class("renaming");
-            state.rename_selected_list();
-            state.list_heading.set_visible(true);
-            state.list_name_entry.set_visible(false);
-            state.list_rename_button.set_visible(false);
+            if state.rename_selected_list() {
+                state.list_name_entry.remove_css_class("renaming");
+                state.list_heading.set_visible(true);
+                state.list_name_entry.set_visible(false);
+                state.list_rename_button.set_visible(false);
+            }
         }
     });
     list_edit_button.connect_clicked({
         let state = Rc::clone(&state);
-        move |_| {
-            state.list_heading.set_visible(false);
-            state.list_name_entry.set_visible(true);
-            state.list_rename_button.set_visible(true);
-            state.list_name_entry.grab_focus();
-            state.list_name_entry.select_region(0, -1);
-        }
+        move |_| state.show_list_rename_editor()
     });
     list_delete_button.connect_clicked({
         let state = Rc::clone(&state);
@@ -1985,6 +2000,16 @@ fn install_keybindings(
     let window_for_keys = window.clone();
     key_controller.connect_key_pressed(move |_, key, _, modifiers| {
         let editing_text = window_has_text_focus(&window_for_keys);
+        if editing_text
+            && !modifiers.intersects(
+                gtk::gdk::ModifierType::CONTROL_MASK
+                    | gtk::gdk::ModifierType::META_MASK
+                    | gtk::gdk::ModifierType::ALT_MASK,
+            )
+            && key != gtk::gdk::Key::Escape
+        {
+            return gtk::glib::Propagation::Proceed;
+        }
         if accel_matches(add_task, key, modifiers) {
             create_task_action();
             gtk::glib::Propagation::Stop
@@ -2030,6 +2055,11 @@ fn window_has_text_focus(window: &adw::ApplicationWindow) -> bool {
             || widget.is::<gtk::TextView>()
             || widget.is::<gtk::EditableLabel>()
             || widget.is::<gtk::SpinButton>()
+            || widget.ancestor(gtk::Entry::static_type()).is_some()
+            || widget.ancestor(gtk::SearchEntry::static_type()).is_some()
+            || widget.ancestor(gtk::TextView::static_type()).is_some()
+            || widget.ancestor(gtk::EditableLabel::static_type()).is_some()
+            || widget.ancestor(gtk::SpinButton::static_type()).is_some()
     })
 }
 
@@ -2613,9 +2643,18 @@ fn markdown_to_pango_markup(markdown: &str) -> String {
 }
 
 fn update_entry_width(entry: &gtk::Entry) {
-    let width = entry.text().chars().count().clamp(1, 48) as i32;
-    entry.set_width_chars(width);
-    entry.set_max_width_chars(width);
+    const MIN_RENAME_ENTRY_WIDTH: i32 = 32;
+    const MAX_RENAME_ENTRY_WIDTH: i32 = 560;
+    const RENAME_ENTRY_HORIZONTAL_PADDING: i32 = 20;
+
+    let text = entry.text();
+    let layout = entry.create_pango_layout(Some(if text.is_empty() { " " } else { text.as_str() }));
+    let (text_width, _) = layout.pixel_size();
+    let width = (text_width + RENAME_ENTRY_HORIZONTAL_PADDING)
+        .clamp(MIN_RENAME_ENTRY_WIDTH, MAX_RENAME_ENTRY_WIDTH);
+    entry.set_width_chars(0);
+    entry.set_max_width_chars(0);
+    entry.set_size_request(width, -1);
 }
 
 fn format_task_row_summary(task: &Task) -> String {
@@ -2968,8 +3007,9 @@ fn install_css() {
             font-weight: 800;
         }
         .confirm-button:hover {
-            background: color-mix(in srgb, @accent_bg_color 88%, @window_fg_color 12%);
+            background: color-mix(in srgb, @accent_bg_color 78%, @window_fg_color 22%);
             color: @accent_fg_color;
+            box-shadow: 0 2px 8px color-mix(in srgb, @accent_bg_color 35%, transparent);
         }
         .task-actions {
             opacity: 0;
