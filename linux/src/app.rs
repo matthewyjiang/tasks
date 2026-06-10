@@ -1,13 +1,17 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use adw::prelude::*;
+use base64::Engine;
 use gtk4 as gtk;
 use libadwaita as adw;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use taskmanager_core::{
-    Keybindings, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+    init_account, init_device_keypair, public_key_from_private_key, Keybindings, Platform, Task,
+    TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
+    DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -27,6 +31,8 @@ const TASK_EDITOR_MAX_HEIGHT: i32 = 820;
 const TASK_EDITOR_HEIGHT_RATIO: f64 = 0.78;
 const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
 const TASK_EDITOR_INNER_PADDING: i32 = 7;
+const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
+const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
 
 pub fn run() {
     let app = adw::Application::builder().application_id(APP_ID).build();
@@ -492,7 +498,7 @@ fn build_ui(app: &adw::Application) {
 
     let platform = LinuxPlatform::new();
     if needs_onboarding(&platform) {
-        if let Err(error) = taskmanager_core::init_account(&platform) {
+        if let Err(error) = init_account(&platform) {
             eprintln!("Failed to initialize local account: {error}");
         }
     }
@@ -1189,6 +1195,9 @@ fn build_ui(app: &adw::Application) {
     }
     state.load_tasks();
     window.present();
+    if !sync_auth_configured(&platform, &settings) {
+        show_sync_setup_window(&window, paths.settings_path.clone(), true);
+    }
 }
 
 fn apply_theme_choice(theme: ThemeChoice) {
@@ -1233,6 +1242,10 @@ fn show_settings_window(
     server_entry.set_text(&settings.server_url);
     content.append(&server_label);
     content.append(&server_entry);
+
+    let sync_setup_button = gtk::Button::with_label("Sync login / setup…");
+    sync_setup_button.set_halign(gtk::Align::Start);
+    content.append(&sync_setup_button);
 
     let theme_label = gtk::Label::new(Some("Theme"));
     theme_label.set_xalign(0.0);
@@ -1283,6 +1296,12 @@ fn show_settings_window(
     save_button.add_css_class("suggested-action");
     save_button.set_halign(gtk::Align::End);
     content.append(&save_button);
+
+    sync_setup_button.connect_clicked({
+        let dialog = dialog.clone();
+        let settings_path = settings_path.clone();
+        move |_| show_sync_setup_window(&dialog, settings_path.clone(), false)
+    });
 
     save_button.connect_clicked({
         let dialog = dialog.clone();
@@ -1464,6 +1483,181 @@ fn selected_task_id(state: &AppState) -> Option<Uuid> {
         .list
         .selected_row()
         .and_then(|row| Uuid::parse_str(&row.widget_name()).ok())
+}
+
+fn sync_auth_configured(platform: &LinuxPlatform, settings: &LinuxSettings) -> bool {
+    !settings.server_url.trim().is_empty()
+        && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
+        && platform.load_key(AUTH_REFRESH_TOKEN_ID).is_ok()
+        && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
+        && platform.load_key(DEVICE_PRIVATE_KEY_ID).is_ok()
+}
+
+#[derive(Serialize)]
+struct AuthRequest {
+    email: String,
+    password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    jwt: String,
+    refresh_token: String,
+}
+
+fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf, first_run: bool) {
+    let settings = read_settings(&settings_path).unwrap_or_default();
+    let dialog = gtk::Window::builder()
+        .title("Sync setup")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(440)
+        .default_height(320)
+        .build();
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    content.set_margin_top(20);
+    content.set_margin_bottom(20);
+    content.set_margin_start(20);
+    content.set_margin_end(20);
+
+    let title = gtk::Label::new(Some("Set up sync"));
+    title.set_xalign(0.0);
+    title.add_css_class("pane-title");
+    content.append(&title);
+
+    let subtitle = gtk::Label::new(Some(
+        "Sign in to sync tasks across devices, or keep working locally.",
+    ));
+    subtitle.set_xalign(0.0);
+    subtitle.set_wrap(true);
+    subtitle.add_css_class("dim-label");
+    content.append(&subtitle);
+
+    let server_entry = gtk::Entry::new();
+    server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    server_entry.set_text(&settings.server_url);
+    content.append(&server_entry);
+
+    let email_entry = gtk::Entry::new();
+    email_entry.set_placeholder_text(Some("Email"));
+    content.append(&email_entry);
+
+    let password_entry = gtk::PasswordEntry::new();
+    password_entry.set_placeholder_text(Some("Password"));
+    content.append(&password_entry);
+
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    status.add_css_class("dim-label");
+    content.append(&status);
+
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    actions.set_halign(gtk::Align::End);
+    let local_button = gtk::Button::with_label("Work local");
+    let login_button = gtk::Button::with_label("Login / Register");
+    login_button.add_css_class("suggested-action");
+    actions.append(&local_button);
+    actions.append(&login_button);
+    content.append(&actions);
+
+    local_button.connect_clicked({
+        let dialog = dialog.clone();
+        move |_| dialog.close()
+    });
+
+    login_button.connect_clicked({
+        let dialog = dialog.clone();
+        move |_| {
+            status.set_text("Signing in…");
+            let platform = LinuxPlatform::new();
+            match configure_sync_auth(
+                &platform,
+                &settings_path,
+                &server_entry.text(),
+                &email_entry.text(),
+                &password_entry.text(),
+            ) {
+                Ok(()) => {
+                    status.set_text("Sync configured.");
+                    dialog.close();
+                }
+                Err(error) => status.set_text(&format!("Sync setup failed: {error}")),
+            }
+        }
+    });
+
+    if first_run {
+        dialog.connect_close_request(|_| gtk::glib::Propagation::Proceed);
+    }
+    dialog.set_child(Some(&content));
+    dialog.present();
+}
+
+fn configure_sync_auth(
+    platform: &LinuxPlatform,
+    settings_path: &Path,
+    server_url: &str,
+    email: &str,
+    password: &str,
+) -> Result<(), String> {
+    let server_url = server_url.trim().trim_end_matches('/').to_owned();
+    let email = email.trim().to_owned();
+    let password = password.to_string();
+    if server_url.is_empty() || email.is_empty() || password.is_empty() {
+        return Err("server, email, and password are required".to_owned());
+    }
+
+    let public_key = match platform.load_key(DEVICE_PRIVATE_KEY_ID) {
+        Ok(private_key) => {
+            public_key_from_private_key(&private_key).map_err(|error| error.to_string())?
+        }
+        Err(_) => init_device_keypair(platform).map_err(|error| error.to_string())?,
+    };
+    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_err() {
+        init_account(platform).map_err(|error| error.to_string())?;
+    }
+
+    let client = reqwest::blocking::Client::new();
+    let register = AuthRequest {
+        email: email.clone(),
+        password: password.clone(),
+        pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
+    };
+    let login = AuthRequest {
+        email,
+        password,
+        pub_key: None,
+    };
+    let tokens = client
+        .post(format!("{server_url}/auth/register"))
+        .json(&register)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.json::<TokenResponse>())
+        .or_else(|_| {
+            client
+                .post(format!("{server_url}/auth/login"))
+                .json(&login)
+                .send()
+                .and_then(|response| response.error_for_status())
+                .and_then(|response| response.json::<TokenResponse>())
+        })
+        .map_err(|error| error.to_string())?;
+
+    platform
+        .store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())
+        .map_err(|error| error.to_string())?;
+    platform
+        .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
+        .map_err(|error| error.to_string())?;
+
+    let mut settings = read_settings(settings_path).unwrap_or_default();
+    settings.server_url = server_url;
+    write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gtk::Entry {
