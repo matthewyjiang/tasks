@@ -28,8 +28,8 @@ jobs:
             path: core
           - artifact: cli
             path: cli
-          - artifact: app
-            path: android ios linux macos windows
+          - artifact: linux-app
+            path: linux
     steps:
       - uses: actions/checkout@v4
         with:
