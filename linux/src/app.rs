@@ -236,8 +236,12 @@ impl AppState {
             move_task.add_css_class("flat");
             move_task.connect_clicked({
                 let state = Rc::clone(self);
+                let popover = popover.clone();
                 let task_id = task.id;
-                move |_| state.show_move_list_panel(task_id)
+                move |_| {
+                    popover.popdown();
+                    state.show_move_list_panel(task_id);
+                }
             });
 
             let delete = gtk::Button::with_label("Delete");
