@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -12,7 +13,7 @@ use crate::platform::LinuxPlatform;
 use crate::task_model::{default_sort, format_task_summary, task_matches_view, TaskFilterState};
 use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::normalize_query;
-use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
+use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
 
 pub fn run() {
     let app = adw::Application::builder().application_id(APP_ID).build();
@@ -487,6 +488,7 @@ fn build_ui(app: &adw::Application) {
     if let Err(error) = write_settings(&paths.settings_path, &settings) {
         eprintln!("Failed to persist settings: {error}");
     }
+    apply_theme_choice(settings.theme);
 
     let platform = LinuxPlatform::new();
     if needs_onboarding(&platform) {
@@ -512,11 +514,8 @@ fn build_ui(app: &adw::Application) {
         .default_height(700)
         .build();
 
-    let header = adw::HeaderBar::new();
-    header.add_css_class("flat");
-    header.set_show_start_title_buttons(false);
-    let new_button = gtk::Button::with_label("＋");
-    header.pack_start(&new_button);
+    let new_button = gtk::Button::with_label("＋ Task");
+    new_button.add_css_class("flat");
 
     let search = gtk::SearchEntry::new();
     search.set_placeholder_text(Some("Search"));
@@ -567,9 +566,21 @@ fn build_ui(app: &adw::Application) {
     user_list_box.set_selection_mode(gtk::SelectionMode::Single);
     sidebar.append(&user_list_box);
 
+    let sidebar_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sidebar_spacer.set_vexpand(true);
+    sidebar.append(&sidebar_spacer);
+
+    let sidebar_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    sidebar_bottom_bar.add_css_class("sidebar-bottom-bar");
     let add_list_button = gtk::Button::with_label("＋ List");
     add_list_button.add_css_class("flat");
-    sidebar.append(&add_list_button);
+    add_list_button.set_hexpand(true);
+    let settings_button = gtk::Button::with_label("⚙");
+    settings_button.add_css_class("flat");
+    settings_button.set_tooltip_text(Some("Settings"));
+    sidebar_bottom_bar.append(&add_list_button);
+    sidebar_bottom_bar.append(&settings_button);
+    sidebar.append(&sidebar_bottom_bar);
 
     let list_heading = gtk::Label::new(Some("Inbox"));
     list_heading.set_xalign(0.0);
@@ -611,6 +622,7 @@ fn build_ui(app: &adw::Application) {
     page_title.append(&list_name_entry);
     page_title.append(&list_rename_button);
     page_title.append(&page_title_spacer);
+    page_title.append(&new_button);
     page_title.append(&list_actions_button);
 
     let task_list = gtk::ListBox::new();
@@ -669,7 +681,6 @@ fn build_ui(app: &adw::Application) {
     let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main_area.set_hexpand(true);
     main_area.set_vexpand(true);
-    main_area.append(&header);
     main_area.append(&list_pane);
 
     let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -718,6 +729,11 @@ fn build_ui(app: &adw::Application) {
     add_list_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| state.create_list()
+    });
+    settings_button.connect_clicked({
+        let window = window.clone();
+        let settings_path = paths.settings_path.clone();
+        move |_| show_settings_window(&window, settings_path.clone())
     });
     let list_name_focus = gtk::EventControllerFocus::new();
     list_name_focus.connect_enter({
@@ -820,6 +836,93 @@ fn build_ui(app: &adw::Application) {
     }
     state.load_tasks();
     window.present();
+}
+
+fn apply_theme_choice(theme: ThemeChoice) {
+    let color_scheme = match theme {
+        ThemeChoice::System => adw::ColorScheme::Default,
+        ThemeChoice::Light => adw::ColorScheme::ForceLight,
+        ThemeChoice::Dark => adw::ColorScheme::ForceDark,
+    };
+    adw::StyleManager::default().set_color_scheme(color_scheme);
+}
+
+fn show_settings_window(parent: &adw::ApplicationWindow, settings_path: PathBuf) {
+    let settings = read_settings(&settings_path).unwrap_or_default();
+    let dialog = gtk::Window::builder()
+        .title("Settings")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(420)
+        .default_height(260)
+        .build();
+
+    let content = gtk::Box::new(gtk::Orientation::Vertical, 16);
+    content.set_margin_top(18);
+    content.set_margin_bottom(18);
+    content.set_margin_start(18);
+    content.set_margin_end(18);
+
+    let title = gtk::Label::new(Some("Settings"));
+    title.set_xalign(0.0);
+    title.add_css_class("pane-title");
+    content.append(&title);
+
+    let server_label = gtk::Label::new(Some("Server URL"));
+    server_label.set_xalign(0.0);
+    let server_entry = gtk::Entry::new();
+    server_entry.set_placeholder_text(Some("Optional sync server URL"));
+    server_entry.set_text(&settings.server_url);
+    content.append(&server_label);
+    content.append(&server_entry);
+
+    let theme_label = gtk::Label::new(Some("Theme"));
+    theme_label.set_xalign(0.0);
+    let theme_combo = gtk::ComboBoxText::new();
+    theme_combo.append(Some("system"), "System");
+    theme_combo.append(Some("light"), "Light");
+    theme_combo.append(Some("dark"), "Dark");
+    theme_combo.set_active_id(Some(match settings.theme {
+        ThemeChoice::System => "system",
+        ThemeChoice::Light => "light",
+        ThemeChoice::Dark => "dark",
+    }));
+    content.append(&theme_label);
+    content.append(&theme_combo);
+
+    let show_completed = gtk::CheckButton::with_label("Show completed tasks");
+    show_completed.set_active(settings.show_completed);
+    content.append(&show_completed);
+
+    let save_button = gtk::Button::with_label("Save");
+    save_button.add_css_class("suggested-action");
+    save_button.set_halign(gtk::Align::End);
+    content.append(&save_button);
+
+    save_button.connect_clicked({
+        let dialog = dialog.clone();
+        move |_| {
+            let theme = match theme_combo.active_id().as_deref() {
+                Some("light") => ThemeChoice::Light,
+                Some("dark") => ThemeChoice::Dark,
+                _ => ThemeChoice::System,
+            };
+            let settings = LinuxSettings {
+                server_url: server_entry.text().to_string(),
+                theme,
+                show_completed: show_completed.is_active(),
+            };
+            if let Err(error) = write_settings(&settings_path, &settings) {
+                eprintln!("Failed to save settings: {error}");
+            } else {
+                apply_theme_choice(theme);
+                dialog.close();
+            }
+        }
+    });
+
+    dialog.set_child(Some(&content));
+    dialog.present();
 }
 
 fn update_entry_width(entry: &gtk::Entry) {
@@ -988,6 +1091,9 @@ fn install_css() {
             color: @dim_label_color;
             font-size: 12px;
             font-weight: 700;
+        }
+        .sidebar-bottom-bar {
+            padding-top: 8px;
         }
         .pane-title {
             font-size: 22px;
