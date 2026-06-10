@@ -145,11 +145,19 @@ impl AppState {
             let task_title_focus = gtk::EventControllerFocus::new();
             task_title_focus.connect_enter({
                 let task_confirm = task_confirm.clone();
-                move |_| task_confirm.set_visible(true)
+                let title = title.clone();
+                move |_| {
+                    title.add_css_class("renaming");
+                    task_confirm.set_visible(true);
+                }
             });
             task_title_focus.connect_leave({
                 let task_confirm = task_confirm.clone();
-                move |_| task_confirm.set_visible(false)
+                let title = title.clone();
+                move |_| {
+                    title.remove_css_class("renaming");
+                    task_confirm.set_visible(false);
+                }
             });
             title.add_controller(task_title_focus);
             task_confirm.connect_clicked({
@@ -704,11 +712,17 @@ fn build_ui(app: &adw::Application) {
     let list_name_focus = gtk::EventControllerFocus::new();
     list_name_focus.connect_enter({
         let state = Rc::clone(&state);
-        move |_| state.list_rename_button.set_visible(true)
+        move |_| {
+            state.list_name_entry.add_css_class("renaming");
+            state.list_rename_button.set_visible(true);
+        }
     });
     list_name_focus.connect_leave({
         let state = Rc::clone(&state);
-        move |_| state.list_rename_button.set_visible(false)
+        move |_| {
+            state.list_name_entry.remove_css_class("renaming");
+            state.list_rename_button.set_visible(false);
+        }
     });
     state.list_name_entry.add_controller(list_name_focus);
     state.list_name_entry.connect_activate({
@@ -1012,8 +1026,8 @@ fn install_css() {
         entry.rename-entry text {
             text-decoration-line: none;
         }
-        entry.rename-entry:focus text,
-        entry.rename-entry:focus-within text {
+        entry.rename-entry.renaming text,
+        entry.rename-entry.renaming:focus text {
             text-decoration-line: underline;
             text-decoration-color: @accent_color;
             text-decoration-thickness: 2px;
