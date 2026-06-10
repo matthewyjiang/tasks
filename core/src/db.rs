@@ -39,7 +39,7 @@ impl LocalDatabase {
             title,
             body,
             due_at,
-            status: TaskStatus::Inbox,
+            status: TaskStatus::Open,
             project_id: None,
             tags: Vec::new(),
             created_at: now,
@@ -161,7 +161,7 @@ impl LocalDatabase {
                 title       TEXT NOT NULL,
                 body        TEXT NOT NULL DEFAULT '',
                 due_at      INTEGER,
-                status      TEXT NOT NULL DEFAULT 'inbox',
+                status      TEXT NOT NULL DEFAULT 'open',
                 project_id  TEXT,
                 tags        TEXT NOT NULL DEFAULT '[]',
                 created_at  INTEGER NOT NULL,
@@ -382,16 +382,14 @@ fn parse_uuid(text: &str, column: &'static str) -> rusqlite::Result<Uuid> {
 
 fn status_to_db(status: TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Inbox => "inbox",
-        TaskStatus::InProgress => "in_progress",
+        TaskStatus::Open => "open",
         TaskStatus::Done => "done",
     }
 }
 
 fn status_from_db(text: &str) -> rusqlite::Result<TaskStatus> {
     match text {
-        "inbox" => Ok(TaskStatus::Inbox),
-        "in_progress" => Ok(TaskStatus::InProgress),
+        "open" | "inbox" | "in_progress" => Ok(TaskStatus::Open),
         "done" => Ok(TaskStatus::Done),
         other => Err(rusqlite::Error::FromSqlConversionFailure(
             4,
@@ -501,7 +499,7 @@ mod tests {
         let loaded = database.get_task(task.id).unwrap();
 
         assert_eq!(loaded, task);
-        assert_eq!(loaded.status, TaskStatus::Inbox);
+        assert_eq!(loaded.status, TaskStatus::Open);
         assert!(loaded.dirty);
         assert!(!loaded.deleted);
     }
@@ -584,7 +582,7 @@ mod tests {
             .update_task(
                 matching.id,
                 TaskPatch {
-                    status: Some(TaskStatus::InProgress),
+                    status: Some(TaskStatus::Open),
                     project_id: Some(Some(project_id)),
                     tags: Some(vec!["work".to_owned(), "urgent".to_owned()]),
                     ..TaskPatch::default()
@@ -596,7 +594,7 @@ mod tests {
             .update_task(
                 wrong_tag.id,
                 TaskPatch {
-                    status: Some(TaskStatus::InProgress),
+                    status: Some(TaskStatus::Open),
                     project_id: Some(Some(project_id)),
                     tags: Some(vec!["work".to_owned()]),
                     ..TaskPatch::default()
@@ -609,7 +607,7 @@ mod tests {
         let tasks = database
             .list_tasks(
                 TaskFilter {
-                    status: Some(TaskStatus::InProgress),
+                    status: Some(TaskStatus::Open),
                     project_id: Some(project_id),
                     tags: vec!["work".to_owned(), "urgent".to_owned()],
                     due_after: Some(40),
@@ -745,7 +743,7 @@ mod tests {
     fn invalid_uuid_row_returns_clear_error() {
         let database = db();
         database.connection.execute(
-            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES ('not-a-uuid', 't', 'b', 'inbox', '[]', 1, 1)",
+            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES ('not-a-uuid', 't', 'b', 'open', '[]', 1, 1)",
             [],
         ).unwrap();
 
@@ -765,7 +763,7 @@ mod tests {
     fn invalid_tags_json_row_returns_clear_error() {
         let database = db();
         database.connection.execute(
-            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES (?1, 't', 'b', 'inbox', 'not-json', 1, 1)",
+            "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES (?1, 't', 'b', 'open', 'not-json', 1, 1)",
             params![Uuid::new_v4().to_string()],
         ).unwrap();
 

@@ -8,6 +8,6 @@ mod tests {
 
     #[test]
     fn normalize_query_trims_whitespace() {
-        assert_eq!(normalize_query("  inbox  "), "inbox");
+        assert_eq!(normalize_query("  open  "), "open");
     }
 }

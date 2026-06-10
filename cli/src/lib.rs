@@ -999,7 +999,7 @@ fn run_crypto(
                 title: "crypto verify".to_owned(),
                 body: String::new(),
                 due_at: None,
-                status: TaskStatus::Inbox,
+                status: TaskStatus::Open,
                 project_id: None,
                 tags: Vec::new(),
                 created_at: 0,
@@ -1164,9 +1164,7 @@ fn run_task(
         TaskCommands::Complete(args) => {
             update_status(core, args.id, TaskStatus::Done, output_format)
         }
-        TaskCommands::Reopen(args) => {
-            update_status(core, args.id, TaskStatus::Inbox, output_format)
-        }
+        TaskCommands::Reopen(args) => update_status(core, args.id, TaskStatus::Open, output_format),
     }
 }
 

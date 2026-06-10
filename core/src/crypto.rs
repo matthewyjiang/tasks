@@ -175,7 +175,7 @@ mod tests {
             title: "Encrypt this task".to_owned(),
             body: "The server must never see this text.".to_owned(),
             due_at: Some(1_717_603_200_000),
-            status: TaskStatus::Inbox,
+            status: TaskStatus::Open,
             project_id: None,
             tags: vec!["private".to_owned(), "local-first".to_owned()],
             created_at: 1_717_600_000_000,

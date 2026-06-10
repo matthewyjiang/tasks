@@ -3,47 +3,45 @@ use taskmanager_core::{Task, TaskFilter, TaskSort, TaskStatus};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TaskFilterState {
     #[default]
-    All,
-    Inbox,
-    InProgress,
+    Today,
+    Upcoming,
+    NoDueDate,
     Done,
-    DueSoon,
 }
 
 impl TaskFilterState {
     pub fn label(self) -> &'static str {
         match self {
-            Self::All => "All",
-            Self::Inbox => "Inbox",
-            Self::InProgress => "In Progress",
+            Self::Today => "Today",
+            Self::Upcoming => "Upcoming",
+            Self::NoDueDate => "No Due Date",
             Self::Done => "Done",
-            Self::DueSoon => "Due soon",
         }
     }
 
     pub fn to_filter(self, now_ms: i64) -> TaskFilter {
         let mut filter = TaskFilter::default();
         match self {
-            Self::All => {}
-            Self::Inbox => filter.status = Some(TaskStatus::Inbox),
-            Self::InProgress => filter.status = Some(TaskStatus::InProgress),
-            Self::Done => filter.status = Some(TaskStatus::Done),
-            Self::DueSoon => {
-                filter.due_before = Some(now_ms + 7 * 24 * 60 * 60 * 1000);
+            Self::Today => {
+                filter.status = Some(TaskStatus::Open);
+                filter.due_before = Some(end_of_today_ms(now_ms));
             }
+            Self::Upcoming | Self::NoDueDate => {
+                filter.status = Some(TaskStatus::Open);
+            }
+            Self::Done => filter.status = Some(TaskStatus::Done),
         }
         filter
     }
 }
 
 pub fn default_sort() -> TaskSort {
-    TaskSort::UpdatedAtDesc
+    TaskSort::DueAtAsc
 }
 
 pub fn status_label(status: TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Inbox => "Inbox",
-        TaskStatus::InProgress => "In Progress",
+        TaskStatus::Open => "Open",
         TaskStatus::Done => "Done",
     }
 }
@@ -58,6 +56,25 @@ pub fn format_task_summary(task: &Task) -> String {
     format!("{}{}{}", status_label(task.status), tags, dirty)
 }
 
+pub fn end_of_today_ms(now_ms: i64) -> i64 {
+    const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+    ((now_ms / DAY_MS) + 1) * DAY_MS - 1
+}
+
+pub fn task_matches_view(task: &Task, view: TaskFilterState, now_ms: i64) -> bool {
+    match view {
+        TaskFilterState::Today => {
+            task.status == TaskStatus::Open
+                && task
+                    .due_at
+                    .is_some_and(|due_at| due_at <= end_of_today_ms(now_ms))
+        }
+        TaskFilterState::Upcoming => task.status == TaskStatus::Open && task.due_at.is_some(),
+        TaskFilterState::NoDueDate => task.status == TaskStatus::Open && task.due_at.is_none(),
+        TaskFilterState::Done => task.status == TaskStatus::Done,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,20 +83,16 @@ mod tests {
     #[test]
     fn filter_state_maps_to_core_filters() {
         assert_eq!(
-            TaskFilterState::Inbox.to_filter(0).status,
-            Some(TaskStatus::Inbox)
-        );
-        assert_eq!(
-            TaskFilterState::InProgress.to_filter(0).status,
-            Some(TaskStatus::InProgress)
+            TaskFilterState::Today.to_filter(0).status,
+            Some(TaskStatus::Open)
         );
         assert_eq!(
             TaskFilterState::Done.to_filter(0).status,
             Some(TaskStatus::Done)
         );
         assert_eq!(
-            TaskFilterState::DueSoon.to_filter(100).due_before,
-            Some(604_800_100)
+            TaskFilterState::Today.to_filter(100).due_before,
+            Some(86_399_999)
         );
     }
 
@@ -90,7 +103,7 @@ mod tests {
             title: "Title".to_owned(),
             body: String::new(),
             due_at: None,
-            status: TaskStatus::InProgress,
+            status: TaskStatus::Open,
             project_id: None,
             tags: vec!["home".to_owned(), "quick".to_owned()],
             created_at: 0,
@@ -98,9 +111,6 @@ mod tests {
             deleted: false,
             dirty: true,
         };
-        assert_eq!(
-            format_task_summary(&task),
-            "In Progress · #home #quick · unsynced"
-        );
+        assert_eq!(format_task_summary(&task), "Open · #home #quick · unsynced");
     }
 }

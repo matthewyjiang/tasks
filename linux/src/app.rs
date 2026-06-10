@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
-use crate::task_model::{default_sort, format_task_summary, TaskFilterState};
+use crate::task_model::{default_sort, format_task_summary, task_matches_view, TaskFilterState};
 use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::normalize_query;
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
@@ -52,6 +52,12 @@ impl AppState {
 
         match result {
             Ok(tasks) => {
+                let view = *self.active_filter.borrow();
+                let now = now_ms();
+                let tasks = tasks
+                    .into_iter()
+                    .filter(|task| task_matches_view(task, view, now))
+                    .collect::<Vec<_>>();
                 let task_count = tasks.len();
                 self.tasks.replace(tasks);
                 self.list_heading.set_text(&format!(
@@ -87,8 +93,7 @@ impl AppState {
 
             let status_dot = gtk::Label::new(Some(match task.status {
                 TaskStatus::Done => "✓",
-                TaskStatus::InProgress => "◐",
-                TaskStatus::Inbox => "○",
+                TaskStatus::Open => "○",
             }));
             status_dot.add_css_class("status-dot");
             status_dot.set_valign(gtk::Align::Start);
@@ -124,9 +129,8 @@ impl AppState {
         self.title_entry.set_text(&task.title);
         self.body_view.buffer().set_text(&task.body);
         self.status_combo.set_active(Some(match task.status {
-            TaskStatus::Inbox => 0,
-            TaskStatus::InProgress => 1,
-            TaskStatus::Done => 2,
+            TaskStatus::Open => 0,
+            TaskStatus::Done => 1,
         }));
         self.tags_entry.set_text(&task.tags.join(", "));
     }
@@ -278,7 +282,7 @@ fn build_ui(app: &adw::Application) {
     let tag_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     sidebar.append(&tag_box);
 
-    let list_heading = gtk::Label::new(Some("All · 0"));
+    let list_heading = gtk::Label::new(Some("Today · 0"));
     list_heading.set_xalign(0.0);
     list_heading.add_css_class("pane-title");
 
@@ -322,8 +326,7 @@ fn build_ui(app: &adw::Application) {
     body_view.set_wrap_mode(gtk::WrapMode::Word);
     body_view.add_css_class("editor-notes");
     let status_combo = gtk::ComboBoxText::new();
-    status_combo.append_text("Inbox");
-    status_combo.append_text("In Progress");
+    status_combo.append_text("Open");
     status_combo.append_text("Done");
     status_combo.set_active(Some(0));
     let tags_entry = gtk::Entry::new();
@@ -345,7 +348,7 @@ fn build_ui(app: &adw::Application) {
     let state = Rc::new(AppState {
         core,
         tasks: RefCell::new(Vec::new()),
-        active_filter: RefCell::new(TaskFilterState::All),
+        active_filter: RefCell::new(TaskFilterState::Today),
         search_query: RefCell::new(String::new()),
         list: task_list,
         list_heading,
@@ -374,12 +377,11 @@ fn build_ui(app: &adw::Application) {
         let state = Rc::clone(&state);
         move |_, row| {
             let filter = match row.index() {
-                0 => TaskFilterState::Inbox,
-                1 => TaskFilterState::InProgress,
-                2 => TaskFilterState::Done,
-                3 => TaskFilterState::DueSoon,
-                4 => TaskFilterState::All,
-                _ => TaskFilterState::All,
+                0 => TaskFilterState::Today,
+                1 => TaskFilterState::Upcoming,
+                2 => TaskFilterState::NoDueDate,
+                3 => TaskFilterState::Done,
+                _ => TaskFilterState::Today,
             };
             state.active_filter.replace(filter);
             state.load_tasks();
@@ -401,37 +403,28 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
-fn sidebar_filter_order() -> [TaskFilterState; 5] {
+fn sidebar_filter_order() -> [TaskFilterState; 4] {
     [
-        TaskFilterState::Inbox,
-        TaskFilterState::InProgress,
+        TaskFilterState::Today,
+        TaskFilterState::Upcoming,
+        TaskFilterState::NoDueDate,
         TaskFilterState::Done,
-        TaskFilterState::DueSoon,
-        TaskFilterState::All,
     ]
 }
 
 fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
     match filter {
-        TaskFilterState::Inbox => "Inbox",
-        TaskFilterState::InProgress => "In Progress",
+        TaskFilterState::Today => "Today",
+        TaskFilterState::Upcoming => "Upcoming",
+        TaskFilterState::NoDueDate => "No Due Date",
         TaskFilterState::Done => "Done",
-        TaskFilterState::DueSoon => "Due Soon",
-        TaskFilterState::All => "All Tasks",
     }
 }
 
 fn count_for_filter(tasks: &[Task], filter: TaskFilterState, now_ms: i64) -> usize {
-    let due_soon_cutoff = now_ms + 7 * 24 * 60 * 60 * 1000;
     tasks
         .iter()
-        .filter(|task| match filter {
-            TaskFilterState::All => true,
-            TaskFilterState::Inbox => task.status == TaskStatus::Inbox,
-            TaskFilterState::InProgress => task.status == TaskStatus::InProgress,
-            TaskFilterState::Done => task.status == TaskStatus::Done,
-            TaskFilterState::DueSoon => task.due_at.is_some_and(|due_at| due_at <= due_soon_cutoff),
-        })
+        .filter(|task| task_matches_view(task, filter, now_ms))
         .count()
 }
 

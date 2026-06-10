@@ -19,8 +19,7 @@ pub struct Task {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
-    Inbox,
-    InProgress,
+    Open,
     Done,
 }
 
@@ -93,7 +92,7 @@ mod tests {
             title: "Write readable core".to_owned(),
             body: "Start with stable domain types.".to_owned(),
             due_at: Some(1_717_603_200_000),
-            status: TaskStatus::InProgress,
+            status: TaskStatus::Open,
             project_id: Some(Uuid::parse_str("018f6f4a-c9f4-7724-91ef-2f7b38a62601").unwrap()),
             tags: vec!["core".to_owned(), "rust".to_owned()],
             created_at: 1_717_600_000_000,
@@ -116,12 +115,8 @@ mod tests {
     #[test]
     fn task_status_uses_stable_snake_case_wire_values() {
         assert_eq!(
-            serde_json::to_string(&TaskStatus::Inbox).unwrap(),
-            "\"inbox\""
-        );
-        assert_eq!(
-            serde_json::to_string(&TaskStatus::InProgress).unwrap(),
-            "\"in_progress\""
+            serde_json::to_string(&TaskStatus::Open).unwrap(),
+            "\"open\""
         );
         assert_eq!(
             serde_json::to_string(&TaskStatus::Done).unwrap(),
@@ -129,12 +124,8 @@ mod tests {
         );
 
         assert_eq!(
-            serde_json::from_str::<TaskStatus>("\"inbox\"").unwrap(),
-            TaskStatus::Inbox
-        );
-        assert_eq!(
-            serde_json::from_str::<TaskStatus>("\"in_progress\"").unwrap(),
-            TaskStatus::InProgress
+            serde_json::from_str::<TaskStatus>("\"open\"").unwrap(),
+            TaskStatus::Open
         );
         assert_eq!(
             serde_json::from_str::<TaskStatus>("\"done\"").unwrap(),

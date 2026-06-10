@@ -175,7 +175,7 @@ impl VaultSettings {
             title: VAULT_SETTINGS_ID.to_owned(),
             body: serde_json::to_string(self)?,
             due_at: None,
-            status: TaskStatus::Inbox,
+            status: TaskStatus::Open,
             project_id: None,
             tags: Vec::new(),
             created_at: 0,
