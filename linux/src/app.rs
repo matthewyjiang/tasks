@@ -1448,9 +1448,10 @@ fn show_settings_window(
                 Some("dark") => ThemeChoice::Dark,
                 _ => ThemeChoice::System,
             };
+            let current_settings = read_settings(&settings_path).unwrap_or_default();
             let settings = LinuxSettings {
                 server_url: server_entry.text().to_string(),
-                sync_email: settings.sync_email.clone(),
+                sync_email: current_settings.sync_email,
                 theme,
                 show_completed: false,
             };
