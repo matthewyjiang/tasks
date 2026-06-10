@@ -348,13 +348,14 @@ fn build_ui(app: &adw::Application) {
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
 
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    content.append(&sidebar);
-    content.append(&list_pane);
+    let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main_area.set_hexpand(true);
+    main_area.append(&header);
+    main_area.append(&list_pane);
 
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    page.append(&header);
-    page.append(&content);
+    let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    page.append(&sidebar);
+    page.append(&main_area);
 
     let toast_overlay = adw::ToastOverlay::new();
     toast_overlay.set_child(Some(&page));
