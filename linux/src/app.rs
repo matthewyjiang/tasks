@@ -149,8 +149,8 @@ impl AppState {
             row.set_widget_name(&task.id.to_string());
 
             let container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-            container.set_margin_top(12);
-            container.set_margin_bottom(12);
+            container.set_margin_top(7);
+            container.set_margin_bottom(7);
             container.set_margin_start(14);
             container.set_margin_end(14);
 
@@ -186,11 +186,13 @@ impl AppState {
                 }
             });
 
-            let text = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
             text.set_hexpand(true);
+            text.set_valign(gtk::Align::Center);
             let title = gtk::Label::new(Some(&task.title));
             title.set_xalign(0.0);
             title.set_hexpand(true);
+            title.set_valign(gtk::Align::Center);
             title.set_ellipsize(gtk::pango::EllipsizeMode::End);
             title.add_css_class("task-title");
             let summary_text = format_task_row_summary(task);
