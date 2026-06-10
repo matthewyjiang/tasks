@@ -47,8 +47,9 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] New tasks are created in Inbox, task titles can be edited inline, and row actions include due date calendar, list assignment, mark open/done, and delete.
 - [x] Due date display/assignment uses local dates to avoid selected-date shifting, and the calendar is themed to match the app with hover/selected date feedback.
 - [x] Selected-list page menu is aligned to the right side of the page header.
-- [x] Cleared the top app bar, moved new task to the page header, and moved list/settings actions into a bottom sidebar bar.
+- [x] Cleared the top app bar, moved new task/search to a bottom content bar, and moved list/settings actions into a bottom sidebar bar with a shared divider.
 - [x] Added a settings window for server URL, theme, and completed-task preference.
+- [x] Added in-window centered search overlay with up to 10 results.
 - [x] Task list layout expands to fill the available vertical space.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.

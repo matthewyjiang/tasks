@@ -518,17 +518,11 @@ fn build_ui(app: &adw::Application) {
     let new_button = gtk::Button::with_label("＋ Task");
     new_button.add_css_class("flat");
 
-    let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Search"));
-    search.add_css_class("sidebar-search");
-
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 14);
     sidebar.add_css_class("tsk-sidebar");
     sidebar.set_width_request(260);
     sidebar.set_hexpand(false);
     sidebar.set_halign(gtk::Align::Start);
-
-    sidebar.append(&search);
 
     let filter_list = gtk::ListBox::new();
     filter_list.add_css_class("sidebar-list");
@@ -629,7 +623,6 @@ fn build_ui(app: &adw::Application) {
     page_title.append(&list_name_entry);
     page_title.append(&list_rename_button);
     page_title.append(&page_title_spacer);
-    page_title.append(&new_button);
     page_title.append(&list_actions_button);
 
     let task_list = gtk::ListBox::new();
@@ -685,11 +678,23 @@ fn build_ui(app: &adw::Application) {
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
 
+    let content_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    content_bottom_bar.add_css_class("content-bottom-bar");
+    let search_button = gtk::Button::with_label("⌕");
+    search_button.add_css_class("flat");
+    search_button.set_tooltip_text(Some("Search"));
+    let bottom_new_button = gtk::Button::with_label("＋");
+    bottom_new_button.add_css_class("flat");
+    bottom_new_button.set_tooltip_text(Some("Add Task"));
+    content_bottom_bar.append(&search_button);
+    content_bottom_bar.append(&bottom_new_button);
+
     let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main_area.set_width_request(560);
     main_area.set_hexpand(true);
     main_area.set_vexpand(true);
     main_area.append(&list_pane);
+    main_area.append(&content_bottom_bar);
 
     let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     page.set_vexpand(true);
@@ -697,8 +702,28 @@ fn build_ui(app: &adw::Application) {
     page.append(&sidebar);
     page.append(&main_area);
 
+    let search_panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    search_panel.add_css_class("search-panel");
+    search_panel.set_width_request(560);
+    search_panel.set_halign(gtk::Align::Center);
+    search_panel.set_valign(gtk::Align::Start);
+    search_panel.set_margin_top(96);
+    search_panel.set_visible(false);
+    let overlay_search = gtk::SearchEntry::new();
+    overlay_search.set_placeholder_text(Some("Search tasks"));
+    overlay_search.add_css_class("search-panel-entry");
+    let search_results = gtk::ListBox::new();
+    search_results.add_css_class("search-results");
+    search_results.set_selection_mode(gtk::SelectionMode::None);
+    search_panel.append(&overlay_search);
+    search_panel.append(&search_results);
+
+    let root_overlay = gtk::Overlay::new();
+    root_overlay.set_child(Some(&page));
+    root_overlay.add_overlay(&search_panel);
+
     let toast_overlay = adw::ToastOverlay::new();
-    toast_overlay.set_child(Some(&page));
+    toast_overlay.set_child(Some(&root_overlay));
     window.set_content(Some(&toast_overlay));
 
     let state = Rc::new(AppState {
@@ -724,16 +749,21 @@ fn build_ui(app: &adw::Application) {
         toast_overlay,
     });
 
-    new_button.connect_clicked({
+    let create_task_action: Rc<dyn Fn()> = Rc::new({
         let state = Rc::clone(&state);
         let filter_list = filter_list.clone();
-        move |_| {
+        move || {
             if let Some(row) = filter_list.row_at_index(0) {
                 filter_list.select_row(Some(&row));
             }
             state.create_task();
         }
     });
+    new_button.connect_clicked({
+        let create_task_action = Rc::clone(&create_task_action);
+        move |_| create_task_action()
+    });
+    bottom_new_button.connect_clicked(move |_| create_task_action());
     add_list_button.connect_clicked({
         let state = Rc::clone(&state);
         move |_| state.create_list()
@@ -790,11 +820,32 @@ fn build_ui(app: &adw::Application) {
             state.load_tasks();
         }
     });
-    search.connect_search_changed({
+    search_button.connect_clicked({
+        let search_panel = search_panel.clone();
+        let overlay_search = overlay_search.clone();
+        move |_| {
+            search_panel.set_visible(true);
+            overlay_search.grab_focus();
+        }
+    });
+    overlay_search.connect_search_changed({
         let state = Rc::clone(&state);
-        move |entry| {
-            state.search_query.replace(normalize_query(&entry.text()));
-            state.load_tasks();
+        let search_results = search_results.clone();
+        move |entry| render_search_results(&state, &search_results, &normalize_query(&entry.text()))
+    });
+    search_results.connect_row_activated({
+        let state = Rc::clone(&state);
+        let search_panel = search_panel.clone();
+        move |_, row| {
+            if let Ok(task_id) = Uuid::parse_str(&row.widget_name()) {
+                match state.core.get_task(task_id) {
+                    Ok(task) => {
+                        open_task_from_search(&state, &task);
+                        search_panel.set_visible(false);
+                    }
+                    Err(error) => state.toast(format!("Failed to open task: {error}")),
+                }
+            }
         }
     });
     filter_list.connect_row_activated({
@@ -933,6 +984,57 @@ fn show_settings_window(parent: &adw::ApplicationWindow, settings_path: PathBuf)
     dialog.present();
 }
 
+fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &str) {
+    while let Some(row) = results.first_child() {
+        results.remove(&row);
+    }
+    if query.is_empty() {
+        return;
+    }
+
+    match state.core.search_tasks(query.to_owned()) {
+        Ok(tasks) => {
+            for task in tasks.into_iter().take(10) {
+                let row = gtk::ListBoxRow::new();
+                row.set_widget_name(&task.id.to_string());
+                row.add_css_class("search-result-row");
+                let content = gtk::Box::new(gtk::Orientation::Vertical, 2);
+                content.set_margin_top(8);
+                content.set_margin_bottom(8);
+                content.set_margin_start(10);
+                content.set_margin_end(10);
+                let title = gtk::Label::new(Some(&task.title));
+                title.set_xalign(0.0);
+                title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                let summary = gtk::Label::new(Some(&format_task_row_summary(&task)));
+                summary.set_xalign(0.0);
+                summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                summary.add_css_class("task-summary");
+                content.append(&title);
+                content.append(&summary);
+                row.set_child(Some(&content));
+                results.append(&row);
+            }
+        }
+        Err(error) => state.toast(format!("Search failed: {error}")),
+    }
+}
+
+fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
+    state.selected_list_id.replace(task.project_id);
+    state
+        .active_filter
+        .replace(if task.status == TaskStatus::Done {
+            TaskFilterState::Done
+        } else if task.project_id.is_some() {
+            TaskFilterState::Upcoming
+        } else {
+            TaskFilterState::Inbox
+        });
+    state.load_tasks();
+    state.select_task(task.id);
+}
+
 fn update_entry_width(entry: &gtk::Entry) {
     let width = entry.text().chars().count().clamp(1, 48) as i32;
     entry.set_width_chars(width);
@@ -1048,7 +1150,7 @@ fn install_css() {
         r#"
         .tsk-sidebar {
             background: @sidebar_bg_color;
-            padding: 10px 10px 10px 12px;
+            padding: 10px 10px 0 12px;
         }
         .sidebar-search {
             border-radius: 8px;
@@ -1100,8 +1202,37 @@ fn install_css() {
             font-size: 12px;
             font-weight: 700;
         }
-        .sidebar-bottom-bar {
+        .sidebar-bottom-bar,
+        .content-bottom-bar {
+            border-top: 1px solid @borders;
             padding-top: 8px;
+        }
+        .sidebar-bottom-bar {
+            margin-left: -12px;
+            margin-right: -10px;
+            padding-left: 12px;
+            padding-right: 10px;
+            padding-bottom: 10px;
+        }
+        .content-bottom-bar {
+            padding: 8px 18px 10px 18px;
+        }
+        .search-panel {
+            padding: 10px;
+            border-radius: 16px;
+            background: @popover_bg_color;
+            color: @popover_fg_color;
+            box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
+        }
+        .search-panel-entry {
+            min-height: 40px;
+            border-radius: 12px;
+        }
+        .search-results {
+            background: transparent;
+        }
+        .search-result-row {
+            border-radius: 10px;
         }
         .pane-title {
             font-size: 22px;
