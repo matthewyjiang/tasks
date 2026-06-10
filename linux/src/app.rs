@@ -265,12 +265,17 @@ fn build_ui(app: &adw::Application) {
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
+        let icon = gtk::Label::new(Some(sidebar_filter_icon(filter)));
+        icon.add_css_class("sidebar-icon");
+        icon.add_css_class(sidebar_filter_icon_class(filter));
+
         let label = gtk::Label::new(Some(sidebar_filter_title(filter)));
         label.set_xalign(0.0);
         label.set_hexpand(true);
         let count_label = gtk::Label::new(Some("0"));
         count_label.add_css_class("sidebar-count");
 
+        row_box.append(&icon);
         row_box.append(&label);
         row_box.append(&count_label);
         row.set_child(Some(&row_box));
@@ -421,6 +426,24 @@ fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
     }
 }
 
+fn sidebar_filter_icon(filter: TaskFilterState) -> &'static str {
+    match filter {
+        TaskFilterState::Today => "●",
+        TaskFilterState::Upcoming => "◆",
+        TaskFilterState::NoDueDate => "■",
+        TaskFilterState::Done => "✓",
+    }
+}
+
+fn sidebar_filter_icon_class(filter: TaskFilterState) -> &'static str {
+    match filter {
+        TaskFilterState::Today => "sidebar-icon-today",
+        TaskFilterState::Upcoming => "sidebar-icon-upcoming",
+        TaskFilterState::NoDueDate => "sidebar-icon-anytime",
+        TaskFilterState::Done => "sidebar-icon-done",
+    }
+}
+
 fn count_for_filter(tasks: &[Task], filter: TaskFilterState, now_ms: i64) -> usize {
     tasks
         .iter()
@@ -467,6 +490,15 @@ fn install_css() {
             padding: 4px 10px;
             border-radius: 6px;
         }
+        .sidebar-icon {
+            min-width: 16px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .sidebar-icon-today { color: #ff9f0a; }
+        .sidebar-icon-upcoming { color: #0a84ff; }
+        .sidebar-icon-anytime { color: #8e8e93; }
+        .sidebar-icon-done { color: #30d158; }
         .sidebar-count {
             color: @dim_label_color;
             font-size: 12px;

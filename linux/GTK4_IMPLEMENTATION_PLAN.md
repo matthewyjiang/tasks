@@ -36,6 +36,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Simplified core task status to two states: `Open` and `Done`.
 - [x] Updated Linux sidebar views to `Today`, `Upcoming`, `Anytime`, and `Done`.
 - [x] Minimalized counts: only the sidebar `Today` row shows a number; section titles and tags do not.
+- [x] Added small colored icons to sidebar view rows.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
