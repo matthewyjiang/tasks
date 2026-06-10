@@ -34,7 +34,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Sidebar category rows now share the same base color, with only a subtle rounded hover state.
 - [x] Disabled persistent sidebar row selection so categories return to the sidebar background after click.
 - [x] Simplified core task status to two states: `Open` and `Done`.
-- [x] Updated Linux sidebar views to `Today`, `Upcoming`, `No Due Date`, and `Done`.
+- [x] Updated Linux sidebar views to `Today`, `Upcoming`, `Anytime`, and `Done`.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
@@ -509,7 +509,7 @@ pkg-config --modversion libsecret-1
 
 Build a GTK4/libadwaita app that opens the core database and supports offline task CRUD before implementing sync.
 
-Status: complete for the initial native Linux MVP. The implementation currently uses raw gtk-rs/libadwaita instead of Relm4 to keep the first version small and compilable. The layout has been polished toward a minimal Things-style desktop app by adapting its information architecture rather than copying sample content: a calm sidebar for date-oriented views (`Today`, `Upcoming`, `No Due Date`, `Done`), real tags, live counts, a focused task list, and empty state. Styling uses GTK/libadwaita theme colors instead of hard-coded light colors. Future iterations can extract the monolithic `app.rs` into the reserved component modules or introduce Relm4 if the state model grows.
+Status: complete for the initial native Linux MVP. The implementation currently uses raw gtk-rs/libadwaita instead of Relm4 to keep the first version small and compilable. The layout has been polished toward a minimal Things-style desktop app by adapting its information architecture rather than copying sample content: a calm sidebar for date-oriented views (`Today`, `Upcoming`, `Anytime`, `Done`), real tags, live counts, a focused task list, and empty state. Styling uses GTK/libadwaita theme colors instead of hard-coded light colors. Future iterations can extract the monolithic `app.rs` into the reserved component modules or introduce Relm4 if the state model grows.
 
 ## Latest validation
 

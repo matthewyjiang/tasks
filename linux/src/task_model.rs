@@ -14,7 +14,7 @@ impl TaskFilterState {
         match self {
             Self::Today => "Today",
             Self::Upcoming => "Upcoming",
-            Self::NoDueDate => "No Due Date",
+            Self::NoDueDate => "Anytime",
             Self::Done => "Done",
         }
     }

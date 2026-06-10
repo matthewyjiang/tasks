@@ -416,7 +416,7 @@ fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
     match filter {
         TaskFilterState::Today => "Today",
         TaskFilterState::Upcoming => "Upcoming",
-        TaskFilterState::NoDueDate => "No Due Date",
+        TaskFilterState::NoDueDate => "Anytime",
         TaskFilterState::Done => "Done",
     }
 }
