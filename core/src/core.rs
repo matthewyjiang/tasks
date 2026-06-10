@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::db::LocalDatabase;
 use crate::error::CoreResult;
-use crate::types::{RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskPatch, TaskSort};
+use crate::types::{RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort};
 
 pub struct TaskManagerCore {
     database: LocalDatabase,
@@ -21,6 +21,14 @@ impl TaskManagerCore {
         Ok(Self {
             database: LocalDatabase::open_in_memory()?,
         })
+    }
+
+    pub fn create_list(&self, name: String) -> CoreResult<TaskList> {
+        self.database.create_list(name)
+    }
+
+    pub fn list_task_lists(&self) -> CoreResult<Vec<TaskList>> {
+        self.database.list_task_lists()
     }
 
     pub fn create_task(
@@ -129,6 +137,16 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, CoreError::Database(DbError::Sqlite(_))));
+    }
+
+    #[test]
+    fn facade_list_methods_delegate_to_database() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+
+        assert!(core.list_task_lists().unwrap().is_empty());
+        let list = core.create_list("Work".to_owned()).unwrap();
+        assert_eq!(list.name, "Work");
+        assert_eq!(core.list_task_lists().unwrap(), vec![list]);
     }
 
     #[test]

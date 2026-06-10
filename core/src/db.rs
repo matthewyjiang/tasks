@@ -6,7 +6,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::error::{CoreResult, DbError};
-use crate::types::{Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};
+use crate::types::{Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus};
 
 pub struct LocalDatabase {
     connection: Connection,
@@ -25,6 +25,28 @@ impl LocalDatabase {
         let database = Self { connection };
         database.initialize_schema()?;
         Ok(database)
+    }
+
+    pub fn create_list(&self, name: String) -> CoreResult<TaskList> {
+        let now = now_ms();
+        let list = TaskList {
+            id: Uuid::new_v4(),
+            name,
+            created_at: now,
+            updated_at: now,
+            deleted: false,
+            dirty: true,
+        };
+        self.upsert_list(&list)?;
+        Ok(list)
+    }
+
+    pub fn list_task_lists(&self) -> CoreResult<Vec<TaskList>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, created_at, updated_at, deleted, dirty FROM task_lists WHERE deleted = 0 ORDER BY name COLLATE NOCASE ASC, id ASC",
+        )?;
+        let lists = statement.query_map([], read_task_list)?;
+        collect_task_lists(lists)
     }
 
     pub fn create_task(
@@ -170,6 +192,15 @@ impl LocalDatabase {
                 dirty       INTEGER NOT NULL DEFAULT 1
             );
 
+            CREATE TABLE IF NOT EXISTS task_lists (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                created_at  INTEGER NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                deleted     INTEGER NOT NULL DEFAULT 0,
+                dirty       INTEGER NOT NULL DEFAULT 1
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
                 title, body,
                 content='tasks', content_rowid='rowid'
@@ -209,6 +240,28 @@ impl LocalDatabase {
 
             CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_task_id_unique
             ON sync_queue(task_id);",
+        )?;
+        Ok(())
+    }
+
+    fn upsert_list(&self, list: &TaskList) -> CoreResult<()> {
+        self.connection.execute(
+            "INSERT INTO task_lists (id, name, created_at, updated_at, deleted, dirty)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                deleted = excluded.deleted,
+                dirty = excluded.dirty",
+            params![
+                list.id.to_string(),
+                list.name,
+                list.created_at,
+                list.updated_at,
+                bool_to_db(list.deleted),
+                bool_to_db(list.dirty),
+            ],
         )?;
         Ok(())
     }
@@ -320,6 +373,28 @@ impl LocalDatabase {
         )?;
         Ok(())
     }
+}
+
+fn collect_task_lists(
+    rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<TaskList>>,
+) -> CoreResult<Vec<TaskList>> {
+    let mut lists = Vec::new();
+    for list in rows {
+        lists.push(list?);
+    }
+    Ok(lists)
+}
+
+fn read_task_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskList> {
+    let id_text: String = row.get(0)?;
+    Ok(TaskList {
+        id: parse_uuid(&id_text, "id")?,
+        name: row.get(1)?,
+        created_at: row.get(2)?,
+        updated_at: row.get(3)?,
+        deleted: db_to_bool(row.get(4)?),
+        dirty: db_to_bool(row.get(5)?),
+    })
 }
 
 fn collect_tasks(

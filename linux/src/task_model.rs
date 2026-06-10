@@ -3,6 +3,7 @@ use taskmanager_core::{Task, TaskFilter, TaskSort, TaskStatus};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TaskFilterState {
     #[default]
+    Inbox,
     Today,
     Upcoming,
     NoDueDate,
@@ -12,6 +13,7 @@ pub enum TaskFilterState {
 impl TaskFilterState {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Inbox => "Inbox",
             Self::Today => "Today",
             Self::Upcoming => "Upcoming",
             Self::NoDueDate => "Anytime",
@@ -22,6 +24,9 @@ impl TaskFilterState {
     pub fn to_filter(self, now_ms: i64) -> TaskFilter {
         let mut filter = TaskFilter::default();
         match self {
+            Self::Inbox => {
+                filter.status = Some(TaskStatus::Open);
+            }
             Self::Today => {
                 filter.status = Some(TaskStatus::Open);
                 filter.due_before = Some(end_of_today_ms(now_ms));
@@ -63,6 +68,7 @@ pub fn end_of_today_ms(now_ms: i64) -> i64 {
 
 pub fn task_matches_view(task: &Task, view: TaskFilterState, now_ms: i64) -> bool {
     match view {
+        TaskFilterState::Inbox => task.status == TaskStatus::Open && task.project_id.is_none(),
         TaskFilterState::Today => {
             task.status == TaskStatus::Open
                 && task

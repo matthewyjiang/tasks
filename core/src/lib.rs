@@ -42,6 +42,6 @@ pub use sync::{
     SyncClient,
 };
 pub use types::{
-    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskPatch, TaskSort,
+    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort,
     TaskStatus,
 };

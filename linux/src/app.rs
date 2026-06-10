@@ -1,11 +1,10 @@
 use std::cell::RefCell;
-use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
-use taskmanager_core::{Task, TaskFilter, TaskManagerCore, TaskStatus};
+use taskmanager_core::{Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus};
 use uuid::Uuid;
 
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
@@ -25,11 +24,13 @@ struct AppState {
     core: TaskManagerCore,
     tasks: RefCell<Vec<Task>>,
     active_filter: RefCell<TaskFilterState>,
+    selected_list_id: RefCell<Option<Uuid>>,
     search_query: RefCell<String>,
     list: gtk::ListBox,
     list_heading: gtk::Label,
     filter_count_labels: Vec<gtk::Label>,
-    tag_box: gtk::Box,
+    user_lists: RefCell<Vec<TaskList>>,
+    user_list_box: gtk::ListBox,
     empty_state: gtk::Box,
     title_entry: gtk::Entry,
     body_view: gtk::TextView,
@@ -41,11 +42,11 @@ struct AppState {
 impl AppState {
     fn load_tasks(self: &Rc<Self>) {
         let query = self.search_query.borrow().clone();
+        let selected_list_id = *self.selected_list_id.borrow();
         let result = if query.is_empty() {
-            self.core.list_tasks(
-                self.active_filter.borrow().to_filter(now_ms()),
-                default_sort(),
-            )
+            let mut filter = self.active_filter.borrow().to_filter(now_ms());
+            filter.project_id = selected_list_id;
+            self.core.list_tasks(filter, default_sort())
         } else {
             self.core.search_tasks(query)
         };
@@ -59,8 +60,19 @@ impl AppState {
                     .filter(|task| task_matches_view(task, view, now))
                     .collect::<Vec<_>>();
                 self.tasks.replace(tasks);
-                self.list_heading
-                    .set_text(self.active_filter.borrow().label());
+                if let Some(list_id) = selected_list_id {
+                    if let Some(list) = self
+                        .user_lists
+                        .borrow()
+                        .iter()
+                        .find(|list| list.id == list_id)
+                    {
+                        self.list_heading.set_text(&list.name);
+                    }
+                } else {
+                    self.list_heading
+                        .set_text(self.active_filter.borrow().label());
+                }
                 self.render_list();
                 self.refresh_sidebar_metadata();
             }
@@ -97,10 +109,25 @@ impl AppState {
 
             let text = gtk::Box::new(gtk::Orientation::Vertical, 4);
             text.set_hexpand(true);
-            let title = gtk::Label::new(Some(&task.title));
-            title.set_xalign(0.0);
-            title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            let title = gtk::Entry::new();
+            title.set_text(&task.title);
             title.add_css_class("task-title");
+            title.add_css_class("flat");
+            title.set_hexpand(true);
+            title.connect_activate({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                move |entry| {
+                    let patch = TaskPatch {
+                        title: Some(entry.text().to_string()),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to update task: {error}"));
+                    }
+                    state.load_tasks();
+                }
+            });
             let summary = gtk::Label::new(Some(&format_task_summary(task)));
             summary.set_xalign(0.0);
             summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -108,8 +135,58 @@ impl AppState {
 
             text.append(&title);
             text.append(&summary);
+
+            let actions = gtk::MenuButton::new();
+            actions.set_label("⋯");
+            actions.add_css_class("flat");
+            actions.add_css_class("task-actions");
+            let popover = gtk::Popover::new();
+            let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            let toggle_done = gtk::Button::with_label(if task.status == TaskStatus::Done {
+                "Mark Open"
+            } else {
+                "Mark Done"
+            });
+            toggle_done.add_css_class("flat");
+            toggle_done.connect_clicked({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                let next_status = if task.status == TaskStatus::Done {
+                    TaskStatus::Open
+                } else {
+                    TaskStatus::Done
+                };
+                move |_| {
+                    let patch = TaskPatch {
+                        status: Some(next_status),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to update task: {error}"));
+                    }
+                    state.load_tasks();
+                }
+            });
+            let delete = gtk::Button::with_label("Delete");
+            delete.add_css_class("flat");
+            delete.connect_clicked({
+                let state = Rc::clone(self);
+                let task_id = task.id;
+                move |_| {
+                    if let Err(error) = state.core.delete_task(task_id) {
+                        state.toast(format!("Failed to delete task: {error}"));
+                    }
+                    state.load_tasks();
+                }
+            });
+            action_box.append(&toggle_done);
+            action_box.append(&delete);
+            popover.set_child(Some(&action_box));
+            actions.set_popover(Some(&popover));
+
             container.append(&status_dot);
             container.append(&text);
+            container.append(&actions);
             row.set_child(Some(&container));
             self.list.append(&row);
         }
@@ -163,29 +240,54 @@ impl AppState {
                 label.set_visible(false);
             }
         }
-        self.render_tag_rows(&tasks);
+        self.render_user_lists();
     }
 
-    fn render_tag_rows(&self, tasks: &[Task]) {
-        while let Some(row) = self.tag_box.first_child() {
-            self.tag_box.remove(&row);
+    fn render_user_lists(&self) {
+        while let Some(row) = self.user_list_box.first_child() {
+            self.user_list_box.remove(&row);
         }
 
-        let mut tags = BTreeSet::<String>::new();
-        for task in tasks {
-            for tag in &task.tags {
-                tags.insert(tag.to_owned());
+        let lists = match self.core.list_task_lists() {
+            Ok(lists) => lists,
+            Err(error) => {
+                self.toast(format!("Failed to load lists: {error}"));
+                return;
             }
-        }
+        };
+        self.user_lists.replace(lists.clone());
 
-        for tag in tags {
-            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-            row.add_css_class("sidebar-static-row");
-            let name = gtk::Label::new(Some(&format!("# {tag}")));
+        for list in lists {
+            let row = gtk::ListBoxRow::new();
+            row.add_css_class("sidebar-row");
+            row.set_widget_name(&list.id.to_string());
+            let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            row_box.set_margin_top(8);
+            row_box.set_margin_bottom(8);
+            row_box.set_margin_start(10);
+            row_box.set_margin_end(10);
+            let icon = gtk::Label::new(Some("●"));
+            icon.add_css_class("sidebar-icon");
+            icon.add_css_class("sidebar-icon-list");
+            let name = gtk::Label::new(Some(&list.name));
             name.set_xalign(0.0);
             name.set_hexpand(true);
-            row.append(&name);
-            self.tag_box.append(&row);
+            row_box.append(&icon);
+            row_box.append(&name);
+            row.set_child(Some(&row_box));
+            self.user_list_box.append(&row);
+        }
+    }
+
+    fn create_list(self: &Rc<Self>) {
+        match self.core.create_list("New List".to_owned()) {
+            Ok(list) => {
+                self.selected_list_id.replace(Some(list.id));
+                self.active_filter.replace(TaskFilterState::Upcoming);
+                self.render_user_lists();
+                self.load_tasks();
+            }
+            Err(error) => self.toast(format!("Failed to create list: {error}")),
         }
     }
 
@@ -284,10 +386,16 @@ fn build_ui(app: &adw::Application) {
     }
     sidebar.append(&filter_list);
 
-    let tag_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    sidebar.append(&tag_box);
+    let user_list_box = gtk::ListBox::new();
+    user_list_box.add_css_class("sidebar-list");
+    user_list_box.set_selection_mode(gtk::SelectionMode::None);
+    sidebar.append(&user_list_box);
 
-    let list_heading = gtk::Label::new(Some("Today"));
+    let add_list_button = gtk::Button::with_label("＋ List");
+    add_list_button.add_css_class("flat");
+    sidebar.append(&add_list_button);
+
+    let list_heading = gtk::Label::new(Some("Inbox"));
     list_heading.set_xalign(0.0);
     list_heading.add_css_class("pane-title");
 
@@ -353,12 +461,14 @@ fn build_ui(app: &adw::Application) {
     let state = Rc::new(AppState {
         core,
         tasks: RefCell::new(Vec::new()),
-        active_filter: RefCell::new(TaskFilterState::Today),
+        active_filter: RefCell::new(TaskFilterState::Inbox),
+        selected_list_id: RefCell::new(None),
         search_query: RefCell::new(String::new()),
         list: task_list,
         list_heading,
         filter_count_labels,
-        tag_box,
+        user_lists: RefCell::new(Vec::new()),
+        user_list_box,
         empty_state,
         title_entry,
         body_view,
@@ -371,6 +481,10 @@ fn build_ui(app: &adw::Application) {
         let state = Rc::clone(&state);
         move |_| state.create_task()
     });
+    add_list_button.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| state.create_list()
+    });
     search.connect_search_changed({
         let state = Rc::clone(&state);
         move |entry| {
@@ -382,14 +496,34 @@ fn build_ui(app: &adw::Application) {
         let state = Rc::clone(&state);
         move |_, row| {
             let filter = match row.index() {
-                0 => TaskFilterState::Today,
-                1 => TaskFilterState::Upcoming,
-                2 => TaskFilterState::NoDueDate,
-                3 => TaskFilterState::Done,
-                _ => TaskFilterState::Today,
+                0 => TaskFilterState::Inbox,
+                1 => TaskFilterState::Today,
+                2 => TaskFilterState::Upcoming,
+                3 => TaskFilterState::NoDueDate,
+                4 => TaskFilterState::Done,
+                _ => TaskFilterState::Inbox,
             };
+            state.selected_list_id.replace(None);
             state.active_filter.replace(filter);
             state.load_tasks();
+        }
+    });
+    state.user_list_box.connect_row_activated({
+        let state = Rc::clone(&state);
+        move |_, row| {
+            if let Ok(list_id) = Uuid::parse_str(&row.widget_name()) {
+                state.selected_list_id.replace(Some(list_id));
+                state.active_filter.replace(TaskFilterState::Upcoming);
+                if let Some(list) = state
+                    .user_lists
+                    .borrow()
+                    .iter()
+                    .find(|list| list.id == list_id)
+                {
+                    state.list_heading.set_text(&list.name);
+                }
+                state.load_tasks();
+            }
         }
     });
     state.list.connect_row_selected({
@@ -408,8 +542,9 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
-fn sidebar_filter_order() -> [TaskFilterState; 4] {
+fn sidebar_filter_order() -> [TaskFilterState; 5] {
     [
+        TaskFilterState::Inbox,
         TaskFilterState::Today,
         TaskFilterState::Upcoming,
         TaskFilterState::NoDueDate,
@@ -419,6 +554,7 @@ fn sidebar_filter_order() -> [TaskFilterState; 4] {
 
 fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
     match filter {
+        TaskFilterState::Inbox => "Inbox",
         TaskFilterState::Today => "Today",
         TaskFilterState::Upcoming => "Upcoming",
         TaskFilterState::NoDueDate => "Anytime",
@@ -428,6 +564,7 @@ fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
 
 fn sidebar_filter_icon(filter: TaskFilterState) -> &'static str {
     match filter {
+        TaskFilterState::Inbox => "▣",
         TaskFilterState::Today => "●",
         TaskFilterState::Upcoming => "◆",
         TaskFilterState::NoDueDate => "■",
@@ -437,6 +574,7 @@ fn sidebar_filter_icon(filter: TaskFilterState) -> &'static str {
 
 fn sidebar_filter_icon_class(filter: TaskFilterState) -> &'static str {
     match filter {
+        TaskFilterState::Inbox => "sidebar-icon-inbox",
         TaskFilterState::Today => "sidebar-icon-today",
         TaskFilterState::Upcoming => "sidebar-icon-upcoming",
         TaskFilterState::NoDueDate => "sidebar-icon-anytime",
@@ -495,6 +633,7 @@ fn install_css() {
             font-size: 12px;
             font-weight: 800;
         }
+        .sidebar-icon-inbox { color: #64d2ff; }
         .sidebar-icon-today { color: #ff9f0a; }
         .sidebar-icon-upcoming { color: #0a84ff; }
         .sidebar-icon-anytime { color: #8e8e93; }
@@ -517,6 +656,15 @@ fn install_css() {
             margin: 1px 0;
             background: transparent;
             border-bottom: 1px solid @borders;
+        }
+        .task-row:hover {
+            background: color-mix(in srgb, @window_fg_color 5%, transparent);
+        }
+        .task-actions {
+            opacity: 0;
+        }
+        .task-row:hover .task-actions {
+            opacity: 1;
         }
         .status-dot {
             color: @accent_color;

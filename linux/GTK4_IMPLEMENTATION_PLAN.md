@@ -37,6 +37,9 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Updated Linux sidebar views to `Today`, `Upcoming`, `Anytime`, and `Done`.
 - [x] Minimalized counts: only the sidebar `Today` row shows a number; section titles and tags do not.
 - [x] Added small colored icons to sidebar view rows.
+- [x] Restored Inbox as the first built-in sidebar view.
+- [x] Added core-backed user-defined task lists and display them below built-in sidebar views.
+- [x] New tasks are created in Inbox, task titles can be edited inline, and row actions include mark open/done and delete.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
@@ -511,7 +514,7 @@ pkg-config --modversion libsecret-1
 
 Build a GTK4/libadwaita app that opens the core database and supports offline task CRUD before implementing sync.
 
-Status: complete for the initial native Linux MVP. The implementation currently uses raw gtk-rs/libadwaita instead of Relm4 to keep the first version small and compilable. The layout has been polished toward a minimal Things-style desktop app by adapting its information architecture rather than copying sample content: a calm sidebar for date-oriented views (`Today`, `Upcoming`, `Anytime`, `Done`), real tags, live counts, a focused task list, and empty state. Styling uses GTK/libadwaita theme colors instead of hard-coded light colors. Future iterations can extract the monolithic `app.rs` into the reserved component modules or introduce Relm4 if the state model grows.
+Status: complete for the initial native Linux MVP. The implementation currently uses raw gtk-rs/libadwaita instead of Relm4 to keep the first version small and compilable. The layout has been polished toward a minimal Things-style desktop app by adapting its information architecture rather than copying sample content: a calm sidebar for built-in views (`Inbox`, `Today`, `Upcoming`, `Anytime`, `Done`), user-defined lists, live Today count, a focused inline-editable task list, hover actions, and empty state. Styling uses GTK/libadwaita theme colors instead of hard-coded light colors. Future iterations can extract the monolithic `app.rs` into the reserved component modules or introduce Relm4 if the state model grows.
 
 ## Latest validation
 

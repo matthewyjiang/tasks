@@ -2,6 +2,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskList {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub deleted: bool,
+    pub dirty: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
     pub title: String,
