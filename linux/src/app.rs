@@ -1387,6 +1387,7 @@ fn show_settings_window(
             };
             let settings = LinuxSettings {
                 server_url: server_entry.text().to_string(),
+                sync_email: settings.sync_email.clone(),
                 theme,
                 show_completed: false,
             };
@@ -1602,9 +1603,20 @@ fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf
     title.add_css_class("pane-title");
     content.append(&title);
 
-    let subtitle = gtk::Label::new(Some(
-        "Sign in to sync tasks across devices, or keep working locally.",
-    ));
+    let configured = sync_auth_configured(&LinuxPlatform::new(), &settings);
+    let subtitle_text = if configured {
+        format!(
+            "Signed in as {}.",
+            if settings.sync_email.is_empty() {
+                "unknown account"
+            } else {
+                &settings.sync_email
+            }
+        )
+    } else {
+        "Sign in to sync tasks across devices, or keep working locally.".to_owned()
+    };
+    let subtitle = gtk::Label::new(Some(&subtitle_text));
     subtitle.set_xalign(0.0);
     subtitle.set_wrap(true);
     subtitle.add_css_class("dim-label");
@@ -1613,14 +1625,17 @@ fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf
     let server_entry = gtk::Entry::new();
     server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
     server_entry.set_text(&settings.server_url);
+    server_entry.set_visible(!configured);
     content.append(&server_entry);
 
     let email_entry = gtk::Entry::new();
     email_entry.set_placeholder_text(Some("Email"));
+    email_entry.set_visible(!configured);
     content.append(&email_entry);
 
     let password_entry = gtk::PasswordEntry::new();
     password_entry.set_placeholder_text(Some("Password"));
+    password_entry.set_visible(!configured);
     content.append(&password_entry);
 
     let status = gtk::Label::new(None);
@@ -1630,11 +1645,17 @@ fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf
 
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     actions.set_halign(gtk::Align::End);
-    let local_button = gtk::Button::with_label("Work local");
+    let local_button = gtk::Button::with_label(if configured { "Close" } else { "Work local" });
     let login_button = gtk::Button::with_label("Login / Register");
     login_button.add_css_class("suggested-action");
+    let logout_button = gtk::Button::with_label("Log out");
+    logout_button.add_css_class("destructive-action");
     actions.append(&local_button);
-    actions.append(&login_button);
+    if configured {
+        actions.append(&logout_button);
+    } else {
+        actions.append(&login_button);
+    }
     content.append(&actions);
 
     local_button.connect_clicked({
@@ -1642,8 +1663,19 @@ fn show_sync_setup_window(parent: &impl IsA<gtk::Window>, settings_path: PathBuf
         move |_| dialog.close()
     });
 
+    logout_button.connect_clicked({
+        let dialog = dialog.clone();
+        let settings_path = settings_path.clone();
+        let status = status.clone();
+        move |_| match logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
+            Ok(()) => dialog.close(),
+            Err(error) => status.set_text(&format!("Logout failed: {error}")),
+        }
+    });
+
     login_button.connect_clicked({
         let dialog = dialog.clone();
+        let status = status.clone();
         move |_| {
             status.set_text("Signing in…");
             let platform = LinuxPlatform::new();
@@ -1701,7 +1733,7 @@ fn configure_sync_auth(
         pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
     };
     let login = AuthRequest {
-        email,
+        email: email.clone(),
         password,
         pub_key: None,
     };
@@ -1730,6 +1762,20 @@ fn configure_sync_auth(
 
     let mut settings = read_settings(settings_path).unwrap_or_default();
     settings.server_url = server_url;
+    settings.sync_email = email;
+    write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn logout_sync_auth(platform: &LinuxPlatform, settings_path: &Path) -> Result<(), String> {
+    platform
+        .delete_key(AUTH_ACCESS_TOKEN_ID)
+        .map_err(|error| error.to_string())?;
+    platform
+        .delete_key(AUTH_REFRESH_TOKEN_ID)
+        .map_err(|error| error.to_string())?;
+    let mut settings = read_settings(settings_path).unwrap_or_default();
+    settings.sync_email.clear();
     write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
     Ok(())
 }

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinuxSettings {
     pub server_url: String,
+    #[serde(default)]
+    pub sync_email: String,
     pub theme: ThemeChoice,
     pub show_completed: bool,
 }
@@ -42,6 +44,7 @@ mod tests {
         let path = temp.path().join("settings.json");
         let settings = LinuxSettings {
             server_url: "https://example.test".to_owned(),
+            sync_email: "user@example.test".to_owned(),
             theme: ThemeChoice::Dark,
             show_completed: true,
         };
