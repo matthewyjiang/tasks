@@ -428,9 +428,8 @@ impl AppState {
             row_box.set_margin_bottom(8);
             row_box.set_margin_start(10);
             row_box.set_margin_end(10);
-            let icon = gtk::Label::new(Some("\u{f03a}"));
+            let icon = font_awesome_label("\u{f03a}");
             icon.add_css_class("sidebar-icon");
-            icon.add_css_class("fa-icon");
             icon.add_css_class("sidebar-icon-list");
             let name = gtk::Label::new(Some(&list.name));
             name.set_xalign(0.0);
@@ -542,9 +541,8 @@ fn build_ui(app: &adw::Application) {
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
-        let icon = gtk::Label::new(Some(sidebar_filter_icon(filter)));
+        let icon = font_awesome_label(sidebar_filter_icon(filter));
         icon.add_css_class("sidebar-icon");
-        icon.add_css_class("fa-icon");
         icon.add_css_class(sidebar_filter_icon_class(filter));
 
         let label = gtk::Label::new(Some(sidebar_filter_title(filter)));
@@ -574,15 +572,14 @@ fn build_ui(app: &adw::Application) {
 
     let sidebar_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     sidebar_bottom_bar.add_css_class("sidebar-bottom-bar");
-    let add_list_button = gtk::Button::with_label("\u{f067}  List");
+    let add_list_button = gtk::Button::new();
+    add_list_button.set_child(Some(&icon_text_label("\u{f067}", "List")));
     add_list_button.add_css_class("flat");
-    add_list_button.add_css_class("fa-icon");
     add_list_button.set_halign(gtk::Align::Start);
     let sidebar_bottom_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     sidebar_bottom_spacer.set_hexpand(true);
-    let settings_button = gtk::Button::with_label("\u{f013}");
+    let settings_button = icon_button("\u{f013}");
     settings_button.add_css_class("flat");
-    settings_button.add_css_class("fa-icon");
     settings_button.set_tooltip_text(Some("Settings"));
     sidebar_bottom_bar.append(&add_list_button);
     sidebar_bottom_bar.append(&sidebar_bottom_spacer);
@@ -687,14 +684,12 @@ fn build_ui(app: &adw::Application) {
     let content_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     content_bottom_bar.set_homogeneous(true);
     content_bottom_bar.add_css_class("content-bottom-bar");
-    let search_button = gtk::Button::with_label("\u{f002}");
+    let search_button = icon_button("\u{f002}");
     search_button.add_css_class("flat");
-    search_button.add_css_class("fa-icon");
     search_button.set_hexpand(true);
     search_button.set_tooltip_text(Some("Search"));
-    let bottom_new_button = gtk::Button::with_label("\u{f067}");
+    let bottom_new_button = icon_button("\u{f067}");
     bottom_new_button.add_css_class("flat");
-    bottom_new_button.add_css_class("fa-icon");
     bottom_new_button.set_hexpand(true);
     bottom_new_button.set_tooltip_text(Some("Add Task"));
     content_bottom_bar.append(&search_button);
@@ -1068,6 +1063,27 @@ fn show_settings_window(
 
     dialog.set_child(Some(&content));
     dialog.present();
+}
+
+fn font_awesome_label(icon: &str) -> gtk::Label {
+    let label = gtk::Label::new(None);
+    label.set_markup(&format!(
+        "<span font_desc=\"Font Awesome 7 Free Solid 12\" fallback=\"false\">{icon}</span>"
+    ));
+    label
+}
+
+fn icon_text_label(icon: &str, text: &str) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    row.append(&font_awesome_label(icon));
+    row.append(&gtk::Label::new(Some(text)));
+    row
+}
+
+fn icon_button(icon: &str) -> gtk::Button {
+    let button = gtk::Button::new();
+    button.set_child(Some(&font_awesome_label(icon)));
+    button
 }
 
 fn install_keybindings(
