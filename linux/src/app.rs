@@ -29,6 +29,7 @@ struct AppState {
     list: gtk::ListBox,
     list_heading: gtk::Label,
     list_name_entry: gtk::Entry,
+    list_rename_button: gtk::Button,
     list_actions_button: gtk::MenuButton,
     filter_count_labels: Vec<gtk::Label>,
     user_lists: RefCell<Vec<TaskList>>,
@@ -71,12 +72,14 @@ impl AppState {
                     {
                         self.list_heading.set_visible(false);
                         self.list_name_entry.set_visible(true);
+                        self.list_rename_button.set_visible(true);
                         self.list_actions_button.set_visible(true);
                         self.list_name_entry.set_text(&list.name);
                     }
                 } else {
                     self.list_heading.set_visible(true);
                     self.list_name_entry.set_visible(false);
+                    self.list_rename_button.set_visible(false);
                     self.list_actions_button.set_visible(false);
                     self.list_heading
                         .set_text(self.active_filter.borrow().label());
@@ -387,6 +390,21 @@ impl AppState {
         }
     }
 
+    fn rename_selected_list(self: &Rc<Self>) {
+        let Some(list_id) = *self.selected_list_id.borrow() else {
+            return;
+        };
+        if let Err(error) = self
+            .core
+            .update_list(list_id, self.list_name_entry.text().to_string())
+        {
+            self.toast(format!("Failed to rename list: {error}"));
+        }
+        self.render_user_lists();
+        self.load_tasks();
+        self.list.grab_focus();
+    }
+
     fn create_list(self: &Rc<Self>) {
         match self.core.create_list("New List".to_owned()) {
             Ok(list) => {
@@ -514,6 +532,10 @@ fn build_ui(app: &adw::Application) {
     list_name_entry.add_css_class("flat");
     list_name_entry.set_visible(false);
 
+    let list_rename_button = gtk::Button::with_label("✓");
+    list_rename_button.add_css_class("flat");
+    list_rename_button.set_visible(false);
+
     let list_actions_button = gtk::MenuButton::new();
     list_actions_button.set_label("⋯");
     list_actions_button.set_halign(gtk::Align::End);
@@ -531,6 +553,7 @@ fn build_ui(app: &adw::Application) {
     page_title.set_hexpand(true);
     page_title.append(&list_heading);
     page_title.append(&list_name_entry);
+    page_title.append(&list_rename_button);
     page_title.append(&list_actions_button);
 
     let task_list = gtk::ListBox::new();
@@ -611,6 +634,7 @@ fn build_ui(app: &adw::Application) {
         list: task_list,
         list_heading,
         list_name_entry,
+        list_rename_button,
         list_actions_button,
         filter_count_labels,
         user_lists: RefCell::new(Vec::new()),
@@ -633,16 +657,11 @@ fn build_ui(app: &adw::Application) {
     });
     state.list_name_entry.connect_activate({
         let state = Rc::clone(&state);
-        move |entry| {
-            let Some(list_id) = *state.selected_list_id.borrow() else {
-                return;
-            };
-            if let Err(error) = state.core.update_list(list_id, entry.text().to_string()) {
-                state.toast(format!("Failed to rename list: {error}"));
-            }
-            state.render_user_lists();
-            state.load_tasks();
-        }
+        move |_| state.rename_selected_list()
+    });
+    state.list_rename_button.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| state.rename_selected_list()
     });
     list_delete_button.connect_clicked({
         let state = Rc::clone(&state);
