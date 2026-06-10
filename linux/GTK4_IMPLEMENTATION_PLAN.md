@@ -42,7 +42,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] User-defined lists can be renamed from the selected list page header, with delete moved into an out-of-the-way `⋯` page menu.
 - [x] Sidebar highlights the currently selected built-in view or user list.
 - [x] New tasks are created in Inbox, task titles can be edited inline, and row actions include due date calendar, list assignment, mark open/done, and delete.
-- [x] Due date display/assignment uses local dates to avoid selected-date shifting, and the calendar is themed to match the app.
+- [x] Due date display/assignment uses local dates to avoid selected-date shifting, and the calendar is themed to match the app with hover/selected date feedback.
 - [x] Selected-list page menu is aligned to the right side of the page header.
 - [x] Task list layout expands to fill the available vertical space.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.

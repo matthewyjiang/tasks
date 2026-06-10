@@ -917,12 +917,18 @@ fn install_css() {
             border-radius: 8px;
             color: @window_fg_color;
         }
-        .task-calendar button:hover {
-            background: color-mix(in srgb, @window_fg_color 6%, transparent);
+        .task-calendar button:hover,
+        .task-calendar label:hover,
+        .task-calendar grid label:hover {
+            background: color-mix(in srgb, @accent_color 14%, transparent);
+            border-radius: 8px;
         }
-        .task-calendar:selected {
+        .task-calendar:selected,
+        .task-calendar label:selected,
+        .task-calendar grid label:selected {
             background: @accent_bg_color;
             color: @accent_fg_color;
+            border-radius: 8px;
         }
         .editor-title {
             font-size: 26px;
