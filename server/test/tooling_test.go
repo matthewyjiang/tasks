@@ -40,6 +40,13 @@ func TestDeployScriptSupportsDockerComposeOperations(t *testing.T) {
 			t.Fatalf("deploy script missing %q", snippet)
 		}
 	}
+	composeData, err := os.ReadFile(filepath.Join("..", "docker-compose.deploy.yml"))
+	if err != nil {
+		t.Fatalf("read deploy compose file: %v", err)
+	}
+	if !strings.Contains(string(composeData), "tasks-server-api:latest") {
+		t.Fatal("deploy compose file missing tasks-server-api:latest image name")
+	}
 }
 
 func TestCIWorkflowExists(t *testing.T) {
