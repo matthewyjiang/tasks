@@ -21,7 +21,7 @@ pub fn run() {
 }
 
 struct AppState {
-    core: TaskManagerCore,
+    core: Rc<TaskManagerCore>,
     tasks: RefCell<Vec<Task>>,
     active_filter: RefCell<TaskFilterState>,
     selected_list_id: RefCell<Option<Uuid>>,
@@ -222,7 +222,7 @@ impl AppState {
         }
     }
 
-    fn refresh_sidebar_metadata(&self) {
+    fn refresh_sidebar_metadata(self: &Rc<Self>) {
         let Ok(tasks) = self.core.list_tasks(TaskFilter::default(), default_sort()) else {
             return;
         };
@@ -243,7 +243,7 @@ impl AppState {
         self.render_user_lists();
     }
 
-    fn render_user_lists(&self) {
+    fn render_user_lists(self: &Rc<Self>) {
         while let Some(row) = self.user_list_box.first_child() {
             self.user_list_box.remove(&row);
         }
@@ -269,11 +269,49 @@ impl AppState {
             let icon = gtk::Label::new(Some("●"));
             icon.add_css_class("sidebar-icon");
             icon.add_css_class("sidebar-icon-list");
-            let name = gtk::Label::new(Some(&list.name));
-            name.set_xalign(0.0);
+            let name = gtk::Entry::new();
+            name.set_text(&list.name);
             name.set_hexpand(true);
+            name.add_css_class("flat");
+            name.connect_activate({
+                let state = Rc::clone(self);
+                let list_id = list.id;
+                move |entry| {
+                    if let Err(error) = state.core.update_list(list_id, entry.text().to_string()) {
+                        state.toast(format!("Failed to rename list: {error}"));
+                    }
+                    state.render_user_lists();
+                    state.load_tasks();
+                }
+            });
+            let actions = gtk::MenuButton::new();
+            actions.set_label("⋯");
+            actions.add_css_class("flat");
+            let popover = gtk::Popover::new();
+            let action_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            let delete = gtk::Button::with_label("Delete List");
+            delete.add_css_class("flat");
+            delete.connect_clicked({
+                let state = Rc::clone(self);
+                let list_id = list.id;
+                move |_| {
+                    if let Err(error) = state.core.delete_list(list_id) {
+                        state.toast(format!("Failed to delete list: {error}"));
+                    }
+                    if *state.selected_list_id.borrow() == Some(list_id) {
+                        state.selected_list_id.replace(None);
+                        state.active_filter.replace(TaskFilterState::Inbox);
+                    }
+                    state.render_user_lists();
+                    state.load_tasks();
+                }
+            });
+            action_box.append(&delete);
+            popover.set_child(Some(&action_box));
+            actions.set_popover(Some(&popover));
             row_box.append(&icon);
             row_box.append(&name);
+            row_box.append(&actions);
             row.set_child(Some(&row_box));
             self.user_list_box.append(&row);
         }
@@ -469,7 +507,7 @@ fn build_ui(app: &adw::Application) {
     window.set_content(Some(&toast_overlay));
 
     let state = Rc::new(AppState {
-        core,
+        core: Rc::new(core),
         tasks: RefCell::new(Vec::new()),
         active_filter: RefCell::new(TaskFilterState::Inbox),
         selected_list_id: RefCell::new(None),

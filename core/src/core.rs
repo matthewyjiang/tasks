@@ -31,6 +31,14 @@ impl TaskManagerCore {
         self.database.list_task_lists()
     }
 
+    pub fn update_list(&self, list_id: Uuid, name: String) -> CoreResult<TaskList> {
+        self.database.update_list(list_id, name)
+    }
+
+    pub fn delete_list(&self, list_id: Uuid) -> CoreResult<()> {
+        self.database.delete_list(list_id)
+    }
+
     pub fn create_task(
         &self,
         title: String,
@@ -146,7 +154,12 @@ mod tests {
         assert!(core.list_task_lists().unwrap().is_empty());
         let list = core.create_list("Work".to_owned()).unwrap();
         assert_eq!(list.name, "Work");
-        assert_eq!(core.list_task_lists().unwrap(), vec![list]);
+        assert_eq!(core.list_task_lists().unwrap(), vec![list.clone()]);
+
+        let updated = core.update_list(list.id, "Personal".to_owned()).unwrap();
+        assert_eq!(updated.name, "Personal");
+        core.delete_list(list.id).unwrap();
+        assert!(core.list_task_lists().unwrap().is_empty());
     }
 
     #[test]

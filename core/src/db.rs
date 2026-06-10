@@ -49,6 +49,39 @@ impl LocalDatabase {
         collect_task_lists(lists)
     }
 
+    pub fn update_list(&self, list_id: Uuid, name: String) -> CoreResult<TaskList> {
+        let mut list = self.get_list(list_id)?;
+        list.name = name;
+        list.updated_at = now_ms().max(list.updated_at + 1);
+        list.dirty = true;
+        self.upsert_list(&list)?;
+        Ok(list)
+    }
+
+    pub fn delete_list(&self, list_id: Uuid) -> CoreResult<()> {
+        let mut list = self.get_list(list_id)?;
+        list.deleted = true;
+        list.updated_at = now_ms().max(list.updated_at + 1);
+        list.dirty = true;
+        self.upsert_list(&list)?;
+        self.connection.execute(
+            "UPDATE tasks SET project_id = NULL, updated_at = ?2, dirty = 1 WHERE project_id = ?1",
+            params![list_id.to_string(), now_ms()],
+        )?;
+        Ok(())
+    }
+
+    fn get_list(&self, list_id: Uuid) -> CoreResult<TaskList> {
+        self.connection
+            .query_row(
+                "SELECT id, name, created_at, updated_at, deleted, dirty FROM task_lists WHERE id = ?1",
+                params![list_id.to_string()],
+                read_task_list,
+            )
+            .optional()?
+            .ok_or_else(|| DbError::InvalidRowData(format!("list not found: {list_id}")).into())
+    }
+
     pub fn create_task(
         &self,
         title: String,
