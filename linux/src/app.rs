@@ -127,7 +127,7 @@ impl AppState {
             title.add_css_class("flat");
             title.set_hexpand(true);
             let task_confirm = gtk::Button::with_label("✓");
-            task_confirm.add_css_class("flat");
+            task_confirm.add_css_class("confirm-button");
             task_confirm.add_css_class("task-confirm");
             task_confirm.set_visible(false);
 
@@ -566,7 +566,7 @@ fn build_ui(app: &adw::Application) {
     list_name_entry.set_visible(false);
 
     let list_rename_button = gtk::Button::with_label("✓");
-    list_rename_button.add_css_class("flat");
+    list_rename_button.add_css_class("confirm-button");
     list_rename_button.set_visible(false);
 
     let list_actions_button = gtk::MenuButton::new();
@@ -963,6 +963,16 @@ fn install_css() {
         }
         .task-row:hover {
             background: color-mix(in srgb, @window_fg_color 5%, transparent);
+        }
+        .confirm-button {
+            background: @accent_bg_color;
+            color: @accent_fg_color;
+            border-radius: 999px;
+            font-weight: 800;
+        }
+        .confirm-button:hover {
+            background: color-mix(in srgb, @accent_bg_color 88%, @window_fg_color 12%);
+            color: @accent_fg_color;
         }
         .task-actions {
             opacity: 0;
