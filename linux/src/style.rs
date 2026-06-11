@@ -421,6 +421,12 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             color: @accent_fg_color;
             border-radius: 8px;
         }
+        .task-calendar-no-selection:selected,
+        .task-calendar-no-selection label:selected,
+        .task-calendar-no-selection grid label:selected {
+            background: transparent;
+            color: @window_fg_color;
+        }
         .editor-title {
             font-size: 26px;
             font-weight: 800;

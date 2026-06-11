@@ -312,6 +312,14 @@ fn notes_editor(task: &Task, notes: &gtk::TextView) -> gtk::Stack {
 fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     let calendar = gtk::Calendar::new();
     calendar.add_css_class("task-calendar");
+    if let Some(due_at) = task.due_at {
+        match gtk::glib::DateTime::from_unix_local(due_at / 1000) {
+            Ok(due_date) => calendar.select_day(&due_date),
+            Err(error) => eprintln!("Failed to select due date: {error}"),
+        }
+    } else {
+        calendar.add_css_class("task-calendar-no-selection");
+    }
 
     let today = gtk::Button::new();
     let today_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
