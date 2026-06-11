@@ -262,7 +262,6 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             border-radius: 6px;
             margin: 1px 0;
             background: transparent;
-            border-bottom: 1px solid @borders;
         }
         .task-row:hover {
             background: color-mix(in srgb, @window_fg_color 5%, transparent);
@@ -283,17 +282,10 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             color: @accent_fg_color;
             box-shadow: inset 0 2px 5px color-mix(in srgb, black 35%, transparent);
         }
-        .task-actions {
-            opacity: 0;
-            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
-        }
         .sync-status {
             color: @dim_label_color;
             font-size: 12px;
             opacity: 0.75;
-        }
-        .task-row:hover .task-actions {
-            opacity: 1;
         }
         .status-dot {
             color: @accent_color;
@@ -331,6 +323,45 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
         .task-summary {
             color: @dim_label_color;
             font-size: 13px;
+        }
+        .task-row-expanded,
+        .task-row-expanded:hover {
+            background: color-mix(in srgb, @accent_color 6%, @card_bg_color);
+        }
+        .task-row-editor {
+            padding-top: 8px;
+        }
+        entry.task-inline-title,
+        entry.task-inline-title:focus,
+        entry.task-inline-title:focus-within {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            outline: none;
+            padding: 0;
+            font-size: 16px;
+            font-weight: 650;
+        }
+        textview.task-inline-notes,
+        textview.task-inline-notes text {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            color: @window_fg_color;
+            padding: 0;
+        }
+        textview.task-inline-notes text {
+            color: color-mix(in srgb, @window_fg_color 86%, transparent);
+        }
+        .task-inline-notes-placeholder {
+            color: @dim_label_color;
+            padding: 0;
+        }
+        .task-inline-actions button {
+            min-width: 28px;
+            min-height: 28px;
+            padding: 3px 8px;
+            border-radius: 999px;
         }
         .task-menu-heading {
             color: @dim_label_color;
@@ -389,6 +420,12 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             background: @accent_bg_color;
             color: @accent_fg_color;
             border-radius: 8px;
+        }
+        .task-calendar-no-selection:selected,
+        .task-calendar-no-selection label:selected,
+        .task-calendar-no-selection grid label:selected {
+            background: transparent;
+            color: @window_fg_color;
         }
         .editor-title {
             font-size: 26px;
