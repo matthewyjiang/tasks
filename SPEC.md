@@ -117,7 +117,7 @@ A user's own tasks all use the single account `data_key`. That key cannot be han
 
 ## 3. Client core library
 
-The core is a Rust library compiled to a native `.a` / `.so` and exposed to platform UI shells via UniFFI-generated bindings.
+The core is a Rust library used directly by Rust clients and exposed to non-Rust platform shells via UniFFI-generated bindings.
 
 ### 3.1 Types
 
@@ -672,7 +672,7 @@ Minimum end-to-end scenarios covered through the CLI:
 
 ## 8. Repository structure
 
-The project uses a monorepo. All code, migrations, and the spec itself live in one repository. CI pipelines are path-filtered so only affected sub-projects build on any given change.
+The project uses a monorepo. All code, migrations, and the spec itself live in one repository. CI pipelines are path-filtered where applicable so only affected sub-projects build on any given change.
 
 ### 8.1 Directory layout
 
@@ -681,16 +681,14 @@ taskmanager/
 ├── .github/
 │   └── workflows/
 │       ├── core.yml        # triggers on core/**
-│       ├── server.yml      # triggers on server/** or core/**
-│       ├── ios.yml         # triggers on ios/** or core/**
-│       ├── android.yml     # triggers on android/** or core/**
-│       ├── desktop.yml     # triggers on desktop/** or core/**
-│       └── cli.yml         # triggers on cli/**, core/**, or server/**
+│       ├── server.yml      # triggers on server/**
+│       ├── cli.yml         # triggers on cli/**, core/**, or server/**
+│       └── release.yml     # path-scoped semantic releases
 ├── core/
 │   ├── src/
 │   ├── Cargo.toml
 │   └── uniffi/
-│       └── core.udl        # UniFFI interface definition — source of truth for FFI boundary
+│       └── core.udl        # UniFFI interface definition for non-Rust FFI boundaries
 ├── server/
 │   ├── cmd/server/
 │   ├── internal/
@@ -700,16 +698,13 @@ taskmanager/
 │   │   └── settings/
 │   ├── migrations/         # numbered SQL files, never edited after running in production
 │   └── go.mod
-├── ios/
-│   └── TaskManager.xcodeproj
-├── android/
-│   └── app/
-├── desktop/
-│   ├── src-tauri/          # Rust Tauri backend, imports core as a crate dependency
-│   └── src/                # Web UI (React or Svelte)
+├── linux/
+│   ├── src/                # Native GTK4/libadwaita desktop app
+│   ├── resources/
+│   └── Cargo.toml          # Rust GUI crate, imports core directly
 ├── cli/
 │   ├── src/
-│   └── Cargo.toml          # Rust CLI binary, imports core as a crate dependency
+│   └── Cargo.toml          # Rust CLI binary, imports core directly
 └── README.md
 ```
 
@@ -721,38 +716,40 @@ taskmanager/
 | `server/` | Go | Zero-knowledge blob relay. Auth, blob store, key directory, plaintext settings. No business logic |
 | `ios/` | Swift | SwiftUI shell. Thin UI layer + Platform trait implementation for iOS/macOS |
 | `android/` | Kotlin | Jetpack Compose shell. Thin UI layer + Platform trait implementation for Android |
-| `desktop/` | Rust + Web | Tauri shell for Windows, macOS, Linux. `src-tauri/` imports `core/` as a Cargo workspace member; `src/` is the web UI |
+| `linux/` | Rust + GTK4/libadwaita | Native Linux desktop app. Imports `core/` directly, implements Linux platform services with libsecret/desktop notifications, and uses the same local-first encrypted sync path as the CLI |
 | `cli/` | Rust | Full-featured terminal client and autonomous integration-test harness. Imports `core/` as a Cargo workspace member and exercises the same local-first encrypted sync path as GUI apps |
+
+Tauri is not the Linux desktop architecture. A Tauri shell may be reconsidered later for non-Linux desktop platforms, but it is not part of the current workspace.
 
 ### 8.3 Cargo workspace
 
-`core/`, `desktop/src-tauri/`, and `cli/` are members of a shared Cargo workspace defined at the repo root:
+`core/`, `linux/`, and `cli/` are members of a shared Cargo workspace defined at the repo root:
 
 ```toml
 # Cargo.toml (root)
 [workspace]
 members = [
     "core",
-    "desktop/src-tauri",
     "cli",
+    "linux",
 ]
 ```
 
-This means `cargo build`, `cargo test`, and `cargo clippy` at the root cover both Rust crates. The desktop shell and CLI depend on `core` as a path dependency:
+This means `cargo build`, `cargo test`, and `cargo clippy` at the root cover the Rust workspace crates. The Linux app and CLI depend on `core` as a path dependency:
 
 ```toml
-# desktop/src-tauri/Cargo.toml
+# linux/Cargo.toml
 [dependencies]
-core = { path = "../../core" }
+taskmanager-core = { path = "../core" }
 
 # cli/Cargo.toml
 [dependencies]
-core = { path = "../core" }
+taskmanager-core = { path = "../core" }
 ```
 
 ### 8.4 UniFFI bindings
 
-Generated bindings for Swift and Kotlin are **not** checked into version control. Each platform's build step generates them fresh from `core/uniffi/core.udl`:
+Generated bindings for Swift and Kotlin are **not** checked into version control. Rust clients such as the CLI and native Linux app call `core` directly and do not use UniFFI. Each non-Rust platform's build step generates bindings fresh from `core/uniffi/core.udl`:
 
 ```bash
 # iOS build step (run before xcodebuild)
@@ -789,10 +786,8 @@ Each workflow triggers only on relevant paths to avoid unnecessary builds:
 |---|---|
 | `core.yml` | `core/**` |
 | `server.yml` | `server/**`, `core/**` |
-| `ios.yml` | `ios/**`, `core/**` |
-| `android.yml` | `android/**`, `core/**` |
-| `desktop.yml` | `desktop/**`, `core/**` |
 | `cli.yml` | `cli/**`, `core/**`, `server/**` |
+| `release.yml` | path-scoped release artifacts including `linux/**` as `linux-app` |
 
 Any change to `core/` triggers all downstream platform builds. This is intentional — `core/` is a shared dependency and must be verified against every consumer on every change. The CLI workflow also triggers on `server/**` because it owns black-box core ⇄ server integration coverage.
 
