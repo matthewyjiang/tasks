@@ -18,6 +18,8 @@ The app uses the same zero-knowledge blob sync protocol as the CLI and server. A
 
 During sync, the app uses the stored access token. If the server rejects it as expired, the app calls `/auth/refresh` with the stored refresh token, saves the returned rotated token pair, and retries the sync once. Manual sign-in is only required when refresh fails, such as an expired or revoked refresh token.
 
+Failed outbound task changes stay dirty and are recorded in the SQLite `sync_queue` with exponential backoff metadata, so pending retries survive app restart and are retried by later sync runs. Conflicts are resolved automatically with the core last-write-wins policy (`updated_at`, then a deterministic id tie-breaker); the Linux UI surfaces the number of automatically resolved conflicts and pending retry entries in sync status text.
+
 ## Development checks
 
 ```sh

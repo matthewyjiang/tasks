@@ -211,11 +211,17 @@ pub(crate) struct LinuxSyncSummary {
     pub(crate) pushed: usize,
     pub(crate) pulled: usize,
     pub(crate) failed: usize,
+    pub(crate) pending_retries: usize,
+    pub(crate) conflicts: usize,
 }
 
 impl LinuxSyncSummary {
     pub(crate) fn changed(&self) -> bool {
-        self.pushed > 0 || self.pulled > 0 || self.failed > 0
+        self.pushed > 0
+            || self.pulled > 0
+            || self.failed > 0
+            || self.pending_retries > 0
+            || self.conflicts > 0
     }
 }
 
@@ -277,7 +283,9 @@ pub(crate) fn run_linux_sync_once(
     Ok(LinuxSyncSummary {
         pushed: push.pushed,
         pulled: pull.pulled,
-        failed: pull.failed + push.failed,
+        failed: push.failed,
+        pending_retries: database.retry_queue_entries()?.len(),
+        conflicts: pull.failed,
     })
 }
 

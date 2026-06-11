@@ -327,17 +327,27 @@ pub(crate) fn show_settings_panel(
 fn format_sync_settings_status(status: &SyncStatus) -> String {
     match (&status.last_attempt_at, &status.last_success_at) {
         (None, _) => "No sync has run yet.".to_owned(),
-        (_, Some(success_at)) if status.last_error.is_empty() => format!(
-            "Last synced {}. {} pushed · {} pulled{}",
-            relative_time(*success_at),
-            status.last_pushed,
-            status.last_pulled,
-            if status.last_failed == 0 {
-                String::new()
-            } else {
-                format!(" · {} failed", status.last_failed)
+        (_, Some(success_at)) if status.last_error.is_empty() => {
+            let mut details = format!(
+                "Last synced {}. {} pushed · {} pulled",
+                relative_time(*success_at),
+                status.last_pushed,
+                status.last_pulled
+            );
+            if status.last_failed > 0 {
+                details.push_str(&format!(" · {} failed", status.last_failed));
             }
-        ),
+            if status.pending_retries > 0 {
+                details.push_str(&format!(" · {} pending retry", status.pending_retries));
+            }
+            if status.conflicts > 0 {
+                details.push_str(&format!(
+                    " · {} conflict resolved automatically (last write wins)",
+                    status.conflicts
+                ));
+            }
+            details
+        }
         (Some(attempt_at), last_success) => {
             let previous_success = last_success
                 .map(|success_at| format!(" Last successful sync {}.", relative_time(success_at)))

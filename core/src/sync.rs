@@ -77,23 +77,44 @@ pub fn sync_push(
     }
 
     let mut confirmed = HashSet::new();
+    let mut failed = HashSet::new();
     if !blob_pushes.is_empty() {
-        let response = client.push_blobs(blob_pushes)?;
-        confirmed.extend(response.accepted_task_ids);
+        let attempted: Vec<Uuid> = blob_pushes.iter().map(|push| push.task_id).collect();
+        match client.push_blobs(blob_pushes) {
+            Ok(response) => {
+                confirmed.extend(response.accepted_task_ids);
+                failed.extend(response.failed_task_ids);
+            }
+            Err(error) => {
+                queue_failed(database, attempted)?;
+                return Err(error);
+            }
+        }
     }
     if !tombstones.is_empty() {
-        let response = client.delete_blobs(tombstones)?;
-        confirmed.extend(response.accepted_task_ids);
+        let attempted = tombstones.clone();
+        match client.delete_blobs(tombstones) {
+            Ok(response) => {
+                confirmed.extend(response.accepted_task_ids);
+                failed.extend(response.failed_task_ids);
+            }
+            Err(error) => {
+                queue_failed(database, attempted)?;
+                return Err(error);
+            }
+        }
     }
 
     for task_id in &confirmed {
         database.clear_dirty(*task_id)?;
+        database.clear_retry(*task_id)?;
     }
+    queue_failed(database, failed.iter().copied())?;
 
     Ok(SyncResult {
         pushed: confirmed.len(),
         pulled: 0,
-        failed: 0,
+        failed: failed.len(),
         cursor: None,
     })
 }
@@ -141,6 +162,17 @@ pub fn resolve_conflict(local: &Task, remote: &Task) -> Task {
     } else {
         local.clone()
     }
+}
+
+fn queue_failed(
+    database: &LocalDatabase,
+    task_ids: impl IntoIterator<Item = Uuid>,
+) -> CoreResult<()> {
+    let now = now_ms();
+    for task_id in task_ids {
+        database.queue_retry(task_id, now)?;
+    }
+    Ok(())
 }
 
 fn now_ms() -> i64 {
@@ -257,6 +289,7 @@ mod tests {
         assert_eq!(result.pushed, 1);
         assert!(!db.get_task(accepted.id).unwrap().dirty);
         assert!(db.get_task(failed.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, failed.id);
     }
 
     #[test]
