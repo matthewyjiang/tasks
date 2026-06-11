@@ -1,4 +1,5 @@
 pub mod floating_panel;
+pub mod layout;
 pub mod onboarding;
 pub mod search;
 pub mod settings;

@@ -6,11 +6,11 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{
-    init_account, Keybindings, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+    init_account, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
 };
 use uuid::Uuid;
 
-use crate::keybindings::{accel_matches, parse_accel, window_has_text_focus};
+use crate::keybindings::{install_keybindings, KeybindingActions};
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
 use crate::style::install_css;
@@ -21,23 +21,27 @@ use crate::task_format::{
     sidebar_filter_order, sidebar_filter_title,
 };
 use crate::task_model::{default_sort, task_matches_view, TaskFilterState};
+use crate::time::now_ms;
 use crate::ui::floating_panel::{
     hide_floating_panel, resize_settings_panel, resize_task_editor_panel, show_floating_panel,
 };
+use crate::ui::layout::{
+    FLOATING_PANEL_FADE_MS, SETTINGS_PANEL_MIN_HEIGHT, SETTINGS_PANEL_MIN_WIDTH,
+    TASK_EDITOR_BODY_HEIGHT, TASK_EDITOR_INNER_PADDING, TASK_EDITOR_MIN_HEIGHT,
+    TASK_EDITOR_MIN_WIDTH,
+};
 use crate::ui::onboarding::needs_onboarding;
-use crate::ui::search::{normalize_query, regex_from_query, regex_matches_task};
+use crate::ui::search::{
+    move_list_result_row, normalize_query, regex_from_query, regex_matches_task,
+    task_search_result_row,
+};
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
 use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
 use crate::ui::sync_setup::{configure_sync_auth, sync_auth_configured};
-use crate::ui::widgets::{field_label, font_awesome_label, icon_button, icon_text_label};
-
-const FLOATING_PANEL_FADE_MS: u64 = 180;
-const TASK_EDITOR_MIN_WIDTH: i32 = 640;
-const TASK_EDITOR_MIN_HEIGHT: i32 = 420;
-const SETTINGS_PANEL_MIN_WIDTH: i32 = 560;
-const SETTINGS_PANEL_MIN_HEIGHT: i32 = 420;
-const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
-const TASK_EDITOR_INNER_PADDING: i32 = 7;
+use crate::ui::widgets::{
+    field_label, font_awesome_label, icon_button, icon_text_label, text_buffer_string,
+    update_entry_width,
+};
 
 pub fn run() {
     let app = adw::Application::builder().application_id(APP_ID).build();
@@ -1393,10 +1397,31 @@ fn build_ui(app: &adw::Application) {
     install_keybindings(
         &window,
         &keybindings,
-        Rc::clone(&create_task_action),
-        Rc::clone(&open_search_action),
-        search_panel.clone(),
-        Rc::clone(&state),
+        KeybindingActions {
+            create_task: Rc::clone(&create_task_action),
+            open_search: Rc::clone(&open_search_action),
+            close_overlay: Rc::new({
+                let search_panel = search_panel.clone();
+                let state = Rc::clone(&state);
+                move || {
+                    hide_floating_panel(&search_panel);
+                    if state.editor_panel.is_visible() {
+                        state.save_task_editor();
+                    }
+                    if state.move_list_panel.is_visible() {
+                        state.hide_move_list_panel();
+                    }
+                }
+            }),
+            delete_task: Rc::new({
+                let state = Rc::clone(&state);
+                move || delete_selected_task(&state)
+            }),
+            toggle_done: Rc::new({
+                let state = Rc::clone(&state);
+                move || toggle_selected_task_done(&state)
+            }),
+        },
     );
 
     if let Some(row) = filter_list.row_at_index(0) {
@@ -1405,73 +1430,6 @@ fn build_ui(app: &adw::Application) {
     state.load_tasks();
     state.request_sync();
     window.present();
-}
-
-fn install_keybindings(
-    window: &adw::ApplicationWindow,
-    keybindings: &Keybindings,
-    create_task_action: Rc<dyn Fn()>,
-    open_search_action: Rc<dyn Fn()>,
-    search_panel: gtk::Box,
-    state: Rc<AppState>,
-) {
-    let key_controller = gtk::EventControllerKey::new();
-    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let add_task = parse_accel(&keybindings.add_task);
-    let search = parse_accel(&keybindings.search);
-    let search_fallback = parse_accel("<Primary>f");
-    let close_overlay = parse_accel(&keybindings.close_overlay);
-    let delete_task = parse_accel(&keybindings.delete_task);
-    let toggle_done = parse_accel(&keybindings.toggle_done);
-    let window_for_keys = window.clone();
-    key_controller.connect_key_pressed(move |_, key, _, modifiers| {
-        let editing_text = window_has_text_focus(&window_for_keys);
-        if editing_text
-            && !modifiers.intersects(
-                gtk::gdk::ModifierType::CONTROL_MASK
-                    | gtk::gdk::ModifierType::META_MASK
-                    | gtk::gdk::ModifierType::ALT_MASK,
-            )
-            && key != gtk::gdk::Key::Escape
-        {
-            return gtk::glib::Propagation::Proceed;
-        }
-        if accel_matches(add_task, key, modifiers) {
-            create_task_action();
-            gtk::glib::Propagation::Stop
-        } else if accel_matches(search, key, modifiers)
-            || accel_matches(search_fallback, key, modifiers)
-        {
-            open_search_action();
-            gtk::glib::Propagation::Stop
-        } else if key == gtk::gdk::Key::Escape || accel_matches(close_overlay, key, modifiers) {
-            hide_floating_panel(&search_panel);
-            if state.editor_panel.is_visible() {
-                state.save_task_editor();
-            }
-            if state.move_list_panel.is_visible() {
-                state.hide_move_list_panel();
-            }
-            gtk::glib::Propagation::Stop
-        } else if accel_matches(delete_task, key, modifiers) {
-            if editing_text {
-                gtk::glib::Propagation::Proceed
-            } else {
-                delete_selected_task(&state);
-                gtk::glib::Propagation::Stop
-            }
-        } else if accel_matches(toggle_done, key, modifiers) {
-            if editing_text {
-                gtk::glib::Propagation::Proceed
-            } else {
-                toggle_selected_task_done(&state);
-                gtk::glib::Propagation::Stop
-            }
-        } else {
-            gtk::glib::Propagation::Proceed
-        }
-    });
-    window.add_controller(key_controller);
 }
 
 fn delete_selected_task(state: &Rc<AppState>) {
@@ -1540,25 +1498,7 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
                 .take(10)
             {
                 has_results = true;
-                let row = gtk::ListBoxRow::new();
-                row.set_widget_name(&task.id.to_string());
-                row.add_css_class("search-result-row");
-                let content = gtk::Box::new(gtk::Orientation::Vertical, 2);
-                content.set_margin_top(8);
-                content.set_margin_bottom(8);
-                content.set_margin_start(10);
-                content.set_margin_end(10);
-                let title = gtk::Label::new(Some(&task.title));
-                title.set_xalign(0.0);
-                title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                let summary = gtk::Label::new(Some(&format_task_row_summary(&task)));
-                summary.set_xalign(0.0);
-                summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                summary.add_css_class("task-summary");
-                content.append(&title);
-                content.append(&summary);
-                row.set_child(Some(&content));
-                results.append(&row);
+                results.append(&task_search_result_row(&task));
             }
             results.set_visible(has_results);
         }
@@ -1589,17 +1529,9 @@ fn render_move_list_results(state: &Rc<AppState>, results_query: &str) {
 }
 
 fn append_move_list_row(state: &Rc<AppState>, id: &str, name: &str) {
-    let row = gtk::ListBoxRow::new();
-    row.set_widget_name(id);
-    row.add_css_class("search-result-row");
-    let label = gtk::Label::new(Some(name));
-    label.set_xalign(0.0);
-    label.set_margin_top(10);
-    label.set_margin_bottom(10);
-    label.set_margin_start(12);
-    label.set_margin_end(12);
-    row.set_child(Some(&label));
-    state.move_list_results.append(&row);
+    state
+        .move_list_results
+        .append(&move_list_result_row(id, name));
 }
 
 fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
@@ -1615,32 +1547,4 @@ fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
         });
     state.load_tasks();
     state.select_task(task.id);
-}
-
-fn text_buffer_string(buffer: &gtk::TextBuffer) -> String {
-    buffer
-        .text(&buffer.start_iter(), &buffer.end_iter(), true)
-        .to_string()
-}
-
-fn update_entry_width(entry: &gtk::Entry) {
-    const MIN_RENAME_ENTRY_WIDTH: i32 = 32;
-    const MAX_RENAME_ENTRY_WIDTH: i32 = 560;
-    const RENAME_ENTRY_HORIZONTAL_PADDING: i32 = 20;
-
-    let text = entry.text();
-    let layout = entry.create_pango_layout(Some(if text.is_empty() { " " } else { text.as_str() }));
-    let (text_width, _) = layout.pixel_size();
-    let width = (text_width + RENAME_ENTRY_HORIZONTAL_PADDING)
-        .clamp(MIN_RENAME_ENTRY_WIDTH, MAX_RENAME_ENTRY_WIDTH);
-    entry.set_width_chars(0);
-    entry.set_max_width_chars(0);
-    entry.set_size_request(width, -1);
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or_default()
 }

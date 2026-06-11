@@ -43,3 +43,24 @@ pub(crate) fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gt
     content.append(&row);
     entry
 }
+
+pub(crate) fn text_buffer_string(buffer: &gtk::TextBuffer) -> String {
+    buffer
+        .text(&buffer.start_iter(), &buffer.end_iter(), true)
+        .to_string()
+}
+
+pub(crate) fn update_entry_width(entry: &gtk::Entry) {
+    const MIN_RENAME_ENTRY_WIDTH: i32 = 32;
+    const MAX_RENAME_ENTRY_WIDTH: i32 = 560;
+    const RENAME_ENTRY_HORIZONTAL_PADDING: i32 = 20;
+
+    let text = entry.text();
+    let layout = entry.create_pango_layout(Some(if text.is_empty() { " " } else { text.as_str() }));
+    let (text_width, _) = layout.pixel_size();
+    let width = (text_width + RENAME_ENTRY_HORIZONTAL_PADDING)
+        .clamp(MIN_RENAME_ENTRY_WIDTH, MAX_RENAME_ENTRY_WIDTH);
+    entry.set_width_chars(0);
+    entry.set_max_width_chars(0);
+    entry.set_size_request(width, -1);
+}
