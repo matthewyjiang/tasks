@@ -49,17 +49,23 @@ pub fn end_of_today_ms(now_ms: i64) -> i64 {
     ((now_ms / DAY_MS) + 1) * DAY_MS - 1
 }
 
-pub fn task_matches_view(task: &Task, view: TaskFilterState, now_ms: i64) -> bool {
+pub fn task_matches_view(
+    task: &Task,
+    view: TaskFilterState,
+    now_ms: i64,
+    show_completed: bool,
+) -> bool {
+    let visible_status = show_completed || task.status == TaskStatus::Open;
     match view {
-        TaskFilterState::Inbox => task.status == TaskStatus::Open && task.project_id.is_none(),
+        TaskFilterState::Inbox => visible_status && task.project_id.is_none(),
         TaskFilterState::Today => {
-            task.status == TaskStatus::Open
+            visible_status
                 && task
                     .due_at
                     .is_some_and(|due_at| due_at <= end_of_today_ms(now_ms))
         }
-        TaskFilterState::Upcoming => task.status == TaskStatus::Open && task.due_at.is_some(),
-        TaskFilterState::NoDueDate => task.status == TaskStatus::Open && task.due_at.is_none(),
+        TaskFilterState::Upcoming => visible_status && task.due_at.is_some(),
+        TaskFilterState::NoDueDate => visible_status && task.due_at.is_none(),
         TaskFilterState::Done => task.status == TaskStatus::Done,
     }
 }
@@ -81,5 +87,34 @@ mod tests {
             TaskFilterState::Today.to_filter(100).due_before,
             Some(86_399_999)
         );
+    }
+
+    #[test]
+    fn show_completed_includes_done_tasks_in_default_views() {
+        let mut task = Task {
+            id: uuid::Uuid::nil(),
+            title: "Done task".to_owned(),
+            body: String::new(),
+            due_at: None,
+            status: TaskStatus::Done,
+            project_id: None,
+            tags: Vec::new(),
+            created_at: 0,
+            updated_at: 0,
+            deleted: false,
+            dirty: false,
+        };
+
+        assert!(!task_matches_view(&task, TaskFilterState::Inbox, 0, false));
+        assert!(task_matches_view(&task, TaskFilterState::Inbox, 0, true));
+
+        task.due_at = Some(100);
+        assert!(!task_matches_view(
+            &task,
+            TaskFilterState::Today,
+            100,
+            false
+        ));
+        assert!(task_matches_view(&task, TaskFilterState::Today, 100, true));
     }
 }
