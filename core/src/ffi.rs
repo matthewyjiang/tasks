@@ -11,8 +11,7 @@ use crate::types::{Blob, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FfiTaskStatus {
-    Inbox,
-    InProgress,
+    Open,
     Done,
 }
 
@@ -57,6 +56,7 @@ pub struct FfiTaskPatch {
 pub struct FfiTaskFilter {
     pub status: Option<FfiTaskStatus>,
     pub project_id: Option<String>,
+    pub tags: Vec<String>,
     pub due_after: Option<i64>,
     pub due_before: Option<i64>,
     pub include_deleted: bool,
@@ -224,8 +224,7 @@ pub fn generate_account_data_key() -> Vec<u8> {
 impl From<TaskStatus> for FfiTaskStatus {
     fn from(status: TaskStatus) -> Self {
         match status {
-            TaskStatus::Inbox => Self::Inbox,
-            TaskStatus::InProgress => Self::InProgress,
+            TaskStatus::Open => Self::Open,
             TaskStatus::Done => Self::Done,
         }
     }
@@ -234,8 +233,7 @@ impl From<TaskStatus> for FfiTaskStatus {
 impl From<FfiTaskStatus> for TaskStatus {
     fn from(status: FfiTaskStatus) -> Self {
         match status {
-            FfiTaskStatus::Inbox => Self::Inbox,
-            FfiTaskStatus::InProgress => Self::InProgress,
+            FfiTaskStatus::Open => Self::Open,
             FfiTaskStatus::Done => Self::Done,
         }
     }
@@ -351,6 +349,7 @@ impl TryFrom<FfiTaskFilter> for TaskFilter {
         Ok(Self {
             status: filter.status.map(TaskStatus::from),
             project_id: filter.project_id.as_deref().map(parse_uuid).transpose()?,
+            tags: filter.tags,
             due_after: filter.due_after,
             due_before: filter.due_before,
             include_deleted: filter.include_deleted,
@@ -425,7 +424,7 @@ mod tests {
                 created.id.clone(),
                 FfiTaskPatch {
                     title: Some("updated".to_owned()),
-                    status: Some(FfiTaskStatus::InProgress),
+                    status: Some(FfiTaskStatus::Open),
                     project_id: Some(project_id.clone()),
                     tags: Some(vec!["work".to_owned(), "urgent".to_owned()]),
                     ..FfiTaskPatch::default()

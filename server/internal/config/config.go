@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DefaultPort                 = "8080"
+	DefaultPort                 = "18080"
 	DefaultJWTIssuer            = "tasks-server"
 	DefaultAccessTokenTTL       = 15 * time.Minute
 	DefaultRefreshTokenTTL      = 30 * 24 * time.Hour

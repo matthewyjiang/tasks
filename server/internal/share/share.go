@@ -45,7 +45,7 @@ func ValidateShare(taskID string, recipientID uuid.UUID, wrappedDEK, nonce []byt
 func (r Repository) Upsert(ctx context.Context, ownerID uuid.UUID, item SharedBlob) error {
 	ct, err := r.DB.Exec(ctx, `INSERT INTO shared_blobs (task_id, owner_id, recipient_id, wrapped_dek, nonce)
 SELECT $1, $2, $3, $4, $5
-WHERE EXISTS (SELECT 1 FROM blobs WHERE task_id=$1 AND owner_id=$2)
+WHERE EXISTS (SELECT 1 FROM blobs WHERE task_id=$1 AND owner_id=$2 AND deleted=false)
 ON CONFLICT (owner_id, task_id, recipient_id) DO UPDATE SET wrapped_dek=EXCLUDED.wrapped_dek, nonce=EXCLUDED.nonce, created_at=now()`, item.TaskID, ownerID, item.RecipientID, item.WrappedDEK, item.Nonce)
 	if err != nil {
 		return err

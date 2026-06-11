@@ -4,7 +4,8 @@ use uuid::Uuid;
 
 use crate::db::LocalDatabase;
 use crate::error::CoreResult;
-use crate::types::{Task, TaskFilter, TaskPatch, TaskSort};
+use crate::settings::VaultSettings;
+use crate::types::{RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort};
 
 pub struct TaskManagerCore {
     database: LocalDatabase,
@@ -21,6 +22,22 @@ impl TaskManagerCore {
         Ok(Self {
             database: LocalDatabase::open_in_memory()?,
         })
+    }
+
+    pub fn create_list(&self, name: String) -> CoreResult<TaskList> {
+        self.database.create_list(name)
+    }
+
+    pub fn list_task_lists(&self) -> CoreResult<Vec<TaskList>> {
+        self.database.list_task_lists()
+    }
+
+    pub fn update_list(&self, list_id: Uuid, name: String) -> CoreResult<TaskList> {
+        self.database.update_list(list_id, name)
+    }
+
+    pub fn delete_list(&self, list_id: Uuid) -> CoreResult<()> {
+        self.database.delete_list(list_id)
     }
 
     pub fn create_task(
@@ -50,6 +67,44 @@ impl TaskManagerCore {
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         self.database.search_tasks(query)
+    }
+
+    pub fn vault_settings(&self) -> CoreResult<VaultSettings> {
+        self.database.vault_settings()
+    }
+
+    pub fn update_vault_settings(&self, settings: VaultSettings) -> CoreResult<VaultSettings> {
+        self.database.update_vault_settings(&settings)
+    }
+
+    pub fn sync_status(&self) -> CoreResult<SyncStatus> {
+        Ok(SyncStatus {
+            dirty_count: self.database.dirty_tasks()?.len(),
+            retry_queue_depth: self.database.retry_queue_entries()?.len(),
+            cursor: self.database.last_pull_cursor()?,
+        })
+    }
+
+    pub fn retry_queue_entries(&self) -> CoreResult<Vec<RetryQueueEntry>> {
+        Ok(self
+            .database
+            .retry_queue_entries()?
+            .into_iter()
+            .map(|(task_id, attempt, next_retry)| RetryQueueEntry {
+                task_id,
+                attempt,
+                next_retry,
+            })
+            .collect())
+    }
+
+    pub fn queue_sync_retry(&self, task_id: Uuid, now: i64) -> CoreResult<RetryQueueEntry> {
+        self.database.get_task(task_id)?;
+        self.database.queue_retry(task_id, now)?;
+        self.retry_queue_entries()?
+            .into_iter()
+            .find(|entry| entry.task_id == task_id)
+            .ok_or_else(|| crate::error::DbError::TaskNotFound(task_id).into())
     }
 }
 
@@ -99,6 +154,21 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, CoreError::Database(DbError::Sqlite(_))));
+    }
+
+    #[test]
+    fn facade_list_methods_delegate_to_database() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+
+        assert!(core.list_task_lists().unwrap().is_empty());
+        let list = core.create_list("Work".to_owned()).unwrap();
+        assert_eq!(list.name, "Work");
+        assert_eq!(core.list_task_lists().unwrap(), vec![list.clone()]);
+
+        let updated = core.update_list(list.id, "Personal".to_owned()).unwrap();
+        assert_eq!(updated.name, "Personal");
+        core.delete_list(list.id).unwrap();
+        assert!(core.list_task_lists().unwrap().is_empty());
     }
 
     #[test]

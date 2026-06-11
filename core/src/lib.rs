@@ -16,8 +16,8 @@ uniffi::include_scaffolding!("core");
 
 pub use core::TaskManagerCore;
 pub use crypto::{
-    decrypt_blob, encrypt_blob, generate_data_key, generate_device_keypair, unwrap_data_key,
-    wrap_data_key, DeviceKeypair,
+    decrypt_blob, encrypt_blob, generate_data_key, generate_device_keypair,
+    public_key_from_private_key, unwrap_data_key, wrap_data_key, DeviceKeypair,
 };
 pub use db::LocalDatabase;
 pub use error::{
@@ -33,12 +33,15 @@ pub use platform::{
     ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 pub use settings::{
-    AuthMethod, DefaultSort, DisplayDensity, PlaintextSettings, PlaintextSettingsSyncPayload,
-    Theme, VaultSettings, VaultSettingsBlob, PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID,
-    VAULT_SETTINGS_SCHEMA_VERSION,
+    AuthMethod, DefaultSort, DisplayDensity, Keybindings, PlaintextSettings,
+    PlaintextSettingsSyncPayload, Theme, VaultSettings, VaultSettingsBlob,
+    PLAINTEXT_SETTINGS_SCHEMA_VERSION, VAULT_SETTINGS_ID, VAULT_SETTINGS_SCHEMA_VERSION,
 };
 pub use sync::{
     resolve_conflict, sync_pull, sync_push, BlobPush, PullResponse, PushResponse, RemoteBlob,
     SyncClient,
 };
-pub use types::{Blob, SyncResult, Task, TaskFilter, TaskPatch, TaskSort, TaskStatus};
+pub use types::{
+    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort,
+    TaskStatus,
+};

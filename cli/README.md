@@ -1,0 +1,301 @@
+# Taskmanager CLI
+
+Rust command-line client for the local-first encrypted task manager.
+
+The CLI is intended for both human terminal use and deterministic integration testing. It is thin by design: command parsing, output formatting, path resolution, and platform/key-store adaptation live here; task and crypto behavior comes from `taskmanager-core`.
+
+## Build and test
+
+From the repository root:
+
+```sh
+cargo build -p taskmanager-cli
+cargo test -p taskmanager-cli
+cargo clippy -p taskmanager-cli --all-targets
+```
+
+Install locally so `tsk` is available on your `PATH`:
+
+```sh
+make cli-install
+```
+
+Run without installing:
+
+```sh
+cargo run -p taskmanager-cli -- --help
+```
+
+## Global flags
+
+```text
+--profile <name>           Profile name, defaults to default
+--config <path>            Plaintext settings path
+--db <path>                Local SQLite DB path
+--server <url>             Override configured server URL for sync commands
+--output <table|json|jsonl> Output format, defaults to table
+--quiet                    Suppress non-result messages
+--yes                      Assume yes for future confirmations
+--offline                  Force offline mode
+--trace                    Write trace diagnostics to stderr
+```
+
+If `--db` is omitted, task commands use:
+
+```text
+~/.taskmanager/profiles/<profile>/tasks.db
+```
+
+## Output modes
+
+Human output is the default:
+
+```sh
+tsk task list
+```
+
+Machine-readable JSON uses a stable envelope:
+
+```sh
+tsk --output json version
+```
+
+```json
+{
+  "result": {
+    "name": "taskmanager-cli",
+    "version": "0.1.0"
+  }
+}
+```
+
+Errors are written to stderr. With JSON/JSONL output selected, errors use:
+
+```json
+{"error":{"code":"input_error","message":"...","details":null}}
+```
+
+## Local task commands
+
+Task commands use `taskmanager_core::TaskManagerCore` against the local DB.
+
+```sh
+tsk --db /tmp/tasks.db task create --title "write tests" --body "cover CLI" --due tomorrow --tag work --tag urgent
+
+tsk --db /tmp/tasks.db task list
+
+tsk --db /tmp/tasks.db task get <task_id>
+
+tsk --db /tmp/tasks.db task update <task_id> --status open --project-id <uuid>
+
+tsk --db /tmp/tasks.db task complete <task_id>
+
+tsk --db /tmp/tasks.db task reopen <task_id>
+
+tsk --db /tmp/tasks.db task search "literal text"
+
+tsk --db /tmp/tasks.db task delete <task_id>
+```
+
+`task delete` creates a tombstone through core; it does not hard-delete the row.
+
+## Account, auth, and device key commands
+
+`tsk configure` is the normal user path for creating local account keys, saving the server URL, and registering/logging in with email and password. Lower-level account, auth, and device commands operate locally through the CLI platform key store for diagnostics, headless tests, and advanced recovery workflows.
+
+By default, the CLI stores secrets in the platform key store. On Linux this uses the Freedesktop Secret Service/libsecret-compatible backend when available.
+
+For headless/dev/test usage, explicitly opt into the file-backed key store:
+
+```sh
+export TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager-profile-a/keys
+```
+
+Initialize account keys:
+
+```sh
+tsk --output json account init
+```
+
+Clear local account/device keys and auth tokens from the platform key store:
+
+```sh
+tsk --output json account clear
+```
+
+Initialize only a device keypair:
+
+```sh
+tsk --output json device init-keypair
+```
+
+Log in with email/password, or store/remove already-issued auth tokens locally:
+
+```sh
+tsk --output json auth login --email you@example.com --server-url http://127.0.0.1:18080
+tsk --output json auth login --access-token <token> --refresh-token <token>
+tsk --output json auth logout
+```
+
+`configure` remains the recommended first-run command because it also creates local account/device keys and saves the server URL.
+
+Wrap the account data key for another device public key:
+
+```sh
+tsk --output json device wrap-key --target <recipient_public_key_hex>
+```
+
+Unwrap and store an account data key from another device:
+
+```sh
+tsk --output json device unwrap-key \
+  --from <sender_public_key_hex> \
+  --ciphertext <wrapped_ciphertext_hex> \
+  --nonce <nonce_hex>
+```
+
+Commands intentionally never print private key or account data key material.
+
+## Settings commands
+
+Plaintext settings are stored per profile, or at `--config <path>` when supplied. They can be read before opening the encrypted vault:
+
+```sh
+tsk --config /tmp/settings.json --output json settings get
+tsk --config /tmp/settings.json --output json settings get server_url
+tsk --config /tmp/settings.json --output json settings set server_url https://api.example.com
+tsk --config /tmp/settings.json --output json settings set auth_method pin
+tsk --config /tmp/settings.json --output json settings set language en
+tsk --config /tmp/settings.json --output json settings set last_sync_cursor 42
+```
+
+Syncable plaintext settings exclude the device-local `last_sync_cursor`:
+
+```sh
+tsk --config /tmp/settings.json --output json settings pull-plaintext
+tsk --config /tmp/settings.json --output json settings push-plaintext '{"schema_version":1,"server_url":"https://api.example.com","auth_method":"password","language":"en"}'
+tsk --config /tmp/settings.json --output json settings migrate
+```
+
+## Crypto diagnostics
+
+The `crypto` namespace is hidden from default help because it is a developer diagnostic surface rather than a normal user workflow. It remains available explicitly to generate encrypted fixtures, troubleshoot local key material, debug sync/blob failures, and validate crypto behavior in black-box tests. Commands that can reveal raw secret material require `--dangerously-print-secrets`.
+
+```sh
+tsk crypto verify-local
+tsk --output json crypto encrypt-task <task_id> > blob.json
+tsk --output json crypto decrypt-blob blob.json  # accepts the CLI {"result": ...} wrapper or a raw blob
+tsk --output json crypto wrap-data-key --target <peer_public_key>
+tsk --dangerously-print-secrets --output json crypto unwrap-data-key \
+  --from <peer_public_key> \
+  --ciphertext <hex> \
+  --nonce <hex>
+```
+
+## Generated packaging artifacts
+
+Shell completions and the `tsk(1)` man page can be generated from the CLI definition:
+
+```sh
+tsk generate completion bash > tsk.bash
+tsk generate completion zsh > _tsk
+tsk generate completion fish > tsk.fish
+tsk generate completion powershell > tsk.ps1
+tsk generate man > tsk.1
+```
+
+## Server status
+
+`sync push`, `sync pull`, and `sync run` use the configured `settings server_url` (or `--server` override) plus a locally stored bearer token from `configure`/`auth login` to call the server blob API. The server issues short-lived access tokens and longer-lived refresh tokens; automatic refresh is currently implemented in the Linux desktop app, while CLI refresh remains future work. `configure` requires network access; `--offline configure` fails before prompting or authenticating.
+
+A functional local-server workflow looks like this:
+
+```sh
+# 1. Run the setup wizard once. It creates local account keys, saves the
+#    server URL, and logs in/registers with the server using email + password.
+tsk configure
+
+# You can also provide everything non-interactively:
+tsk configure \
+  --server-url http://127.0.0.1:18080 \
+  --email you@example.com \
+  --password "$TASKMANAGER_PASSWORD"
+
+# 2. Work normally while offline/local-first.
+tsk task create --title "Plan launch" --body "Draft rollout checklist" --tag work
+tsk task create --title "Buy groceries" --due tomorrow --tag personal
+
+# 3. Inspect what needs sync, then push encrypted blobs to the server.
+tsk sync status
+tsk sync push
+
+# 4. Pull remote encrypted blobs and run a full pull-then-push cycle later.
+tsk sync pull
+tsk sync run
+```
+
+After a successful push, `tsk sync status` should report fewer dirty rows, and JSON output for `sync run` includes a deterministic summary such as:
+
+```json
+{
+  "result": {
+    "pushed": 0,
+    "pulled": 2,
+    "failed": 0,
+    "cursor": 1781039000
+  }
+}
+```
+
+Local sync diagnostics are available with `sync status` and `sync retry`. `--server` still overrides the configured `settings server_url` for one-off runs.
+
+The following remain future work:
+
+- CLI auth token refresh
+- device register/list against the server
+- friendly device pairing on top of low-level wrap/unwrap commands
+- conflict persistence/resolution commands (hidden from default help until implemented)
+- applying remote tombstones during pull
+
+## Headless reminders
+
+The CLI platform can persist scheduled reminders for headless tests when explicitly configured:
+
+```sh
+export TASKMANAGER_REMINDER_DIR=/tmp/taskmanager-reminders
+```
+
+Reminder commands are not exposed directly yet; this backs core/platform integration.
+
+## Local CLI/server E2E suite
+
+Run the black-box CLI pipeline from the repository root:
+
+```sh
+./scripts/cli_e2e.py
+```
+
+The suite:
+
+1. Builds `taskmanager-cli`.
+2. Starts a fresh PostgreSQL container with `docker compose down -v && docker compose up -d postgres` under `server/`.
+3. Starts the Go server with test-only environment values on `http://127.0.0.1:18080`.
+4. Runs the compiled CLI with isolated temp profiles and `--server http://127.0.0.1:18080`.
+5. Exercises the currently implemented CLI interfaces and edge cases, including task create/get/update/delete/list/search/complete/reopen, output modes, account init idempotency, auth token storage/logout, device wrap/unwrap, malformed hex input, sync diagnostics/retry, and server-backed sync push/pull/run.
+
+This test should be extended whenever new CLI features are added, especially for auth/device registration, conflict handling, sharing, and new sync behavior.
+
+Requirements:
+
+- Docker with Compose v2
+- Go
+- Rust/Cargo
+
+Optional environment overrides:
+
+```sh
+TASKMANAGER_E2E_SERVER_URL=http://127.0.0.1:18080 \
+TASKMANAGER_E2E_DATABASE_URL='postgres://tasks:tasks@localhost:5432/tasks?sslmode=disable' \
+TASKMANAGER_E2E_JWT_SECRET='taskmanager-cli-e2e-test-secret-change-me-32-bytes' \
+./scripts/cli_e2e.py
+```

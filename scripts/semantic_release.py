@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Path-scoped semantic release helper for this monorepo.
 
-Creates independent tags/releases per artifact, e.g. artifact-v1.2.3 or server-v1.2.3, by analyzing
+Creates independent tags/releases per artifact, e.g. linux-app-v1.2.3 or server-v1.2.3, by analyzing
 Conventional Commits that touched the artifact path since that artifact's latest tag.
 """
 
@@ -14,6 +14,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 import shlex
+from pathlib import Path
 from typing import Iterable
 
 
@@ -41,7 +42,13 @@ class Version:
 
 
 def run(args: list[str], *, check: bool = True) -> str:
-    proc = subprocess.run(args, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if check and proc.returncode != 0:
+        if proc.stdout:
+            print(proc.stdout, file=sys.stdout, end="")
+        if proc.stderr:
+            print(proc.stderr, file=sys.stderr, end="")
+        raise subprocess.CalledProcessError(proc.returncode, proc.args, output=proc.stdout, stderr=proc.stderr)
     return proc.stdout.strip()
 
 
@@ -119,6 +126,117 @@ def release_notes(tag: str, previous_tag: str | None, paths: Iterable[str]) -> s
     return f"## {tag}\n\n" + (log or "No user-facing changes.") + "\n"
 
 
+def replace_package_version(manifest: Path, version: Version) -> None:
+    text = manifest.read_text()
+    lines = text.splitlines(keepends=True)
+    in_package = False
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "[package]":
+            in_package = True
+            continue
+        if in_package and stripped.startswith("["):
+            break
+        if in_package and stripped.startswith("version = "):
+            newline = "\n" if line.endswith("\n") else ""
+            lines[idx] = f'version = "{version}"{newline}'
+            manifest.write_text("".join(lines))
+            return
+    raise RuntimeError(f"did not find [package] version in {manifest}")
+
+
+def update_cargo_lock_package(lockfile: Path, package: str, version: Version) -> None:
+    if not lockfile.exists():
+        return
+    text = lockfile.read_text()
+    blocks = text.split("\n[[package]]\n")
+    changed = False
+    for idx, block in enumerate(blocks):
+        if f'name = "{package}"' not in block:
+            continue
+        lines = block.splitlines(keepends=True)
+        for line_idx, line in enumerate(lines):
+            if line.startswith("version = "):
+                newline = "\n" if line.endswith("\n") else ""
+                lines[line_idx] = f'version = "{version}"{newline}'
+                blocks[idx] = "".join(lines)
+                changed = True
+                break
+    if changed:
+        lockfile.write_text("\n[[package]]\n".join(blocks))
+
+
+def update_artifact_version(artifact: str, version: Version) -> list[str]:
+    if os.environ.get("RELEASE_UPDATE_PACKAGE_VERSION") != "1":
+        return []
+    if artifact == "cli":
+        replace_package_version(Path("cli/Cargo.toml"), version)
+        update_cargo_lock_package(Path("Cargo.lock"), "taskmanager-cli", version)
+        return ["cli/Cargo.toml", "Cargo.lock"]
+    if artifact == "core":
+        replace_package_version(Path("core/Cargo.toml"), version)
+        update_cargo_lock_package(Path("Cargo.lock"), "taskmanager-core", version)
+        return ["core/Cargo.toml", "Cargo.lock"]
+    if artifact == "linux-app":
+        replace_package_version(Path("linux/Cargo.toml"), version)
+        update_cargo_lock_package(Path("Cargo.lock"), "tsk-linux", version)
+        return ["linux/Cargo.toml", "Cargo.lock"]
+    return []
+
+
+def has_staged_changes() -> bool:
+    proc = subprocess.run(["git", "diff", "--cached", "--quiet"], check=False)
+    return proc.returncode != 0
+
+
+def create_version_pr(artifact: str, tag: str, base_branch: str) -> None:
+    branch = f"release/{tag}"
+    run(["git", "branch", "-M", branch])
+    run(["git", "push", "--force-with-lease", "-u", "origin", branch])
+
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print(f"GITHUB_TOKEN not set; pushed {branch} but skipped PR creation.")
+        return
+
+    existing = run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--base",
+            base_branch,
+            "--state",
+            "open",
+            "--json",
+            "number",
+            "--jq",
+            ".[0].number // empty",
+        ]
+    )
+    if existing:
+        print(f"Version bump PR already exists: #{existing}")
+        return
+
+    run(
+        [
+            "gh",
+            "pr",
+            "create",
+            "--base",
+            base_branch,
+            "--head",
+            branch,
+            "--title",
+            f"chore({artifact}): release {tag}",
+            "--body",
+            f"Update package metadata for `{tag}`. The release workflow will create the tag after this PR merges.",
+        ]
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact", required=True, help="Artifact name used as tag prefix, e.g. server")
@@ -141,6 +259,43 @@ def main() -> int:
     if args.dry_run:
         print(notes)
         return 0
+
+    updated_files = update_artifact_version(args.artifact, next_version)
+    if updated_files:
+        run(["git", "add", *updated_files])
+        if has_staged_changes():
+            run(
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    f"chore({args.artifact}): release {tag}",
+                    "-m",
+                    f"Update package metadata to {tag}.",
+                ]
+            )
+            branch = os.environ.get("GITHUB_REF_NAME", "main")
+            if os.environ.get("RELEASE_VERSION_PR") == "1":
+                create_version_pr(args.artifact, tag, branch)
+                print(f"Opened version bump PR for {tag}; release will be created after it merges.")
+                return 0
+
+            push = subprocess.run(
+                ["git", "push", "origin", f"HEAD:{branch}"],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if push.returncode != 0:
+                if push.stdout:
+                    print(push.stdout, file=sys.stdout, end="")
+                if push.stderr:
+                    print(push.stderr, file=sys.stderr, end="")
+                run(["git", "fetch", "origin", branch])
+                run(["git", "rebase", f"origin/{branch}"])
+                run(["git", "push", "origin", f"HEAD:{branch}"])
+            notes = release_notes(tag, previous_tag, args.path)
 
     # Equivalent shell command: git tag -a <tag> -m "Release <tag>"
     run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])

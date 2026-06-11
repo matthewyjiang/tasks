@@ -29,16 +29,37 @@ func TestMakefileExposesCheckTarget(t *testing.T) {
 	}
 }
 
-func TestDeployScriptIsInteractiveDockerCompose(t *testing.T) {
+func TestDeployScriptSupportsDockerComposeOperations(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "scripts", "deploy.sh"))
 	if err != nil {
 		t.Fatalf("read deploy script: %v", err)
 	}
 	text := string(data)
-	for _, snippet := range []string{"docker compose", "read -r -p", "docker-compose.deploy.yml", "up -d --build", "/healthz", "HOST_PORT", "PORT=8080"} {
+	for _, snippet := range []string{"docker compose", "read -r -p", "docker-compose.deploy.yml", "up -d --build", "/healthz", "HOST_PORT", "PORT=18080", "--yes", "status", "logs", "backup", "undeploy", "down --remove-orphans"} {
 		if !strings.Contains(text, snippet) {
 			t.Fatalf("deploy script missing %q", snippet)
 		}
+	}
+	composeData, err := os.ReadFile(filepath.Join("..", "docker-compose.deploy.yml"))
+	if err != nil {
+		t.Fatalf("read deploy compose file: %v", err)
+	}
+	if !strings.Contains(string(composeData), "tasks-server-api:latest") {
+		t.Fatal("deploy compose file missing tasks-server-api:latest image name")
+	}
+}
+
+func TestDeployComposeBindsPlaintextPortToLoopback(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "docker-compose.deploy.yml"))
+	if err != nil {
+		t.Fatalf("read deploy compose: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "127.0.0.1:${HOST_PORT:-18080}:${PORT:-18080}") {
+		t.Fatal("deploy compose must bind the plaintext app port to loopback only")
+	}
+	if strings.Contains(text, "- \"${HOST_PORT:-18080}:${PORT:-18080}\"") {
+		t.Fatal("deploy compose must not publish the plaintext app port on all host interfaces")
 	}
 }
 

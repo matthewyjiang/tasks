@@ -117,7 +117,7 @@ A user's own tasks all use the single account `data_key`. That key cannot be han
 
 ## 3. Client core library
 
-The core is a Rust library compiled to a native `.a` / `.so` and exposed to platform UI shells via UniFFI-generated bindings.
+The core is a Rust library used directly by Rust clients and exposed to non-Rust platform shells via UniFFI-generated bindings.
 
 ### 3.1 Types
 
@@ -327,7 +327,7 @@ CREATE TABLE shared_blobs (
     wrapped_dek     BYTEA NOT NULL,     -- per-task task_key, AES-GCM wrapped for recipient
     nonce           BYTEA NOT NULL,     -- 12 bytes, for the wrap
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (task_id, recipient_id),
+    PRIMARY KEY (owner_id, task_id, recipient_id),
     CONSTRAINT shared_blobs_nonce_len CHECK (octet_length(nonce) = 12)
 );
 
@@ -345,6 +345,7 @@ CREATE TABLE refresh_tokens (
 - The server queries blobs only by `task_id`, `owner_id`, `updated_at`, and `deleted` — all opaque identifiers or timestamps. It never queries or indexes ciphertext.
 - `updated_at` exists in two places: as a plaintext `BIGINT` column the server sets on every write (drives the `?since=` sync cursor) and as a field inside the encrypted payload (drives client-side conflict resolution). The server column orders sync; the payload field decides which version wins a conflict. They are written together but only the payload field is authoritative for `resolve_conflict`.
 - All blob endpoints enforce ownership by filtering on `owner_id` derived from the JWT claim. A user cannot read or write another user's blobs.
+- All share mutation endpoints (`POST /share/:task_id` and `DELETE /share/:task_id/:recipient_id`) enforce ownership by filtering on `owner_id` derived from the JWT claim, so share rows are scoped to the authenticated owner.
 - Tombstones (`deleted=true`) are retained for 30 days by default, then hard-deleted by a background job. Clients that have not synced within the retention window may miss deletions.
 - Tombstone rows keep `task_id`, `owner_id`, `updated_at`, and `deleted=true`; `ciphertext` and `nonce` may be `NULL`.
 - `PUT /blobs/:task_id` is idempotent. Retried pushes after network failure are safe.
@@ -406,18 +407,6 @@ The server and client core are in different languages, so shared types (`Task`, 
 - The wire format for all request/response bodies is JSON with a documented schema (see §4.2)
 - Any field rename or addition must be applied to both codebases and increments the spec version
 - Integration tests should validate the JSON contract at the boundary
-
----
-
-## 7. Open questions
-
-- **Tombstone window:** 30-day tombstone retention may be too short for infrequent users. Consider extending to 90 days or making it configurable.
-- **Account key rotation on device loss:** If a device is lost, its keychain copy of the account `data_key` is potentially exposed. Rotating the account `data_key` means re-encrypting every blob under a new key and re-wrapping it for all remaining devices — non-trivial and not yet specified. (Per-task revocation in §2.6 is solved; whole-account rotation is not.)
-- **Shared-task model overhead:** Tasks switch from the account `data_key` to a per-task `task_key` when first shared (§2.6). The client must track which key encrypts which blob. Consider storing a `key_id` reference per task locally so the right key is selected on decrypt.
-- **Conflict resolution:** Last-write-wins on the payload `updated_at` is the default. Per-field merge (e.g. preserve the longer body) is possible but adds complexity; worth revisiting when collaborative editing is needed.
-- **Blob size limit:** No limit defined. A task with large attachments could produce a very large blob. Consider a per-blob size cap (e.g. 1 MB) and a separate attachment storage path.
-- **Account deletion:** Cascading delete on `users` will remove all blobs. Define a grace period and export mechanism before shipping.
-- **Key substitution defense:** The key directory could serve a malicious public key (§ key directory). A device-signed identity key with client-side verification (Signal-style key transparency) would close this; acceptable to defer for v1 against a non-adversarial server.
 
 ---
 
@@ -520,9 +509,171 @@ CREATE TABLE plaintext_settings (
 
 ---
 
+## 7. Rust CLI
+
+The project includes a first-party Rust command-line application, `taskmanager`, built on top of the same `core/` crate as the GUI shells. The CLI is not a reduced admin tool: it must expose every user-facing and integration-facing capability of the core library so it can be used as a complete terminal client and as an autonomous end-to-end test driver for the core ⇄ server pipeline.
+
+### 7.1 Goals
+
+- Provide full task-manager functionality without any GUI dependency
+- Exercise every public core interface from an executable client
+- Support deterministic JSON output for scripts, CI, and integration tests
+- Support human-friendly table/text output for interactive terminal use
+- Use the same local-first, encrypted, offline-capable data path as all GUI apps
+- Avoid duplicate business logic; all task, crypto, sync, settings, reminder, and sharing behavior lives in `core/`
+
+### 7.2 Binary and configuration
+
+**Binary:** `taskmanager`
+
+Global flags:
+
+| Flag | Description |
+|---|---|
+| `--profile <name>` | Select local profile/config directory; default `default` |
+| `--config <path>` | Override plaintext settings path |
+| `--db <path>` | Override SQLite DB path, useful for tests |
+| `--server <url>` | Override configured server URL for this invocation |
+| `--output <table|json|jsonl>` | Output format; `json` is required for all commands |
+| `--quiet` | Suppress non-result messages |
+| `--yes` | Assume yes for destructive confirmations |
+| `--offline` | Refuse network access even if a command would normally sync |
+| `--trace` | Enable structured debug logs on stderr |
+
+The CLI uses platform app-data directories by default, but every path must be overridable so tests can run in temporary isolated directories.
+
+### 7.3 Platform implementation
+
+The CLI provides a concrete `Platform` implementation for desktop/server environments:
+
+| Trait method | CLI behavior |
+|---|---|
+| `store_key` / `load_key` / `delete_key` | Use OS keychain where available (`libsecret`, macOS Keychain, Windows Credential Manager); in CI or with `TASKMANAGER_INSECURE_KEY_DIR`, use an explicitly opted-in file-backed test key store |
+| `schedule_notification` / `cancel_notification` | Use the same Linux/macOS/Windows desktop notification backends as the desktop shell when available; in headless mode persist scheduled reminders and expose them through CLI inspection commands |
+| `network_available` | Check explicit `--offline` first, then perform a lightweight network/backend availability check |
+
+The file-backed key store is only for local development and CI. It must be clearly named insecure and must never be selected implicitly for production profiles.
+
+### 7.4 Command surface
+
+Every command that changes local state must go through the core library and preserve the same dirty/tombstone/sync semantics as GUI apps.
+
+#### Account, auth, and device commands
+
+| Command | Core/API coverage |
+|---|---|
+| `tsk account init` | `init_account`, local DB/bootstrap settings, device public-key registration |
+| `tsk auth login` / `auth refresh` / `auth logout` | Server auth endpoints, token storage through platform key store |
+| `tsk device init-keypair` | `init_device_keypair` |
+| `tsk device list` | Server key directory |
+| `tsk device register` | Register this device public key with server |
+| `tsk device wrap-key --target <device_id>` | `wrap_data_key`, wrapped-key upload |
+| `tsk device unwrap-key --from <device_id>` | Wrapped-key fetch, `unwrap_data_key`, local key storage |
+
+#### Task commands
+
+| Command | Core coverage |
+|---|---|
+| `tsk task create --title ... [--body ...] [--due ...] [--tag ...] [--project ...]` | `create_task` |
+| `tsk task get <task_id>` | `get_task` |
+| `tsk task update <task_id> [fields...]` | `update_task` |
+| `tsk task delete <task_id>` | `delete_task` tombstone |
+| `tsk task list [filters...] [--sort ...]` | `list_tasks` with all `TaskFilter` and `TaskSort` variants |
+| `tsk task search <query>` | `search_tasks` |
+| `tsk task complete <task_id>` / `reopen <task_id>` | `update_task` status patch |
+
+#### Sync and server-pipeline commands
+
+| Command | Core/API coverage |
+|---|---|
+| `tsk sync push` | `sync_push` |
+| `tsk sync pull [--since <cursor>]` | `sync_pull` |
+| `tsk sync run` | Pull then push, or configured bidirectional order |
+| `tsk sync status` | Local dirty rows, queue depth, retry state, cursor |
+| `tsk sync retry <task_id>` | `queue_retry` |
+| `tsk sync conflicts` | Inspect pending conflicts when pluggable conflict handling is enabled |
+| `tsk sync resolve <task_id> --local|--remote|--json <patch>` | `resolve_conflict` / configured strategy |
+
+#### Settings commands
+
+| Command | Coverage |
+|---|---|
+| `tsk settings get [key]` | Plaintext and vault settings read paths |
+| `tsk settings set <key> <value>` | Plaintext/vault settings write paths and sync dirty marking |
+| `tsk settings pull-plaintext` / `push-plaintext` | `/settings/plaintext` endpoints |
+| `tsk settings migrate` | Vault settings schema migration functions |
+
+#### Sharing commands
+
+| Command | Coverage |
+|---|---|
+| `tsk share create <task_id> --recipient <user_or_device>` | Per-task key generation, task re-encryption, recipient key wrap, `/share/:task_id` |
+| `tsk share inbox` | Shared-task inbox fetch |
+| `tsk share accept <share_id>` | Wrapped task-key unwrap and local import |
+| `tsk share revoke <task_id> --recipient <id>` | Share deletion, task-key rotation, remaining-recipient rewrap |
+| `tsk share list <task_id>` | Current collaborators and key state |
+
+#### Crypto diagnostic commands
+
+These commands exist for development/test profiles and must never print secret key material unless `--dangerously-print-secrets` is supplied.
+
+| Command | Coverage |
+|---|---|
+| `tsk crypto encrypt-task <task_id>` | `encrypt_blob` |
+| `tsk crypto decrypt-blob <file>` | `decrypt_blob` |
+| `tsk crypto wrap-data-key ...` / `unwrap-data-key ...` | Direct wrap/unwrap coverage |
+| `tsk crypto verify-local` | Validate local key availability and decryptability without network |
+
+### 7.5 Output and exit-code contract
+
+- `--output json` returns stable machine-readable JSON for every command.
+- Errors are written to stderr as `{ "error": { "code", "message", "details" } }` when JSON output is selected.
+- Exit codes:
+  - `0`: success
+  - `1`: user/input error
+  - `2`: local DB or key-store error
+  - `3`: crypto/decryption/authentication failure
+  - `4`: network/server error
+  - `5`: conflict or partial sync failure
+  - `6`: unsupported platform capability
+
+### 7.6 Autonomous integration testing mode
+
+The CLI is the canonical black-box integration-test harness for core ⇄ server behavior. Test suites should be able to start a disposable server, create two or more isolated CLI profiles, and verify the complete encrypted sync path without GUI automation.
+
+Required test-friendly capabilities:
+
+- All local state paths injectable via flags or environment variables
+- Insecure file-backed key store available only by explicit opt-in
+- JSON output for every command
+- Idempotent commands where practical, or clear `already_exists` errors
+- Fixtures for generating users, devices, tasks, shares, and settings
+- Ability to run push/pull loops until quiescent with a timeout
+- Ability to inspect local dirty rows, cursors, retry queue, and scheduled reminders
+- No command may require interactive input when all required flags are supplied
+
+Minimum end-to-end scenarios covered through the CLI:
+
+1. Account bootstrap: init account, create task offline, push, verify opaque blob on server.
+2. Device pairing: second profile registers device, first wraps data key, second unwraps, second pulls and decrypts tasks.
+3. Conflict path: two profiles edit the same task offline, sync both, verify configured resolution.
+4. Tombstone path: delete task locally, sync tombstone, pull deletion on another profile.
+5. Settings path: update plaintext and vault settings, sync, pull on another profile.
+6. Sharing path: share a task, accept on recipient profile, revoke and rotate task key.
+
+### 7.7 Implementation requirements
+
+- `cli/` is a Rust binary crate in the root Cargo workspace and depends on `core` by path.
+- Use `clap` for argument parsing and `serde_json` for JSON output.
+- The CLI must call public core APIs only; it must not reach into private core modules or duplicate SQL/crypto logic.
+- Any new core capability required by the CLI must first be added to the core public API and, when needed by GUI apps, to `core/uniffi/core.udl`.
+- CLI integration tests run against the same server API documented in §4 and should be included in CI.
+
+---
+
 ## 8. Repository structure
 
-The project uses a monorepo. All code, migrations, and the spec itself live in one repository. CI pipelines are path-filtered so only affected sub-projects build on any given change.
+The project uses a monorepo. All code, migrations, and the spec itself live in one repository. CI pipelines are path-filtered where applicable so only affected sub-projects build on any given change.
 
 ### 8.1 Directory layout
 
@@ -531,15 +682,14 @@ taskmanager/
 ├── .github/
 │   └── workflows/
 │       ├── core.yml        # triggers on core/**
-│       ├── server.yml      # triggers on server/** or core/**
-│       ├── ios.yml         # triggers on ios/** or core/**
-│       ├── android.yml     # triggers on android/** or core/**
-│       └── desktop.yml     # triggers on desktop/** or core/**
+│       ├── server.yml      # triggers on server/**
+│       ├── cli.yml         # triggers on cli/**, core/**, or server/**
+│       └── release.yml     # path-scoped semantic releases
 ├── core/
 │   ├── src/
 │   ├── Cargo.toml
 │   └── uniffi/
-│       └── core.udl        # UniFFI interface definition — source of truth for FFI boundary
+│       └── core.udl        # UniFFI interface definition for non-Rust FFI boundaries
 ├── server/
 │   ├── cmd/server/
 │   ├── internal/
@@ -549,13 +699,13 @@ taskmanager/
 │   │   └── settings/
 │   ├── migrations/         # numbered SQL files, never edited after running in production
 │   └── go.mod
-├── ios/
-│   └── TaskManager.xcodeproj
-├── android/
-│   └── app/
-├── desktop/
-│   ├── src-tauri/          # Rust Tauri backend, imports core as a crate dependency
-│   └── src/                # Web UI (React or Svelte)
+├── linux/
+│   ├── src/                # Native GTK4/libadwaita desktop app
+│   ├── resources/
+│   └── Cargo.toml          # Rust GUI crate, imports core directly
+├── cli/
+│   ├── src/
+│   └── Cargo.toml          # Rust CLI binary, imports core directly
 └── README.md
 ```
 
@@ -567,32 +717,40 @@ taskmanager/
 | `server/` | Go | Zero-knowledge blob relay. Auth, blob store, key directory, plaintext settings. No business logic |
 | `ios/` | Swift | SwiftUI shell. Thin UI layer + Platform trait implementation for iOS/macOS |
 | `android/` | Kotlin | Jetpack Compose shell. Thin UI layer + Platform trait implementation for Android |
-| `desktop/` | Rust + Web | Tauri shell for Windows, macOS, Linux. `src-tauri/` imports `core/` as a Cargo workspace member; `src/` is the web UI |
+| `linux/` | Rust + GTK4/libadwaita | Native Linux desktop app. Imports `core/` directly, implements Linux platform services with libsecret/desktop notifications, and uses the same local-first encrypted sync path as the CLI |
+| `cli/` | Rust | Full-featured terminal client and autonomous integration-test harness. Imports `core/` as a Cargo workspace member and exercises the same local-first encrypted sync path as GUI apps |
+
+Tauri is not the Linux desktop architecture. A Tauri shell may be reconsidered later for non-Linux desktop platforms, but it is not part of the current workspace.
 
 ### 8.3 Cargo workspace
 
-`core/` and `desktop/src-tauri/` are members of a shared Cargo workspace defined at the repo root:
+`core/`, `linux/`, and `cli/` are members of a shared Cargo workspace defined at the repo root:
 
 ```toml
 # Cargo.toml (root)
 [workspace]
 members = [
     "core",
-    "desktop/src-tauri",
+    "cli",
+    "linux",
 ]
 ```
 
-This means `cargo build`, `cargo test`, and `cargo clippy` at the root cover both Rust crates. The desktop shell depends on `core` as a path dependency:
+This means `cargo build`, `cargo test`, and `cargo clippy` at the root cover the Rust workspace crates. The Linux app and CLI depend on `core` as a path dependency:
 
 ```toml
-# desktop/src-tauri/Cargo.toml
+# linux/Cargo.toml
 [dependencies]
-core = { path = "../../core" }
+taskmanager-core = { path = "../core" }
+
+# cli/Cargo.toml
+[dependencies]
+taskmanager-core = { path = "../core" }
 ```
 
 ### 8.4 UniFFI bindings
 
-Generated bindings for Swift and Kotlin are **not** checked into version control. Each platform's build step generates them fresh from `core/uniffi/core.udl`:
+Generated bindings for Swift and Kotlin are **not** checked into version control. Rust clients such as the CLI and native Linux app call `core` directly and do not use UniFFI. Each non-Rust platform's build step generates bindings fresh from `core/uniffi/core.udl`:
 
 ```bash
 # iOS build step (run before xcodebuild)
@@ -629,8 +787,20 @@ Each workflow triggers only on relevant paths to avoid unnecessary builds:
 |---|---|
 | `core.yml` | `core/**` |
 | `server.yml` | `server/**`, `core/**` |
-| `ios.yml` | `ios/**`, `core/**` |
-| `android.yml` | `android/**`, `core/**` |
-| `desktop.yml` | `desktop/**`, `core/**` |
+| `cli.yml` | `cli/**`, `core/**`, `server/**` |
+| `release.yml` | path-scoped release artifacts including `linux/**` as `linux-app` |
 
-Any change to `core/` triggers all downstream platform builds. This is intentional — `core/` is a shared dependency and must be verified against every consumer on every change.
+Any change to `core/` triggers all downstream platform builds. This is intentional — `core/` is a shared dependency and must be verified against every consumer on every change. The CLI workflow also triggers on `server/**` because it owns black-box core ⇄ server integration coverage.
+
+---
+
+## 9. Open questions
+
+- **Tombstone window:** 30-day tombstone retention may be too short for infrequent users. Consider extending to 90 days or making it configurable.
+- **Account key rotation on device loss:** If a device is lost, its keychain copy of the account `data_key` is potentially exposed. Rotating the account `data_key` means re-encrypting every blob under a new key and re-wrapping it for all remaining devices — non-trivial and not yet specified. (Per-task revocation in §2.6 is solved; whole-account rotation is not.)
+- **Shared-task model overhead:** Tasks switch from the account `data_key` to a per-task `task_key` when first shared (§2.6). The client must track which key encrypts which blob. Consider storing a `key_id` reference per task locally so the right key is selected on decrypt.
+- **Conflict resolution:** Last-write-wins on the payload `updated_at` is the default. Per-field merge (e.g. preserve the longer body) is possible but adds complexity; worth revisiting when collaborative editing is needed.
+- **Blob size limit:** No limit defined. A task with large attachments could produce a very large blob. Consider a per-blob size cap (e.g. 1 MB) and a separate attachment storage path.
+- **Account deletion:** Cascading delete on `users` will remove all blobs. Define a grace period and export mechanism before shipping.
+- **Key substitution defense:** The key directory could serve a malicious public key (§ key directory). A device-signed identity key with client-side verification (Signal-style key transparency) would close this; acceptable to defer for v1 against a non-adversarial server.
+

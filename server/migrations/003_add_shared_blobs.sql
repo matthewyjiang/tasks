@@ -7,8 +7,7 @@ CREATE TABLE shared_blobs (
     nonce         BYTEA NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (owner_id, task_id, recipient_id),
-    CONSTRAINT shared_blobs_nonce_len CHECK (octet_length(nonce) = 12),
-    CONSTRAINT shared_blobs_blob_fk FOREIGN KEY (task_id, owner_id) REFERENCES blobs(task_id, owner_id) ON DELETE CASCADE
+    CONSTRAINT shared_blobs_nonce_len CHECK (octet_length(nonce) = 12)
 );
 
 CREATE INDEX shared_blobs_recipient_created ON shared_blobs(recipient_id, created_at);

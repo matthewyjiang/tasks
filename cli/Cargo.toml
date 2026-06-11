@@ -1,0 +1,28 @@
+[package]
+name = "taskmanager-cli"
+version = "1.2.0"
+edition = "2021"
+
+[[bin]]
+name = "tsk"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+keyring = { version = "3.6", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
+clap_complete = "4"
+clap_mangen = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+taskmanager-core = { path = "../core" }
+thiserror = "1"
+uuid = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

@@ -8,20 +8,28 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - artifact: server
             path: server
           - artifact: core
             path: core
-          - artifact: app
-            path: android ios linux macos windows
+          - artifact: cli
+            path: cli
+          - artifact: linux-app
+            path: linux
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,9 +44,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Fast-forward release branch
+        run: git pull --ff-only origin "$GITHUB_REF_NAME"
       - name: Release ${{ matrix.artifact }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_UPDATE_PACKAGE_VERSION: "1"
+          RELEASE_VERSION_PR: "1"
         run: |
           python3 scripts/semantic_release.py \
             --artifact "${{ matrix.artifact }}" \
