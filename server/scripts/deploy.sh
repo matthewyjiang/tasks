@@ -211,11 +211,11 @@ wait_for_health() {
   fi
 
   echo
-  echo "Waiting up to ${HEALTH_TIMEOUT_SECONDS}s for http://localhost:$HOST_PORT/healthz ..."
+  echo "Waiting up to ${HEALTH_TIMEOUT_SECONDS}s for local plaintext health check http://127.0.0.1:$HOST_PORT/healthz ..."
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
   while (( SECONDS < deadline )); do
-    if curl -fsS "http://localhost:$HOST_PORT/healthz" >/dev/null 2>&1; then
-      echo "Deploy complete. Health check passed."
+    if curl -fsS "http://127.0.0.1:$HOST_PORT/healthz" >/dev/null 2>&1; then
+      echo "Deploy complete. Health check passed. Configure HTTPS/TLS in your reverse proxy before exposing the API publicly."
       return
     fi
     sleep 2
@@ -229,7 +229,7 @@ wait_for_health() {
 configure_env() {
   load_existing
 
-  prompt HOST_PORT "Public HTTP port" "${CLI_HOST_PORT:-${HOST_PORT:-18080}}"
+  prompt HOST_PORT "Local HTTP port for TLS reverse proxy" "${CLI_HOST_PORT:-${HOST_PORT:-18080}}"
   PORT=18080
   prompt POSTGRES_DB "Postgres database name" "${POSTGRES_DB:-tasks}"
   prompt POSTGRES_USER "Postgres user" "${POSTGRES_USER:-tasks}"
