@@ -11,7 +11,10 @@ use taskmanager_core::{
 };
 
 use crate::platform::LinuxPlatform;
-use crate::sync::{AUTH_ACCESS_TOKEN_ID, AUTH_REFRESH_TOKEN_ID};
+use crate::sync::{
+    normalize_sync_server_url, sync_server_origin, AUTH_ACCESS_TOKEN_ID, AUTH_REFRESH_TOKEN_ID,
+    AUTH_SYNC_ORIGIN_ID,
+};
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
 
 pub(crate) struct SyncSetupPanelWidgets {
@@ -45,7 +48,7 @@ pub(crate) fn build_sync_setup_panel(configured: bool, server_url: &str) -> Sync
     setup_subtitle.set_wrap(true);
     setup_subtitle.add_css_class("dim-label");
     let server_entry = gtk::Entry::new();
-    server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    server_entry.set_placeholder_text(Some("Server URL, e.g. https://sync.example.com"));
     server_entry.set_text(server_url);
     let email_entry = gtk::Entry::new();
     email_entry.set_placeholder_text(Some("Email"));
@@ -89,7 +92,16 @@ pub(crate) fn build_sync_setup_panel(configured: bool, server_url: &str) -> Sync
 }
 
 pub(crate) fn sync_auth_configured(platform: &LinuxPlatform, settings: &LinuxSettings) -> bool {
-    !settings.server_url.trim().is_empty()
+    let Ok(settings_origin) = sync_server_origin(&settings.server_url) else {
+        return false;
+    };
+    let Ok(stored_origin_bytes) = platform.load_key(AUTH_SYNC_ORIGIN_ID) else {
+        return false;
+    };
+    let Ok(stored_origin) = String::from_utf8(stored_origin_bytes) else {
+        return false;
+    };
+    settings_origin == stored_origin
         && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
         && platform.load_key(AUTH_REFRESH_TOKEN_ID).is_ok()
         && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
@@ -156,7 +168,7 @@ pub(crate) fn show_sync_setup_window(
     content.append(&subtitle);
 
     let server_entry = gtk::Entry::new();
-    server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    server_entry.set_placeholder_text(Some("Server URL, e.g. https://sync.example.com"));
     server_entry.set_text(&settings.server_url);
     server_entry.set_visible(!configured);
     content.append(&server_entry);
@@ -253,11 +265,12 @@ pub(crate) fn configure_sync_auth(
     email: &str,
     password: &str,
 ) -> Result<(), String> {
-    let server_url = server_url.trim().trim_end_matches('/').to_owned();
+    let server_url = normalize_sync_server_url(server_url)?;
+    let sync_origin = sync_server_origin(&server_url)?;
     let email = email.trim().to_owned();
     let password = password.to_string();
-    if server_url.is_empty() || email.is_empty() || password.is_empty() {
-        return Err("server, email, and password are required".to_owned());
+    if email.is_empty() || password.is_empty() {
+        return Err("email and password are required".to_owned());
     }
 
     let public_key = match platform.load_key(DEVICE_PRIVATE_KEY_ID) {
@@ -303,6 +316,9 @@ pub(crate) fn configure_sync_auth(
     platform
         .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
         .map_err(|error| error.to_string())?;
+    platform
+        .store_key(AUTH_SYNC_ORIGIN_ID, sync_origin.as_bytes())
+        .map_err(|error| error.to_string())?;
 
     let mut settings = read_settings(settings_path).unwrap_or_default();
     settings.server_url = server_url;
@@ -321,6 +337,9 @@ pub(crate) fn logout_sync_auth(
     platform
         .delete_key(AUTH_REFRESH_TOKEN_ID)
         .map_err(|error| error.to_string())?;
+    if let Err(error) = platform.delete_key(AUTH_SYNC_ORIGIN_ID) {
+        eprintln!("Failed to clear sync origin: {error}");
+    }
     let mut settings = read_settings(settings_path).unwrap_or_default();
     settings.sync_email.clear();
     write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
