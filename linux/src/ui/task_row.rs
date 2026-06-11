@@ -324,9 +324,21 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     today.add_css_class("task-date-quick-button");
     today.set_tooltip_text(Some("Set due date to today"));
 
+    let clear = gtk::Button::new();
+    let clear_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    clear_content.set_halign(gtk::Align::Center);
+    let clear_icon = font_awesome_label("\u{f00d}");
+    clear_icon.add_css_class("task-date-quick-icon");
+    clear_content.append(&clear_icon);
+    clear_content.append(&gtk::Label::new(Some("Clear")));
+    clear.set_child(Some(&clear_content));
+    clear.add_css_class("task-date-quick-button");
+    clear.set_tooltip_text(Some("Clear due date"));
+
     let popover_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
     popover_content.add_css_class("task-date-popover");
     popover_content.append(&today);
+    popover_content.append(&clear);
     popover_content.append(&calendar);
 
     let popover = gtk::Popover::new();
@@ -353,6 +365,16 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
                 popover.popdown();
             }
             Err(error) => eprintln!("Failed to read local date: {error}"),
+        }
+    });
+
+    clear.connect_clicked({
+        let update_due_date = Rc::clone(&actions.update_due_date);
+        let popover = popover.clone();
+        let task_id = task.id;
+        move |_| {
+            update_due_date(task_id, None);
+            popover.popdown();
         }
     });
 
