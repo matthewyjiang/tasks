@@ -361,7 +361,7 @@ impl LocalDatabase {
         Ok(())
     }
 
-    pub(crate) fn retry_queue_entries(&self) -> CoreResult<Vec<(Uuid, i64, i64)>> {
+    pub fn retry_queue_entries(&self) -> CoreResult<Vec<(Uuid, i64, i64)>> {
         let mut statement = self
             .connection
             .prepare("SELECT task_id, attempt, next_retry FROM sync_queue ORDER BY task_id ASC")?;
@@ -376,7 +376,7 @@ impl LocalDatabase {
         Ok(entries)
     }
 
-    pub(crate) fn queue_retry(&self, task_id: Uuid, now: i64) -> CoreResult<()> {
+    pub fn queue_retry(&self, task_id: Uuid, now: i64) -> CoreResult<()> {
         let current_attempt: Option<i64> = self
             .connection
             .query_row(
@@ -391,6 +391,14 @@ impl LocalDatabase {
             "INSERT INTO sync_queue (task_id, queued_at, attempt, next_retry) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(task_id) DO UPDATE SET attempt = excluded.attempt, next_retry = excluded.next_retry",
             params![task_id.to_string(), now, attempt, now + delay_ms],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_retry(&self, task_id: Uuid) -> CoreResult<()> {
+        self.connection.execute(
+            "DELETE FROM sync_queue WHERE task_id = ?1",
+            params![task_id.to_string()],
         )?;
         Ok(())
     }

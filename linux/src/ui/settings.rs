@@ -23,6 +23,10 @@ pub struct SyncStatus {
     pub last_failed: usize,
     #[serde(default)]
     pub last_error: String,
+    #[serde(default)]
+    pub pending_retries: usize,
+    #[serde(default)]
+    pub conflicts: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -6,7 +6,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{
-    init_account, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+    init_account, LocalDatabase, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
 };
 use uuid::Uuid;
 
@@ -134,7 +134,7 @@ impl AppState {
                 Ok(result) => {
                     state.sync_in_progress.replace(false);
                     state.set_sync_running(false);
-                    record_sync_status(&state.settings_path, &result);
+                    record_sync_status(&state.settings_path, &state.db_path, &result);
                     match result {
                         Ok(summary) => {
                             if summary.changed() {
@@ -1512,6 +1512,7 @@ fn build_ui(app: &adw::Application) {
 
 fn record_sync_status(
     settings_path: &std::path::Path,
+    db_path: &std::path::Path,
     result: &taskmanager_core::CoreResult<LinuxSyncSummary>,
 ) {
     let mut settings = read_settings(settings_path).unwrap_or_default();
@@ -1524,6 +1525,8 @@ fn record_sync_status(
             last_pulled: summary.pulled,
             last_failed: summary.failed,
             last_error: String::new(),
+            pending_retries: summary.pending_retries,
+            conflicts: summary.conflicts,
         },
         Err(error) => SyncStatus {
             last_attempt_at: Some(now),
@@ -1532,6 +1535,10 @@ fn record_sync_status(
             last_pulled: settings.sync_status.last_pulled,
             last_failed: settings.sync_status.last_failed,
             last_error: error.to_string(),
+            pending_retries: LocalDatabase::open(db_path)
+                .and_then(|database| database.retry_queue_entries().map(|entries| entries.len()))
+                .unwrap_or(settings.sync_status.pending_retries),
+            conflicts: settings.sync_status.conflicts,
         },
     };
     if let Err(error) = write_settings(settings_path, &settings) {
@@ -1568,17 +1575,22 @@ fn build_sync_activity_icon(angle: Rc<Cell<f64>>) -> gtk::DrawingArea {
 }
 
 fn format_sync_status(summary: &LinuxSyncSummary) -> String {
-    if summary.pushed == 0 && summary.pulled == 0 && summary.failed == 0 {
+    if summary.pushed == 0
+        && summary.pulled == 0
+        && summary.failed == 0
+        && summary.pending_retries == 0
+        && summary.conflicts == 0
+    {
         "Synced. Everything is up to date.".to_owned()
-    } else if summary.failed == 0 {
+    } else if summary.failed == 0 && summary.pending_retries == 0 && summary.conflicts == 0 {
         format!(
             "Synced. {} pushed, {} pulled.",
             summary.pushed, summary.pulled
         )
     } else {
         format!(
-            "Synced with issues. {} pushed, {} pulled, {} failed.",
-            summary.pushed, summary.pulled, summary.failed
+            "Synced with issues. {} pushed, {} pulled, {} failed, {} pending retry, {} conflict resolved automatically (last write wins).",
+            summary.pushed, summary.pulled, summary.failed, summary.pending_retries, summary.conflicts
         )
     }
 }
