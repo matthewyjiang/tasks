@@ -1,6 +1,7 @@
 package share
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -50,6 +51,10 @@ func (h Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Repo.Upsert(r.Context(), ownerID, item); err != nil {
+		if errors.Is(err, ErrBlobNotFound) {
+			respond.Error(w, http.StatusNotFound, "task not found")
+			return
+		}
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
