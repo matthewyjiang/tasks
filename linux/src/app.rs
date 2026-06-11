@@ -1048,6 +1048,24 @@ fn build_ui(app: &adw::Application) {
             }
         }
     });
+    let root_click = gtk::GestureClick::new();
+    root_click.connect_pressed({
+        let search_panel = search_panel.clone();
+        move |_, _, x, y| {
+            if !search_panel.is_visible() {
+                return;
+            }
+            let allocation = search_panel.allocation();
+            let inside_search_panel = x >= f64::from(allocation.x())
+                && x <= f64::from(allocation.x() + allocation.width())
+                && y >= f64::from(allocation.y())
+                && y <= f64::from(allocation.y() + allocation.height());
+            if !inside_search_panel {
+                hide_floating_panel(&search_panel);
+            }
+        }
+    });
+    root_overlay.add_controller(root_click);
 
     let create_task_action: Rc<dyn Fn()> = Rc::new({
         let state = Rc::clone(&state);
