@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -14,7 +14,7 @@ use crate::keybindings::{install_keybindings, KeybindingActions};
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
 use crate::style::install_css;
-use crate::sync::{linux_sync_configured, run_linux_sync};
+use crate::sync::{linux_sync_configured, run_linux_sync, LinuxSyncSummary};
 use crate::task_format::{
     count_for_filter, format_due_date_value, markdown_to_pango_markup, parse_due_date_entry,
     parse_tags, sidebar_filter_icon, sidebar_filter_icon_class, sidebar_filter_order,
@@ -82,19 +82,38 @@ struct AppState {
     toast_overlay: adw::ToastOverlay,
     db_path: PathBuf,
     settings_path: PathBuf,
+    sync_button: gtk::Button,
+    sync_stack: gtk::Stack,
+    sync_icon: gtk::Label,
+    sync_activity: gtk::DrawingArea,
+    sync_angle: Rc<Cell<f64>>,
     sync_in_progress: RefCell<bool>,
     sync_pending: RefCell<bool>,
 }
 
 impl AppState {
     fn request_sync(self: &Rc<Self>) {
+        self.request_sync_with_feedback(false);
+    }
+
+    fn request_manual_sync(self: &Rc<Self>) {
+        self.request_sync_with_feedback(true);
+    }
+
+    fn request_sync_with_feedback(self: &Rc<Self>, notify: bool) {
         if *self.sync_in_progress.borrow() {
-            self.sync_pending.replace(true);
+            if !notify {
+                self.sync_pending.replace(true);
+            }
             return;
         }
         if !linux_sync_configured(&self.settings_path) {
+            if notify {
+                self.toast("Sync is not configured yet.".to_owned());
+            }
             return;
         }
+        self.set_sync_running(true);
         self.sync_in_progress.replace(true);
         let db_path = self.db_path.clone();
         let settings_path = self.settings_path.clone();
@@ -109,10 +128,14 @@ impl AppState {
             move || match receiver.try_recv() {
                 Ok(result) => {
                     state.sync_in_progress.replace(false);
+                    state.set_sync_running(false);
                     match result {
                         Ok(summary) => {
                             if summary.changed() {
                                 state.load_tasks();
+                            }
+                            if notify {
+                                state.toast(format_sync_status(&summary));
                             }
                         }
                         Err(error) => state.toast(format!("Sync failed: {error}")),
@@ -125,6 +148,7 @@ impl AppState {
                 Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     state.sync_in_progress.replace(false);
+                    state.set_sync_running(false);
                     state.toast("Sync failed: worker disconnected".to_owned());
                     gtk::glib::ControlFlow::Break
                 }
@@ -480,6 +504,19 @@ impl AppState {
     fn toast(&self, message: String) {
         self.toast_overlay.add_toast(adw::Toast::new(&message));
     }
+
+    fn set_sync_running(&self, running: bool) {
+        self.sync_button.set_sensitive(!running);
+        self.sync_icon.set_visible(!running);
+        self.sync_activity.set_visible(running);
+        if running {
+            self.sync_stack.set_visible_child_name("activity");
+            self.sync_button.set_tooltip_text(Some("Syncing…"));
+        } else {
+            self.sync_stack.set_visible_child_name("icon");
+            self.sync_button.set_tooltip_text(Some("Sync now"));
+        }
+    }
 }
 
 fn build_ui(app: &adw::Application) {
@@ -724,8 +761,21 @@ fn build_ui(app: &adw::Application) {
     bottom_new_button.add_css_class("flat");
     bottom_new_button.set_hexpand(true);
     bottom_new_button.set_tooltip_text(Some("Add Task"));
+    let sync_button = gtk::Button::new();
+    sync_button.add_css_class("flat");
+    sync_button.set_hexpand(true);
+    sync_button.set_tooltip_text(Some("Sync now"));
+    let sync_stack = gtk::Stack::new();
+    let sync_icon = font_awesome_label("\u{f021}");
+    let sync_angle = Rc::new(Cell::new(0.0));
+    let sync_activity = build_sync_activity_icon(Rc::clone(&sync_angle));
+    sync_activity.set_visible(false);
+    sync_stack.add_named(&sync_icon, Some("icon"));
+    sync_stack.add_named(&sync_activity, Some("activity"));
+    sync_button.set_child(Some(&sync_stack));
     content_bottom_bar.append(&search_button);
     content_bottom_bar.append(&bottom_new_button);
+    content_bottom_bar.append(&sync_button);
 
     let main_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main_area.set_hexpand(true);
@@ -872,6 +922,11 @@ fn build_ui(app: &adw::Application) {
         toast_overlay,
         db_path: paths.database_path.clone(),
         settings_path: paths.settings_path.clone(),
+        sync_button,
+        sync_stack,
+        sync_icon,
+        sync_activity,
+        sync_angle,
         sync_in_progress: RefCell::new(false),
         sync_pending: RefCell::new(false),
     });
@@ -1010,6 +1065,10 @@ fn build_ui(app: &adw::Application) {
     bottom_new_button.connect_clicked({
         let create_task_action = Rc::clone(&create_task_action);
         move |_| create_task_action()
+    });
+    state.sync_button.connect_clicked({
+        let state = Rc::clone(&state);
+        move |_| state.request_manual_sync()
     });
     add_list_button.connect_clicked({
         let state = Rc::clone(&state);
@@ -1185,9 +1244,16 @@ fn build_ui(app: &adw::Application) {
         let window = window.clone();
         let editor_panel = state.editor_panel.clone();
         let settings_panel = settings_panel.clone();
+        let state = Rc::clone(&state);
         move |_, _| {
             resize_task_editor_panel(&window, &editor_panel);
             resize_settings_panel(&window, &settings_panel);
+            if *state.sync_in_progress.borrow() {
+                state
+                    .sync_angle
+                    .set((state.sync_angle.get() + 0.10) % std::f64::consts::TAU);
+                state.sync_activity.queue_draw();
+            }
             gtk::glib::ControlFlow::Continue
         }
     });
@@ -1228,6 +1294,50 @@ fn build_ui(app: &adw::Application) {
     state.load_tasks();
     state.request_sync();
     window.present();
+}
+
+fn build_sync_activity_icon(angle: Rc<Cell<f64>>) -> gtk::DrawingArea {
+    let area = gtk::DrawingArea::new();
+    area.set_content_width(18);
+    area.set_content_height(18);
+    area.set_draw_func(move |_, cr, width, height| {
+        let size = f64::from(width.min(height));
+        let center = size / 2.0;
+        let radius = size * 0.31;
+        cr.translate(f64::from(width) / 2.0, f64::from(height) / 2.0);
+        cr.rotate(angle.get());
+        cr.set_source_rgba(0.50, 0.58, 0.68, 1.0);
+        cr.set_line_width(1.8);
+        cr.set_line_cap(gtk::cairo::LineCap::Round);
+        cr.arc(0.0, 0.0, radius, -0.35, std::f64::consts::TAU - 0.95);
+        let _ = cr.stroke();
+
+        let tip_angle: f64 = -0.35;
+        let tip_x = radius * tip_angle.cos();
+        let tip_y = radius * tip_angle.sin();
+        cr.move_to(tip_x, tip_y);
+        cr.line_to(tip_x - center * 0.18, tip_y - center * 0.02);
+        cr.move_to(tip_x, tip_y);
+        cr.line_to(tip_x - center * 0.06, tip_y + center * 0.17);
+        let _ = cr.stroke();
+    });
+    area
+}
+
+fn format_sync_status(summary: &LinuxSyncSummary) -> String {
+    if summary.pushed == 0 && summary.pulled == 0 && summary.failed == 0 {
+        "Synced. Everything is up to date.".to_owned()
+    } else if summary.failed == 0 {
+        format!(
+            "Synced. {} pushed, {} pulled.",
+            summary.pushed, summary.pulled
+        )
+    } else {
+        format!(
+            "Synced with issues. {} pushed, {} pulled, {} failed.",
+            summary.pushed, summary.pulled, summary.failed
+        )
+    }
 }
 
 fn delete_selected_task(state: &Rc<AppState>) {

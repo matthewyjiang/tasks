@@ -210,7 +210,7 @@ where
 pub(crate) struct LinuxSyncSummary {
     pub(crate) pushed: usize,
     pub(crate) pulled: usize,
-    failed: usize,
+    pub(crate) failed: usize,
 }
 
 impl LinuxSyncSummary {
