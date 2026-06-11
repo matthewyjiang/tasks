@@ -55,14 +55,13 @@ impl SyncClient for LinuxHttpSyncClient {
                 status: 0,
                 body: error.to_string(),
             })?;
+        let (accepted, failed): (Vec<_>, Vec<_>) = response
+            .results
+            .into_iter()
+            .partition(|result| result.status == "ok");
         Ok(PushResponse {
-            accepted_task_ids: response
-                .results
-                .into_iter()
-                .filter(|result| result.status == "ok")
-                .map(|result| result.task_id)
-                .collect(),
-            failed_task_ids: Vec::new(),
+            accepted_task_ids: accepted.into_iter().map(|result| result.task_id).collect(),
+            failed_task_ids: failed.into_iter().map(|result| result.task_id).collect(),
         })
     }
 
