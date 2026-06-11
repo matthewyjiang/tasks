@@ -7,6 +7,22 @@ pub struct LinuxSettings {
     pub sync_email: String,
     pub theme: ThemeChoice,
     pub show_completed: bool,
+    #[serde(default)]
+    pub sync_status: SyncStatus,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStatus {
+    pub last_attempt_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+    #[serde(default)]
+    pub last_pushed: usize,
+    #[serde(default)]
+    pub last_pulled: usize,
+    #[serde(default)]
+    pub last_failed: usize,
+    #[serde(default)]
+    pub last_error: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +63,7 @@ mod tests {
             sync_email: "user@example.test".to_owned(),
             theme: ThemeChoice::Dark,
             show_completed: true,
+            sync_status: SyncStatus::default(),
         };
 
         write_settings(&path, &settings).unwrap();
