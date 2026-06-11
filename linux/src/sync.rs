@@ -335,6 +335,9 @@ pub(crate) fn normalize_sync_server_url(server_url: &str) -> Result<String, Stri
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err("server URL must not include credentials".to_owned());
     }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("server URL must not include a query or fragment".to_owned());
+    }
 
     match parsed.scheme() {
         "https" => Ok(server_url),
@@ -351,6 +354,11 @@ pub(crate) fn sync_server_origin(server_url: &str) -> Result<String, String> {
     let host = parsed
         .host_str()
         .ok_or_else(|| "server URL must include a host".to_owned())?;
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
     let port = parsed
         .port_or_known_default()
         .ok_or_else(|| "server URL must include a valid port".to_owned())?;

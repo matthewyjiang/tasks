@@ -270,7 +270,7 @@ pub(crate) fn configure_sync_auth(
     let email = email.trim().to_owned();
     let password = password.to_string();
     if email.is_empty() || password.is_empty() {
-        return Err("server, email, and password are required".to_owned());
+        return Err("email and password are required".to_owned());
     }
 
     let public_key = match platform.load_key(DEVICE_PRIVATE_KEY_ID) {
