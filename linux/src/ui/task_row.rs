@@ -173,7 +173,7 @@ fn title_stack(task: &Task, editing: bool, title_entry: &gtk::Entry) -> gtk::Box
     summary.set_xalign(0.0);
     summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
     summary.add_css_class("task-summary");
-    summary.set_visible(!editing && !summary_text.is_empty());
+    summary.set_visible(!summary_text.is_empty());
 
     text.append(&title);
     text.append(title_entry);
