@@ -1,7 +1,10 @@
+pub mod floating_panel;
 pub mod onboarding;
 pub mod search;
 pub mod settings;
+pub mod settings_panel;
 pub mod shell;
+pub mod sync_setup;
 pub mod task_editor;
 pub mod task_list;
 pub mod widgets;

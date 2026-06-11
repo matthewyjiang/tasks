@@ -1,50 +1,41 @@
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use base64::Engine;
 use gtk4 as gtk;
 use libadwaita as adw;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 use taskmanager_core::{
-    init_account, init_device_keypair, public_key_from_private_key, Keybindings, Platform, Task,
-    TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    init_account, Keybindings, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
 };
 use uuid::Uuid;
 
+use crate::keybindings::{accel_matches, parse_accel, window_has_text_focus};
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
 use crate::style::install_css;
-use crate::sync::{
-    linux_sync_configured, run_linux_sync, AUTH_ACCESS_TOKEN_ID, AUTH_REFRESH_TOKEN_ID,
-};
+use crate::sync::{linux_sync_configured, run_linux_sync};
 use crate::task_format::{
     count_for_filter, format_due_date_value, format_task_row_summary, markdown_to_pango_markup,
     parse_due_date_entry, parse_tags, sidebar_filter_icon, sidebar_filter_icon_class,
     sidebar_filter_order, sidebar_filter_title,
 };
 use crate::task_model::{default_sort, task_matches_view, TaskFilterState};
+use crate::ui::floating_panel::{
+    hide_floating_panel, resize_settings_panel, resize_task_editor_panel, show_floating_panel,
+};
 use crate::ui::onboarding::needs_onboarding;
-use crate::ui::search::normalize_query;
-use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
+use crate::ui::search::{normalize_query, regex_from_query, regex_matches_task};
+use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
+use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
+use crate::ui::sync_setup::{configure_sync_auth, sync_auth_configured};
 use crate::ui::widgets::{field_label, font_awesome_label, icon_button, icon_text_label};
 
 const FLOATING_PANEL_FADE_MS: u64 = 180;
 const TASK_EDITOR_MIN_WIDTH: i32 = 640;
-const TASK_EDITOR_MAX_WIDTH: i32 = 1040;
-const TASK_EDITOR_WIDTH_RATIO: f64 = 0.72;
 const TASK_EDITOR_MIN_HEIGHT: i32 = 420;
-const TASK_EDITOR_MAX_HEIGHT: i32 = 820;
-const TASK_EDITOR_HEIGHT_RATIO: f64 = 0.78;
 const SETTINGS_PANEL_MIN_WIDTH: i32 = 560;
-const SETTINGS_PANEL_MAX_WIDTH: i32 = 900;
-const SETTINGS_PANEL_WIDTH_RATIO: f64 = 0.62;
 const SETTINGS_PANEL_MIN_HEIGHT: i32 = 420;
-const SETTINGS_PANEL_MAX_HEIGHT: i32 = 760;
-const SETTINGS_PANEL_HEIGHT_RATIO: f64 = 0.72;
 const TASK_EDITOR_BODY_HEIGHT: i32 = 260;
 const TASK_EDITOR_INNER_PADDING: i32 = 7;
 
@@ -1416,303 +1407,6 @@ fn build_ui(app: &adw::Application) {
     window.present();
 }
 
-fn apply_theme_choice(theme: ThemeChoice) {
-    let color_scheme = match theme {
-        ThemeChoice::System => adw::ColorScheme::Default,
-        ThemeChoice::Light => adw::ColorScheme::ForceLight,
-        ThemeChoice::Dark => adw::ColorScheme::ForceDark,
-    };
-    adw::StyleManager::default().set_color_scheme(color_scheme);
-}
-
-fn show_settings_panel(
-    panel: &gtk::Box,
-    settings_path: PathBuf,
-    core: Rc<TaskManagerCore>,
-    on_auth_changed: Option<Rc<dyn Fn()>>,
-) {
-    let settings = read_settings(&settings_path).unwrap_or_default();
-    let vault_settings = core.vault_settings().unwrap_or_default();
-    while let Some(child) = panel.first_child() {
-        panel.remove(&child);
-    }
-
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 18);
-    content.set_margin_top(0);
-    content.set_margin_bottom(0);
-    content.set_margin_start(0);
-    content.set_margin_end(0);
-    content.set_vexpand(true);
-    content.set_hexpand(true);
-
-    let settings_nav = gtk::ListBox::new();
-    settings_nav.add_css_class("settings-nav");
-    settings_nav.set_selection_mode(gtk::SelectionMode::Single);
-    settings_nav.set_width_request(170);
-    settings_nav.set_vexpand(true);
-    for name in ["Sync", "Appearance", "Keybindings"] {
-        let row = gtk::ListBoxRow::new();
-        row.add_css_class("sidebar-row");
-        let label = gtk::Label::new(Some(name));
-        label.set_xalign(0.0);
-        label.set_margin_top(8);
-        label.set_margin_bottom(8);
-        label.set_margin_start(10);
-        label.set_margin_end(10);
-        row.set_child(Some(&label));
-        settings_nav.append(&row);
-    }
-
-    let settings_stack = gtk::Stack::new();
-    settings_stack.add_css_class("settings-content");
-    settings_stack.set_hexpand(true);
-    settings_stack.set_vexpand(true);
-
-    let sync_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
-    let appearance_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
-    let keybindings_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
-
-    let title = gtk::Label::new(Some("Sync"));
-    title.set_xalign(0.0);
-    title.add_css_class("pane-title");
-    sync_page.append(&title);
-
-    let server_label = gtk::Label::new(Some("Server URL"));
-    server_label.set_xalign(0.0);
-    let server_entry = gtk::Entry::new();
-    server_entry.set_placeholder_text(Some("Optional sync server URL"));
-    server_entry.set_text(&settings.server_url);
-    sync_page.append(&server_label);
-    sync_page.append(&server_entry);
-
-    let platform = LinuxPlatform::new();
-    let signed_in = sync_auth_configured(&platform, &settings);
-    let sync_setup_button = gtk::Button::with_label("Sync login / setup…");
-    sync_setup_button.set_halign(gtk::Align::Start);
-    sync_setup_button.set_visible(!signed_in);
-    sync_page.append(&sync_setup_button);
-
-    let sync_account_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    sync_account_row.set_visible(signed_in);
-    let sync_account = gtk::Label::new(Some(&format!(
-        "Signed in as {}",
-        if settings.sync_email.is_empty() {
-            "unknown account"
-        } else {
-            &settings.sync_email
-        }
-    )));
-    sync_account.set_xalign(0.0);
-    sync_account.set_hexpand(true);
-    let sync_logout_button = gtk::Button::with_label("Log out");
-    sync_logout_button.add_css_class("destructive-action");
-    sync_account_row.append(&sync_account);
-    sync_account_row.append(&sync_logout_button);
-    sync_page.append(&sync_account_row);
-
-    let appearance_title = gtk::Label::new(Some("Appearance"));
-    appearance_title.set_xalign(0.0);
-    appearance_title.add_css_class("pane-title");
-    appearance_page.append(&appearance_title);
-
-    let theme_label = gtk::Label::new(Some("Theme"));
-    theme_label.set_xalign(0.0);
-    let theme_combo = gtk::ComboBoxText::new();
-    theme_combo.append(Some("system"), "System");
-    theme_combo.append(Some("light"), "Light");
-    theme_combo.append(Some("dark"), "Dark");
-    theme_combo.set_active_id(Some(match settings.theme {
-        ThemeChoice::System => "system",
-        ThemeChoice::Light => "light",
-        ThemeChoice::Dark => "dark",
-    }));
-    appearance_page.append(&theme_label);
-    appearance_page.append(&theme_combo);
-
-    let show_completed = gtk::CheckButton::with_label("Show completed tasks");
-    show_completed.set_active(vault_settings.show_completed);
-    appearance_page.append(&show_completed);
-
-    let keybind_label = gtk::Label::new(Some("Keybindings (encrypted + synced)"));
-    keybind_label.set_xalign(0.0);
-    keybind_label.add_css_class("task-menu-heading");
-    let keybindings_title = gtk::Label::new(Some("Keybindings"));
-    keybindings_title.set_xalign(0.0);
-    keybindings_title.add_css_class("pane-title");
-    keybindings_page.append(&keybindings_title);
-    keybindings_page.append(&keybind_label);
-    let add_task_key = settings_entry(
-        "Add task",
-        &vault_settings.keybindings.add_task,
-        &keybindings_page,
-    );
-    let search_key = settings_entry(
-        "Search",
-        &vault_settings.keybindings.search,
-        &keybindings_page,
-    );
-    let close_overlay_key = settings_entry(
-        "Close overlay",
-        &vault_settings.keybindings.close_overlay,
-        &keybindings_page,
-    );
-    let confirm_rename_key = settings_entry(
-        "Confirm rename",
-        &vault_settings.keybindings.confirm_rename,
-        &keybindings_page,
-    );
-    let delete_task_key = settings_entry(
-        "Delete task",
-        &vault_settings.keybindings.delete_task,
-        &keybindings_page,
-    );
-    let toggle_done_key = settings_entry(
-        "Toggle done",
-        &vault_settings.keybindings.toggle_done,
-        &keybindings_page,
-    );
-
-    let save_button = gtk::Button::with_label("Save");
-    save_button.add_css_class("suggested-action");
-    save_button.set_halign(gtk::Align::End);
-    save_button.set_margin_end(22);
-    save_button.set_margin_bottom(22);
-
-    settings_stack.add_named(&sync_page, Some("sync"));
-    settings_stack.add_named(&appearance_page, Some("appearance"));
-    settings_stack.add_named(&keybindings_page, Some("keybindings"));
-    settings_stack.set_visible_child_name("sync");
-    settings_nav.connect_row_selected({
-        let settings_stack = settings_stack.clone();
-        move |_, row| {
-            let Some(row) = row else {
-                return;
-            };
-            settings_stack.set_visible_child_name(match row.index() {
-                0 => "sync",
-                1 => "appearance",
-                2 => "keybindings",
-                _ => "sync",
-            });
-        }
-    });
-    if let Some(row) = settings_nav.row_at_index(0) {
-        settings_nav.select_row(Some(&row));
-    }
-    let settings_body = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    settings_body.set_hexpand(true);
-    settings_body.set_vexpand(true);
-    settings_body.append(&settings_stack);
-    settings_body.append(&save_button);
-    content.append(&settings_nav);
-    content.append(&settings_body);
-
-    sync_setup_button.connect_clicked({
-        let panel = panel.clone();
-        let settings_path = settings_path.clone();
-        let sync_setup_button = sync_setup_button.clone();
-        let sync_account_row = sync_account_row.clone();
-        let sync_account = sync_account.clone();
-        let on_auth_changed = on_auth_changed.clone();
-        move |_| {
-            let refresh_settings_sync_state: Rc<dyn Fn()> = Rc::new({
-                let settings_path = settings_path.clone();
-                let sync_setup_button = sync_setup_button.clone();
-                let sync_account_row = sync_account_row.clone();
-                let sync_account = sync_account.clone();
-                let on_auth_changed = on_auth_changed.clone();
-                move || {
-                    let settings = read_settings(&settings_path).unwrap_or_default();
-                    let signed_in = sync_auth_configured(&LinuxPlatform::new(), &settings);
-                    sync_setup_button.set_visible(!signed_in);
-                    sync_account_row.set_visible(signed_in);
-                    if signed_in {
-                        sync_account.set_text(&format!(
-                            "Signed in as {}",
-                            if settings.sync_email.is_empty() {
-                                "unknown account"
-                            } else {
-                                &settings.sync_email
-                            }
-                        ));
-                    }
-                    if let Some(on_auth_changed) = &on_auth_changed {
-                        on_auth_changed();
-                    }
-                }
-            });
-            let Some(root) = panel
-                .root()
-                .and_then(|root| root.downcast::<gtk::Window>().ok())
-            else {
-                return;
-            };
-            show_sync_setup_window(
-                &root,
-                settings_path.clone(),
-                false,
-                Some(refresh_settings_sync_state),
-            );
-        }
-    });
-    sync_logout_button.connect_clicked({
-        let panel = panel.clone();
-        let settings_path = settings_path.clone();
-        let on_auth_changed = on_auth_changed.clone();
-        move |_| {
-            if let Err(error) = logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
-                eprintln!("Failed to log out: {error}");
-            }
-            if let Some(on_auth_changed) = &on_auth_changed {
-                on_auth_changed();
-            }
-            hide_floating_panel(&panel);
-        }
-    });
-
-    save_button.connect_clicked({
-        let panel = panel.clone();
-        move |_| {
-            let theme = match theme_combo.active_id().as_deref() {
-                Some("light") => ThemeChoice::Light,
-                Some("dark") => ThemeChoice::Dark,
-                _ => ThemeChoice::System,
-            };
-            let current_settings = read_settings(&settings_path).unwrap_or_default();
-            let settings = LinuxSettings {
-                server_url: server_entry.text().to_string(),
-                sync_email: current_settings.sync_email,
-                theme,
-                show_completed: false,
-            };
-            let mut vault_settings = core.vault_settings().unwrap_or_default();
-            vault_settings.show_completed = show_completed.is_active();
-            vault_settings.keybindings = Keybindings {
-                add_task: add_task_key.text().to_string(),
-                search: search_key.text().to_string(),
-                close_overlay: close_overlay_key.text().to_string(),
-                confirm_rename: confirm_rename_key.text().to_string(),
-                delete_task: delete_task_key.text().to_string(),
-                toggle_done: toggle_done_key.text().to_string(),
-            };
-            if let Err(error) = write_settings(&settings_path, &settings) {
-                eprintln!("Failed to save local settings: {error}");
-            } else if let Err(error) = core.update_vault_settings(vault_settings) {
-                eprintln!("Failed to save encrypted settings: {error}");
-            } else {
-                apply_theme_choice(theme);
-                if let Some(on_auth_changed) = &on_auth_changed {
-                    on_auth_changed();
-                }
-                hide_floating_panel(&panel);
-            }
-        }
-    });
-
-    panel.append(&content);
-    show_floating_panel(panel);
-}
-
 fn install_keybindings(
     window: &adw::ApplicationWindow,
     keybindings: &Keybindings,
@@ -1780,36 +1474,6 @@ fn install_keybindings(
     window.add_controller(key_controller);
 }
 
-fn window_has_text_focus(window: &adw::ApplicationWindow) -> bool {
-    gtk::prelude::GtkWindowExt::focus(window).is_some_and(|widget| {
-        widget.is::<gtk::Entry>()
-            || widget.is::<gtk::SearchEntry>()
-            || widget.is::<gtk::TextView>()
-            || widget.is::<gtk::EditableLabel>()
-            || widget.is::<gtk::SpinButton>()
-            || widget.ancestor(gtk::Entry::static_type()).is_some()
-            || widget.ancestor(gtk::SearchEntry::static_type()).is_some()
-            || widget.ancestor(gtk::TextView::static_type()).is_some()
-            || widget.ancestor(gtk::EditableLabel::static_type()).is_some()
-            || widget.ancestor(gtk::SpinButton::static_type()).is_some()
-    })
-}
-
-fn parse_accel(accelerator: &str) -> Option<(gtk::gdk::Key, gtk::gdk::ModifierType)> {
-    gtk::accelerator_parse(accelerator)
-}
-
-fn accel_matches(
-    parsed: Option<(gtk::gdk::Key, gtk::gdk::ModifierType)>,
-    key: gtk::gdk::Key,
-    modifiers: gtk::gdk::ModifierType,
-) -> bool {
-    let Some((expected_key, expected_modifiers)) = parsed else {
-        return false;
-    };
-    key == expected_key && modifiers.contains(expected_modifiers)
-}
-
 fn delete_selected_task(state: &Rc<AppState>) {
     let editing_task_id = *state.current_editing_task_id.borrow();
     let task_id = editing_task_id.or_else(|| selected_task_id(state));
@@ -1849,256 +1513,6 @@ fn selected_task_id(state: &AppState) -> Option<Uuid> {
         .list
         .selected_row()
         .and_then(|row| Uuid::parse_str(&row.widget_name()).ok())
-}
-
-fn sync_auth_configured(platform: &LinuxPlatform, settings: &LinuxSettings) -> bool {
-    !settings.server_url.trim().is_empty()
-        && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
-        && platform.load_key(AUTH_REFRESH_TOKEN_ID).is_ok()
-        && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
-        && platform.load_key(DEVICE_PRIVATE_KEY_ID).is_ok()
-}
-
-#[derive(Serialize)]
-struct AuthRequest {
-    email: String,
-    password: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub_key: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    jwt: String,
-    refresh_token: String,
-}
-
-fn show_sync_setup_window(
-    parent: &impl IsA<gtk::Window>,
-    settings_path: PathBuf,
-    first_run: bool,
-    on_auth_changed: Option<Rc<dyn Fn()>>,
-) -> gtk::Window {
-    let settings = read_settings(&settings_path).unwrap_or_default();
-    let dialog = gtk::Window::builder()
-        .title("Sync setup")
-        .transient_for(parent)
-        .modal(true)
-        .default_width(440)
-        .default_height(320)
-        .build();
-
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    content.set_margin_top(20);
-    content.set_margin_bottom(20);
-    content.set_margin_start(20);
-    content.set_margin_end(20);
-
-    let title = gtk::Label::new(Some("Set up sync"));
-    title.set_xalign(0.0);
-    title.add_css_class("pane-title");
-    content.append(&title);
-
-    let configured = sync_auth_configured(&LinuxPlatform::new(), &settings);
-    let subtitle_text = if configured {
-        format!(
-            "Signed in as {}.",
-            if settings.sync_email.is_empty() {
-                "unknown account"
-            } else {
-                &settings.sync_email
-            }
-        )
-    } else {
-        "Sign in to sync tasks across devices, or keep working locally.".to_owned()
-    };
-    let subtitle = gtk::Label::new(Some(&subtitle_text));
-    subtitle.set_xalign(0.0);
-    subtitle.set_wrap(true);
-    subtitle.add_css_class("dim-label");
-    content.append(&subtitle);
-
-    let server_entry = gtk::Entry::new();
-    server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
-    server_entry.set_text(&settings.server_url);
-    server_entry.set_visible(!configured);
-    content.append(&server_entry);
-
-    let email_entry = gtk::Entry::new();
-    email_entry.set_placeholder_text(Some("Email"));
-    email_entry.set_visible(!configured);
-    content.append(&email_entry);
-
-    let password_entry = gtk::PasswordEntry::new();
-    password_entry.set_placeholder_text(Some("Password"));
-    password_entry.set_visible(!configured);
-    content.append(&password_entry);
-
-    let status = gtk::Label::new(None);
-    status.set_xalign(0.0);
-    status.add_css_class("dim-label");
-    content.append(&status);
-
-    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    actions.set_halign(gtk::Align::End);
-    let local_button = gtk::Button::with_label(if configured { "Close" } else { "Work local" });
-    let login_button = gtk::Button::with_label("Login / Register");
-    login_button.add_css_class("suggested-action");
-    let logout_button = gtk::Button::with_label("Log out");
-    logout_button.add_css_class("destructive-action");
-    actions.append(&local_button);
-    if configured {
-        actions.append(&logout_button);
-    } else {
-        actions.append(&login_button);
-    }
-    content.append(&actions);
-
-    local_button.connect_clicked({
-        let dialog = dialog.clone();
-        move |_| dialog.close()
-    });
-
-    logout_button.connect_clicked({
-        let dialog = dialog.clone();
-        let settings_path = settings_path.clone();
-        let status = status.clone();
-        let on_auth_changed = on_auth_changed.clone();
-        move |_| match logout_sync_auth(&LinuxPlatform::new(), &settings_path) {
-            Ok(()) => {
-                if let Some(on_auth_changed) = &on_auth_changed {
-                    on_auth_changed();
-                }
-                dialog.close()
-            }
-            Err(error) => status.set_text(&format!("Logout failed: {error}")),
-        }
-    });
-
-    login_button.connect_clicked({
-        let dialog = dialog.clone();
-        let status = status.clone();
-        let on_auth_changed = on_auth_changed.clone();
-        move |_| {
-            status.set_text("Signing in…");
-            let platform = LinuxPlatform::new();
-            match configure_sync_auth(
-                &platform,
-                &settings_path,
-                &server_entry.text(),
-                &email_entry.text(),
-                &password_entry.text(),
-            ) {
-                Ok(()) => {
-                    status.set_text("Sync configured.");
-                    if let Some(on_auth_changed) = &on_auth_changed {
-                        on_auth_changed();
-                    }
-                    dialog.close();
-                }
-                Err(error) => status.set_text(&format!("Sync setup failed: {error}")),
-            }
-        }
-    });
-
-    if first_run {
-        dialog.connect_close_request(|_| gtk::glib::Propagation::Proceed);
-    }
-    dialog.set_child(Some(&content));
-    dialog.present();
-    dialog
-}
-
-fn configure_sync_auth(
-    platform: &LinuxPlatform,
-    settings_path: &Path,
-    server_url: &str,
-    email: &str,
-    password: &str,
-) -> Result<(), String> {
-    let server_url = server_url.trim().trim_end_matches('/').to_owned();
-    let email = email.trim().to_owned();
-    let password = password.to_string();
-    if server_url.is_empty() || email.is_empty() || password.is_empty() {
-        return Err("server, email, and password are required".to_owned());
-    }
-
-    let public_key = match platform.load_key(DEVICE_PRIVATE_KEY_ID) {
-        Ok(private_key) => {
-            public_key_from_private_key(&private_key).map_err(|error| error.to_string())?
-        }
-        Err(_) => init_device_keypair(platform).map_err(|error| error.to_string())?,
-    };
-    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_err() {
-        init_account(platform).map_err(|error| error.to_string())?;
-    }
-
-    let client = reqwest::blocking::Client::new();
-    let register = AuthRequest {
-        email: email.clone(),
-        password: password.clone(),
-        pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
-    };
-    let login = AuthRequest {
-        email: email.clone(),
-        password,
-        pub_key: None,
-    };
-    let tokens = client
-        .post(format!("{server_url}/auth/register"))
-        .json(&register)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .and_then(|response| response.json::<TokenResponse>())
-        .or_else(|_| {
-            client
-                .post(format!("{server_url}/auth/login"))
-                .json(&login)
-                .send()
-                .and_then(|response| response.error_for_status())
-                .and_then(|response| response.json::<TokenResponse>())
-        })
-        .map_err(|error| error.to_string())?;
-
-    platform
-        .store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())
-        .map_err(|error| error.to_string())?;
-    platform
-        .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
-        .map_err(|error| error.to_string())?;
-
-    let mut settings = read_settings(settings_path).unwrap_or_default();
-    settings.server_url = server_url;
-    settings.sync_email = email;
-    write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-fn logout_sync_auth(platform: &LinuxPlatform, settings_path: &Path) -> Result<(), String> {
-    platform
-        .delete_key(AUTH_ACCESS_TOKEN_ID)
-        .map_err(|error| error.to_string())?;
-    platform
-        .delete_key(AUTH_REFRESH_TOKEN_ID)
-        .map_err(|error| error.to_string())?;
-    let mut settings = read_settings(settings_path).unwrap_or_default();
-    settings.sync_email.clear();
-    write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gtk::Entry {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let name = gtk::Label::new(Some(label));
-    name.set_xalign(0.0);
-    name.set_hexpand(true);
-    let entry = gtk::Entry::new();
-    entry.set_text(value);
-    entry.set_width_chars(18);
-    row.append(&name);
-    row.append(&entry);
-    content.append(&row);
-    entry
 }
 
 fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &str) {
@@ -2188,17 +1602,6 @@ fn append_move_list_row(state: &Rc<AppState>, id: &str, name: &str) {
     state.move_list_results.append(&row);
 }
 
-fn regex_from_query(query: &str) -> Result<Regex, regex::Error> {
-    let pattern = if query.is_empty() { ".*" } else { query };
-    Regex::new(&format!("(?i){pattern}"))
-}
-
-fn regex_matches_task(regex: &Regex, task: &Task) -> bool {
-    regex.is_match(&task.title)
-        || regex.is_match(&task.body)
-        || task.tags.iter().any(|tag| regex.is_match(tag))
-}
-
 fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
     state.selected_list_id.replace(task.project_id);
     state
@@ -2212,85 +1615,6 @@ fn open_task_from_search(state: &Rc<AppState>, task: &Task) {
         });
     state.load_tasks();
     state.select_task(task.id);
-}
-
-fn resize_settings_panel(window: &adw::ApplicationWindow, settings_panel: &gtk::Box) {
-    let width = window.allocated_width();
-    let height = window.allocated_height();
-    if width <= 0 || height <= 0 {
-        return;
-    }
-    let panel_width = ((width as f64) * SETTINGS_PANEL_WIDTH_RATIO) as i32;
-    let panel_height = ((height as f64) * SETTINGS_PANEL_HEIGHT_RATIO) as i32;
-    settings_panel.set_size_request(
-        panel_width.clamp(SETTINGS_PANEL_MIN_WIDTH, SETTINGS_PANEL_MAX_WIDTH),
-        panel_height.clamp(SETTINGS_PANEL_MIN_HEIGHT, SETTINGS_PANEL_MAX_HEIGHT),
-    );
-}
-
-fn resize_task_editor_panel(window: &adw::ApplicationWindow, editor_panel: &gtk::Box) {
-    let width = window.allocated_width();
-    let height = window.allocated_height();
-    if width <= 0 || height <= 0 {
-        return;
-    }
-    let editor_width = ((width as f64) * TASK_EDITOR_WIDTH_RATIO) as i32;
-    let editor_height = ((height as f64) * TASK_EDITOR_HEIGHT_RATIO) as i32;
-    editor_panel.set_size_request(
-        editor_width.clamp(TASK_EDITOR_MIN_WIDTH, TASK_EDITOR_MAX_WIDTH),
-        editor_height.clamp(TASK_EDITOR_MIN_HEIGHT, TASK_EDITOR_MAX_HEIGHT),
-    );
-}
-
-fn show_floating_panel<W>(widget: &W)
-where
-    W: IsA<gtk::Widget> + Clone + 'static,
-{
-    widget.set_opacity(0.0);
-    widget.set_visible(true);
-    animate_opacity(widget, 0.0, 1.0, FLOATING_PANEL_FADE_MS, None);
-}
-
-fn hide_floating_panel<W>(widget: &W)
-where
-    W: IsA<gtk::Widget> + Clone + 'static,
-{
-    let start = widget.opacity();
-    let widget_to_hide = widget.clone();
-    animate_opacity(
-        widget,
-        start,
-        0.0,
-        FLOATING_PANEL_FADE_MS,
-        Some(Box::new(move || widget_to_hide.set_visible(false))),
-    );
-}
-
-fn animate_opacity<W>(
-    widget: &W,
-    from: f64,
-    to: f64,
-    duration_ms: u64,
-    done: Option<Box<dyn FnOnce() + 'static>>,
-) where
-    W: IsA<gtk::Widget> + Clone + 'static,
-{
-    let widget = widget.clone();
-    let started = std::time::Instant::now();
-    let done = Rc::new(RefCell::new(done));
-    gtk::glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-        let progress = (started.elapsed().as_millis() as f64 / duration_ms as f64).min(1.0);
-        let eased = 1.0 - (1.0 - progress).powi(3);
-        widget.set_opacity(from + (to - from) * eased);
-        if progress >= 1.0 {
-            if let Some(done) = done.borrow_mut().take() {
-                done();
-            }
-            gtk::glib::ControlFlow::Break
-        } else {
-            gtk::glib::ControlFlow::Continue
-        }
-    });
 }
 
 fn text_buffer_string(buffer: &gtk::TextBuffer) -> String {
