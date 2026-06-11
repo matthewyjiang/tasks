@@ -69,6 +69,11 @@ Blob sync endpoints require a bearer token returned by `/auth/register` or `/aut
 
 ## Deploy on a server
 
+The API handles passwords, JWTs, and refresh tokens. Do not expose the Go
+server's plaintext HTTP port directly to the Internet. Terminate HTTPS/TLS in a
+reverse proxy such as Caddy, Nginx, or a managed load balancer, and proxy to the
+local Docker Compose port.
+
 SSH into the server, clone/update the repo, then run:
 
 ```sh
@@ -76,7 +81,7 @@ cd server
 ./scripts/deploy.sh
 ```
 
-The script interactively asks for non-secret settings, automatically generates missing `POSTGRES_PASSWORD` and `JWT_SECRET`, writes `.env`, builds the `tasks-server-api:latest` image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz`. `HOST_PORT` controls the public host port; the deploy script keeps the app container on the default `PORT=18080` internally and exposes `HOST_PORT=18080` by default.
+The script interactively asks for non-secret settings, automatically generates missing `POSTGRES_PASSWORD` and `JWT_SECRET`, writes `.env`, builds the `tasks-server-api:latest` image, starts PostgreSQL and the API with Docker Compose, and checks `/healthz` on the loopback interface. `HOST_PORT` controls the local host port for the TLS-terminating reverse proxy; the deploy script keeps the app container on the default `PORT=18080` internally and exposes `HOST_PORT=18080` on `127.0.0.1` by default.
 
 For repeatable or CI-driven deploys, use non-interactive mode. Existing `.env` values are reused, missing secrets are generated automatically, and defaults are applied:
 

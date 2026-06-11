@@ -10,7 +10,9 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${HOST_PORT:-18080}:${PORT:-18080}"
+      # Bind the plaintext Go server to loopback only. Put a TLS-terminating
+      # reverse proxy on the host in front of this local port for public access.
+      - "127.0.0.1:${HOST_PORT:-18080}:${PORT:-18080}"
     restart: unless-stopped
 
   postgres:

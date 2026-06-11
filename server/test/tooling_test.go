@@ -49,6 +49,20 @@ func TestDeployScriptSupportsDockerComposeOperations(t *testing.T) {
 	}
 }
 
+func TestDeployComposeBindsPlaintextPortToLoopback(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "docker-compose.deploy.yml"))
+	if err != nil {
+		t.Fatalf("read deploy compose: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "127.0.0.1:${HOST_PORT:-18080}:${PORT:-18080}") {
+		t.Fatal("deploy compose must bind the plaintext app port to loopback only")
+	}
+	if strings.Contains(text, "- \"${HOST_PORT:-18080}:${PORT:-18080}\"") {
+		t.Fatal("deploy compose must not publish the plaintext app port on all host interfaces")
+	}
+}
+
 func TestCIWorkflowExists(t *testing.T) {
 	path := filepath.Join("..", "..", ".github", "workflows", "server.yml")
 	data, err := os.ReadFile(path)
