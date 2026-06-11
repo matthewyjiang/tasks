@@ -6,7 +6,7 @@ CREATE TABLE shared_blobs (
     wrapped_dek   BYTEA NOT NULL,
     nonce         BYTEA NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (task_id, recipient_id),
+    PRIMARY KEY (owner_id, task_id, recipient_id),
     CONSTRAINT shared_blobs_nonce_len CHECK (octet_length(nonce) = 12)
 );
 
