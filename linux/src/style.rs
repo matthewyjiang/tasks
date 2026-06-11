@@ -338,18 +338,43 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             font-weight: 700;
             margin-top: 6px;
         }
+        .task-date-popover {
+            padding: 10px;
+            background: @card_bg_color;
+            border-radius: 14px;
+        }
+        .task-date-quick-button {
+            border: none;
+            border-radius: 999px;
+            box-shadow: none;
+            padding: 6px 14px;
+            font-weight: 700;
+            background: transparent;
+            color: @window_fg_color;
+        }
+        .task-date-quick-button:hover {
+            background: color-mix(in srgb, @accent_color 12%, transparent);
+        }
+        .task-date-quick-icon {
+            color: #f6a000;
+        }
         .task-calendar,
         .task-calendar * {
             font-family: sans-serif;
         }
         .task-calendar {
+            border: none;
             border-radius: 12px;
-            padding: 6px;
-            background: @card_bg_color;
+            box-shadow: none;
+            padding: 4px;
+            background: transparent;
             color: @window_fg_color;
         }
         .task-calendar button {
+            border: none;
             border-radius: 8px;
+            box-shadow: none;
+            background: transparent;
             color: @window_fg_color;
         }
         .task-calendar button:hover,
