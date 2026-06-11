@@ -32,13 +32,6 @@ pub(crate) fn parse_due_date_entry(text: &str) -> Result<Option<i64>, String> {
         .map_err(|error| format!("Invalid due date: {error}"))
 }
 
-pub(crate) fn format_due_date_value(due_at_ms: i64) -> String {
-    gtk::glib::DateTime::from_unix_local(due_at_ms / 1000)
-        .and_then(|date_time| date_time.format("%Y-%m-%d"))
-        .map(|value| value.to_string())
-        .unwrap_or_else(|_| due_at_ms.to_string())
-}
-
 pub(crate) fn markdown_to_pango_markup(markdown: &str) -> String {
     if markdown.trim().is_empty() {
         return "<span foreground=\"#888888\">No notes</span>".to_owned();

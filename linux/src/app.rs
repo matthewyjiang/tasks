@@ -16,9 +16,8 @@ use crate::platform::LinuxPlatform;
 use crate::style::install_css;
 use crate::sync::{linux_sync_configured, run_linux_sync, LinuxSyncSummary};
 use crate::task_format::{
-    count_for_filter, format_due_date_value, markdown_to_pango_markup, parse_due_date_entry,
-    parse_tags, sidebar_filter_icon, sidebar_filter_icon_class, sidebar_filter_order,
-    sidebar_filter_title,
+    count_for_filter, markdown_to_pango_markup, parse_due_date_entry, parse_tags,
+    sidebar_filter_icon, sidebar_filter_icon_class, sidebar_filter_order, sidebar_filter_title,
 };
 use crate::task_model::{default_sort, task_matches_view, TaskFilterState};
 use crate::time::now_ms;
@@ -39,7 +38,7 @@ use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
 use crate::ui::sidebar::user_list_row;
 use crate::ui::sync_setup::{build_sync_setup_panel, configure_sync_auth, sync_auth_configured};
 use crate::ui::task_editor::build_task_editor_panel;
-use crate::ui::task_row::{task_row, TaskRowActions};
+use crate::ui::task_row::{task_row, TaskRowActions, TaskRowExpansion};
 use crate::ui::widgets::{
     font_awesome_label, icon_button, icon_text_label, text_buffer_string, update_entry_width,
 };
@@ -75,6 +74,12 @@ struct AppState {
     body_stack: gtk::Stack,
     editor_panel: gtk::Box,
     current_editing_task_id: RefCell<Option<Uuid>>,
+    current_expanding_task_id: RefCell<Option<Uuid>>,
+    current_collapsing_task_id: RefCell<Option<Uuid>>,
+    deleting_editor_task_id: RefCell<Option<Uuid>>,
+    deleting_row_task_id: RefCell<Option<Uuid>>,
+    rendering_list: Cell<bool>,
+    pending_render_list: Cell<bool>,
     move_list_panel: gtk::Box,
     move_list_search: gtk::SearchEntry,
     move_list_results: gtk::ListBox,
@@ -239,6 +244,11 @@ impl AppState {
     }
 
     fn render_list(self: &Rc<Self>) {
+        if self.rendering_list.replace(true) {
+            self.pending_render_list.set(true);
+            return;
+        }
+
         while let Some(row) = self.list.first_child() {
             self.list.remove(&row);
         }
@@ -246,6 +256,56 @@ impl AppState {
         self.empty_state.set_visible(self.tasks.borrow().is_empty());
 
         let actions = TaskRowActions {
+            save_task: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id, title, body| {
+                    if title.is_empty() {
+                        state.toast("Task title cannot be empty".to_owned());
+                        return;
+                    }
+                    if state
+                        .core
+                        .get_task(task_id)
+                        .map(|task| task.title == title && task.body == body)
+                        .unwrap_or(false)
+                    {
+                        return;
+                    }
+                    let patch = TaskPatch {
+                        title: Some(title),
+                        body: Some(body),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to save task: {error}"));
+                    } else {
+                        state.request_sync();
+                        let task_is_animating = *state.current_editing_task_id.borrow()
+                            == Some(task_id)
+                            || *state.current_collapsing_task_id.borrow() == Some(task_id)
+                            || *state.deleting_editor_task_id.borrow() == Some(task_id)
+                            || *state.deleting_row_task_id.borrow() == Some(task_id);
+                        if !task_is_animating {
+                            state.load_tasks();
+                        }
+                    }
+                }
+            }),
+            update_due_date: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id, due_at| {
+                    let patch = TaskPatch {
+                        due_at: Some(due_at),
+                        ..TaskPatch::default()
+                    };
+                    if let Err(error) = state.core.update_task(task_id, patch) {
+                        state.toast(format!("Failed to update due date: {error}"));
+                    } else {
+                        state.request_sync();
+                    }
+                    state.load_tasks();
+                }
+            }),
             toggle_status: Rc::new({
                 let state = Rc::clone(self);
                 move |task_id, status| {
@@ -267,19 +327,53 @@ impl AppState {
             }),
             delete_task: Rc::new({
                 let state = Rc::clone(self);
-                move |task_id| {
-                    if let Err(error) = state.core.delete_task(task_id) {
-                        state.toast(format!("Failed to delete task: {error}"));
-                    } else {
-                        state.request_sync();
-                    }
-                    state.load_tasks();
-                }
+                move |task_id| state.delete_task_with_animation(task_id)
+            }),
+            finish_expand: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id| state.finish_task_row_expand(task_id)
+            }),
+            finish_collapse: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id| state.finish_task_row_collapse(task_id)
+            }),
+            finish_delete_editor: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id| state.finish_delete_editor_collapse(task_id)
+            }),
+            finish_delete: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id| state.finish_delete_animation(task_id)
             }),
         };
 
+        let editing_task_id = *self.current_editing_task_id.borrow();
+        let expanding_task_id = *self.current_expanding_task_id.borrow();
+        let collapsing_task_id = *self.current_collapsing_task_id.borrow();
+        let deleting_editor_task_id = *self.deleting_editor_task_id.borrow();
+        let deleting_row_task_id = *self.deleting_row_task_id.borrow();
         for task in self.tasks.borrow().iter() {
-            self.list.append(&task_row(task, &actions));
+            let expansion = if deleting_row_task_id == Some(task.id) {
+                TaskRowExpansion::DeletingRow
+            } else if deleting_editor_task_id == Some(task.id) {
+                TaskRowExpansion::DeletingEditor
+            } else if editing_task_id == Some(task.id) {
+                if expanding_task_id == Some(task.id) {
+                    TaskRowExpansion::Expanding
+                } else {
+                    TaskRowExpansion::Expanded
+                }
+            } else if collapsing_task_id == Some(task.id) {
+                TaskRowExpansion::Collapsing
+            } else {
+                TaskRowExpansion::Collapsed
+            };
+            self.list.append(&task_row(task, expansion, &actions));
+        }
+
+        self.rendering_list.set(false);
+        if self.pending_render_list.replace(false) {
+            self.render_list();
         }
     }
 
@@ -287,41 +381,107 @@ impl AppState {
         self.select_task_with_focus(task_id, false);
     }
 
-    fn select_task_with_focus(self: &Rc<Self>, task_id: Uuid, focus_title: bool) {
-        match self.core.get_task(task_id) {
-            Ok(task) => self.show_task(&task, focus_title),
-            Err(error) => self.toast(format!("Failed to open task: {error}")),
+    fn select_task_with_focus(self: &Rc<Self>, task_id: Uuid, _focus_title: bool) {
+        self.expand_task_row(task_id);
+    }
+
+    fn expand_task_row(self: &Rc<Self>, task_id: Uuid) {
+        let previous_task_id = self.current_editing_task_id.replace(Some(task_id));
+        if previous_task_id == Some(task_id) {
+            return;
+        }
+        self.current_expanding_task_id.replace(Some(task_id));
+        if *self.current_collapsing_task_id.borrow() == Some(task_id) {
+            self.current_collapsing_task_id.replace(None);
+        } else if let Some(previous_task_id) = previous_task_id {
+            self.current_collapsing_task_id
+                .replace(Some(previous_task_id));
+        }
+        self.render_list();
+    }
+
+    fn collapse_task_row(self: &Rc<Self>) {
+        if let Some(task_id) = self.current_editing_task_id.replace(None) {
+            self.current_expanding_task_id.replace(None);
+            self.current_collapsing_task_id.replace(Some(task_id));
+            self.render_list();
         }
     }
 
-    fn show_task(&self, task: &Task, focus_title: bool) {
-        self.current_editing_task_id.replace(Some(task.id));
-        self.title_entry.set_text(&task.title);
-        self.body_view.buffer().set_text(&task.body);
-        self.markdown_preview
-            .set_markup(&markdown_to_pango_markup(&task.body));
-        self.body_stack.set_visible_child_name("preview");
-        self.status_combo.set_active(Some(match task.status {
-            TaskStatus::Open => 0,
-            TaskStatus::Done => 1,
-        }));
-        self.tags_entry.set_text(&task.tags.join(", "));
-        self.due_entry
-            .set_text(&task.due_at.map(format_due_date_value).unwrap_or_default());
-        self.list_combo.set_active_id(Some(
-            task.project_id
-                .map(|id| id.to_string())
-                .as_deref()
-                .unwrap_or("inbox"),
-        ));
-        show_floating_panel(&self.editor_panel);
-        if focus_title {
-            self.title_entry.grab_focus();
-        }
-    }
-
-    fn hide_task_editor(&self) {
+    fn clear_task_row_expansion(&self) {
         self.current_editing_task_id.replace(None);
+        self.current_expanding_task_id.replace(None);
+        self.current_collapsing_task_id.replace(None);
+        self.deleting_editor_task_id.replace(None);
+        self.deleting_row_task_id.replace(None);
+    }
+
+    fn navigate_to_page(
+        self: &Rc<Self>,
+        filter: TaskFilterState,
+        selected_list_id: Option<Uuid>,
+    ) -> bool {
+        let page_changed = *self.active_filter.borrow() != filter
+            || *self.selected_list_id.borrow() != selected_list_id;
+        if !page_changed {
+            return false;
+        }
+
+        self.selected_list_id.replace(selected_list_id);
+        self.active_filter.replace(filter);
+        self.refresh_page_with_animation();
+        true
+    }
+
+    fn refresh_page_with_animation(self: &Rc<Self>) {
+        self.clear_task_row_expansion();
+        self.load_tasks();
+    }
+
+    fn finish_task_row_expand(self: &Rc<Self>, task_id: Uuid) {
+        if *self.current_expanding_task_id.borrow() == Some(task_id) {
+            self.current_expanding_task_id.replace(None);
+        }
+    }
+
+    fn finish_task_row_collapse(self: &Rc<Self>, task_id: Uuid) {
+        if *self.current_collapsing_task_id.borrow() == Some(task_id) {
+            self.current_collapsing_task_id.replace(None);
+        }
+    }
+
+    fn delete_task_with_animation(self: &Rc<Self>, task_id: Uuid) {
+        self.current_editing_task_id.replace(None);
+        self.current_expanding_task_id.replace(None);
+        self.current_collapsing_task_id.replace(None);
+        self.deleting_row_task_id.replace(None);
+        self.deleting_editor_task_id.replace(Some(task_id));
+        self.render_list();
+    }
+
+    fn finish_delete_editor_collapse(self: &Rc<Self>, task_id: Uuid) {
+        if *self.deleting_editor_task_id.borrow() == Some(task_id) {
+            self.deleting_editor_task_id.replace(None);
+            self.deleting_row_task_id.replace(Some(task_id));
+            self.render_list();
+        }
+    }
+
+    fn finish_delete_animation(self: &Rc<Self>, task_id: Uuid) {
+        if *self.deleting_row_task_id.borrow() != Some(task_id) {
+            return;
+        }
+        self.deleting_row_task_id.replace(None);
+        if let Err(error) = self.core.delete_task(task_id) {
+            self.toast(format!("Failed to delete task: {error}"));
+        } else {
+            self.request_sync();
+        }
+        self.load_tasks();
+    }
+
+    fn hide_task_editor(self: &Rc<Self>) {
+        self.collapse_task_row();
         hide_floating_panel(&self.editor_panel);
     }
 
@@ -917,6 +1077,12 @@ fn build_ui(app: &adw::Application) {
         body_stack,
         editor_panel,
         current_editing_task_id: RefCell::new(None),
+        current_expanding_task_id: RefCell::new(None),
+        current_collapsing_task_id: RefCell::new(None),
+        deleting_editor_task_id: RefCell::new(None),
+        deleting_row_task_id: RefCell::new(None),
+        rendering_list: Cell::new(false),
+        pending_render_list: Cell::new(false),
         move_list_panel,
         move_list_search,
         move_list_results,
@@ -1058,12 +1224,26 @@ fn build_ui(app: &adw::Application) {
     state.body_view.add_controller(body_focus);
     page_click.connect_pressed({
         let state = Rc::clone(&state);
-        move |_, _, _, _| {
+        let page = page.clone();
+        move |_, _, x, y| {
             if state.editor_panel.is_visible() {
                 state.save_task_editor();
             }
             if state.move_list_panel.is_visible() {
                 state.hide_move_list_panel();
+            }
+            let Some(widget) = page.pick(x, y, gtk::PickFlags::DEFAULT) else {
+                return;
+            };
+            let clicked_any_row = widget.ancestor(gtk::ListBoxRow::static_type()).is_some();
+            let clicked_control = widget.is::<gtk::Button>()
+                || widget.is::<gtk::Entry>()
+                || widget.is::<gtk::MenuButton>()
+                || widget.ancestor(gtk::Button::static_type()).is_some()
+                || widget.ancestor(gtk::Entry::static_type()).is_some()
+                || widget.ancestor(gtk::MenuButton::static_type()).is_some();
+            if !clicked_any_row && !clicked_control {
+                state.collapse_task_row();
             }
         }
     });
@@ -1185,10 +1365,8 @@ fn build_ui(app: &adw::Application) {
             } else {
                 state.request_sync();
             }
-            state.selected_list_id.replace(None);
-            state.active_filter.replace(TaskFilterState::Inbox);
             state.render_user_lists();
-            state.load_tasks();
+            state.navigate_to_page(TaskFilterState::Inbox, None);
         }
     });
     let open_search_action: Rc<dyn Fn()> = Rc::new({
@@ -1249,10 +1427,9 @@ fn build_ui(app: &adw::Application) {
                 _ => TaskFilterState::Inbox,
             };
             user_list_box.unselect_all();
-            state.selected_list_id.replace(None);
-            state.active_filter.replace(filter);
-            state.load_tasks();
-            state.request_sync();
+            if state.navigate_to_page(filter, None) {
+                state.request_sync();
+            }
         }
     });
     state.user_list_box.connect_row_activated({
@@ -1261,10 +1438,9 @@ fn build_ui(app: &adw::Application) {
         move |_, row| {
             if let Ok(list_id) = Uuid::parse_str(&row.widget_name()) {
                 filter_list_for_user_rows.unselect_all();
-                state.selected_list_id.replace(Some(list_id));
-                state.active_filter.replace(TaskFilterState::Upcoming);
-                state.load_tasks();
-                state.request_sync();
+                if state.navigate_to_page(TaskFilterState::Upcoming, Some(list_id)) {
+                    state.request_sync();
+                }
             }
         }
     });
@@ -1409,12 +1585,14 @@ fn format_sync_status(summary: &LinuxSyncSummary) -> String {
 
 fn delete_selected_task(state: &Rc<AppState>) {
     let editing_task_id = *state.current_editing_task_id.borrow();
-    let task_id = editing_task_id.or_else(|| selected_task_id(state));
-    if let Some(task_id) = task_id {
+    if let Some(task_id) = editing_task_id {
+        state.delete_task_with_animation(task_id);
+        return;
+    }
+    if let Some(task_id) = selected_task_id(state) {
         if let Err(error) = state.core.delete_task(task_id) {
             state.toast(format!("Failed to delete task: {error}"));
         }
-        state.hide_task_editor();
         state.load_tasks();
     }
 }
