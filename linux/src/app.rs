@@ -653,6 +653,8 @@ impl AppState {
             Ok(list) => {
                 self.selected_list_id.replace(Some(list.id));
                 self.active_filter.replace(TaskFilterState::Upcoming);
+                self.list_heading.set_text(&list.name);
+                self.list_name_entry.set_text(&list.name);
                 self.load_tasks();
                 self.show_list_rename_editor();
                 self.request_sync();
