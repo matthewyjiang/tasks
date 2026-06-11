@@ -327,7 +327,7 @@ CREATE TABLE shared_blobs (
     wrapped_dek     BYTEA NOT NULL,     -- per-task task_key, AES-GCM wrapped for recipient
     nonce           BYTEA NOT NULL,     -- 12 bytes, for the wrap
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (task_id, recipient_id),
+    PRIMARY KEY (owner_id, task_id, recipient_id),
     CONSTRAINT shared_blobs_nonce_len CHECK (octet_length(nonce) = 12)
 );
 
@@ -345,6 +345,7 @@ CREATE TABLE refresh_tokens (
 - The server queries blobs only by `task_id`, `owner_id`, `updated_at`, and `deleted` — all opaque identifiers or timestamps. It never queries or indexes ciphertext.
 - `updated_at` exists in two places: as a plaintext `BIGINT` column the server sets on every write (drives the `?since=` sync cursor) and as a field inside the encrypted payload (drives client-side conflict resolution). The server column orders sync; the payload field decides which version wins a conflict. They are written together but only the payload field is authoritative for `resolve_conflict`.
 - All blob endpoints enforce ownership by filtering on `owner_id` derived from the JWT claim. A user cannot read or write another user's blobs.
+- All share mutation endpoints (`POST /share/:task_id` and `DELETE /share/:task_id/:recipient_id`) enforce ownership by filtering on `owner_id` derived from the JWT claim, so share rows are scoped to the authenticated owner.
 - Tombstones (`deleted=true`) are retained for 30 days by default, then hard-deleted by a background job. Clients that have not synced within the retention window may miss deletions.
 - Tombstone rows keep `task_id`, `owner_id`, `updated_at`, and `deleted=true`; `ciphertext` and `nonce` may be `NULL`.
 - `PUT /blobs/:task_id` is idempotent. Retried pushes after network failure are safe.
