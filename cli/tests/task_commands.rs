@@ -1,44 +1,18 @@
+mod common;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use serde_json::Value;
-use tempfile::TempDir;
 
-struct TaskCli {
-    _temp: TempDir,
-    db: std::path::PathBuf,
-}
+use common::CliTestEnv;
 
-impl TaskCli {
-    fn new() -> Self {
-        let temp = tempfile::tempdir().unwrap();
-        let db = temp.path().join("tasks.db");
-        Self { _temp: temp, db }
-    }
-
-    fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("tsk").unwrap();
-        cmd.args(["--db", self.db.to_str().unwrap(), "--output", "json"]);
-        cmd
-    }
-
-    fn json(&self, args: &[&str]) -> Value {
-        let output = self
-            .command()
-            .args(args)
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .clone();
-        serde_json::from_slice(&output).unwrap()
-    }
-}
+type TaskCli = CliTestEnv;
 
 #[test]
 fn creating_a_task_returns_generated_dirty_task() {
     let cli = TaskCli::new();
 
-    let value = cli.json(&[
+    let value = cli.db_json(&[
         "task",
         "create",
         "--title",
@@ -65,7 +39,7 @@ fn creating_a_task_returns_generated_dirty_task() {
 fn creating_a_task_accepts_human_due_date() {
     let cli = TaskCli::new();
 
-    let value = cli.json(&["task", "create", "Buy milk", "--due", "tomorrow"]);
+    let value = cli.db_json(&["task", "create", "Buy milk", "--due", "tomorrow"]);
 
     assert_eq!(value["result"]["title"], "Buy milk");
     assert!(value["result"]["due_at"].as_i64().unwrap() > 0);
@@ -76,7 +50,7 @@ fn creating_a_task_accepts_project_and_tags() {
     let cli = TaskCli::new();
     let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
 
-    let value = cli.json(&[
+    let value = cli.db_json(&[
         "task",
         "create",
         "--title",
@@ -102,7 +76,7 @@ fn creating_a_task_accepts_project_and_tags() {
 fn creating_a_task_keeps_positional_title_compatibility() {
     let cli = TaskCli::new();
 
-    let value = cli.json(&["task", "create", "positional title"]);
+    let value = cli.db_json(&["task", "create", "positional title"]);
 
     assert_eq!(value["result"]["title"], "positional title");
 }
@@ -110,10 +84,10 @@ fn creating_a_task_keeps_positional_title_compatibility() {
 #[test]
 fn getting_an_existing_task_returns_the_same_task() {
     let cli = TaskCli::new();
-    let created = cli.json(&["task", "create", "read", "--body", "docs"]);
+    let created = cli.db_json(&["task", "create", "read", "--body", "docs"]);
     let id = created["result"]["id"].as_str().unwrap();
 
-    let fetched = cli.json(&["task", "get", id]);
+    let fetched = cli.db_json(&["task", "get", id]);
 
     assert_eq!(fetched["result"], created["result"]);
 }
@@ -122,7 +96,7 @@ fn getting_an_existing_task_returns_the_same_task() {
 fn getting_a_missing_task_exits_with_not_found_error() {
     let cli = TaskCli::new();
 
-    cli.command()
+    cli.db_json_command()
         .args(["task", "get", "018f6f4a-c9f4-7724-91ef-2f7b38a62600"])
         .assert()
         .failure()
@@ -135,11 +109,11 @@ fn getting_a_missing_task_exits_with_not_found_error() {
 #[test]
 fn updating_patchable_fields_persists_and_marks_dirty() {
     let cli = TaskCli::new();
-    let created = cli.json(&["task", "create", "draft"]);
+    let created = cli.db_json(&["task", "create", "draft"]);
     let id = created["result"]["id"].as_str().unwrap();
     let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
 
-    let updated = cli.json(&[
+    let updated = cli.db_json(&[
         "task",
         "update",
         id,
@@ -172,16 +146,16 @@ fn updating_patchable_fields_persists_and_marks_dirty() {
 #[test]
 fn conflicting_update_flags_are_rejected() {
     let cli = TaskCli::new();
-    let created = cli.json(&["task", "create", "draft"]);
+    let created = cli.db_json(&["task", "create", "draft"]);
     let id = created["result"]["id"].as_str().unwrap();
     let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
 
-    cli.command()
+    cli.db_json_command()
         .args(["task", "update", id, "--due-at", "123", "--clear-due-at"])
         .assert()
         .failure()
         .code(1);
-    cli.command()
+    cli.db_json_command()
         .args([
             "task",
             "update",
@@ -198,13 +172,13 @@ fn conflicting_update_flags_are_rejected() {
 #[test]
 fn deleting_a_task_creates_tombstone_not_hard_delete() {
     let cli = TaskCli::new();
-    let created = cli.json(&["task", "create", "delete me"]);
+    let created = cli.db_json(&["task", "create", "delete me"]);
     let id = created["result"]["id"].as_str().unwrap();
 
-    let deleted = cli.json(&["task", "delete", id]);
+    let deleted = cli.db_json(&["task", "delete", id]);
     assert_eq!(deleted["result"]["deleted"], true);
 
-    let fetched = cli.json(&["task", "get", id]);
+    let fetched = cli.db_json(&["task", "get", id]);
     assert_eq!(fetched["result"]["deleted"], true);
     assert_eq!(fetched["result"]["dirty"], true);
 }
@@ -212,13 +186,13 @@ fn deleting_a_task_creates_tombstone_not_hard_delete() {
 #[test]
 fn listing_supports_filters_and_sorting() {
     let cli = TaskCli::new();
-    let first = cli.json(&["task", "create", "first", "--due-at", "100"]);
+    let first = cli.db_json(&["task", "create", "first", "--due-at", "100"]);
     let first_id = first["result"]["id"].as_str().unwrap();
-    let second = cli.json(&["task", "create", "second", "--due-at", "200"]);
+    let second = cli.db_json(&["task", "create", "second", "--due-at", "200"]);
     let second_id = second["result"]["id"].as_str().unwrap();
     let project_id = "018f6f4a-c9f4-7724-91ef-2f7b38a62601";
-    cli.json(&["task", "complete", second_id]);
-    cli.json(&[
+    cli.db_json(&["task", "complete", second_id]);
+    cli.db_json(&[
         "task",
         "update",
         first_id,
@@ -228,22 +202,22 @@ fn listing_supports_filters_and_sorting() {
         "work,urgent",
     ]);
 
-    let done = cli.json(&["task", "list", "--status", "done"]);
+    let done = cli.db_json(&["task", "list", "--status", "done"]);
     assert_eq!(done["result"].as_array().unwrap().len(), 1);
     assert_eq!(done["result"][0]["id"], second_id);
 
-    let project = cli.json(&["task", "list", "--project-id", project_id]);
+    let project = cli.db_json(&["task", "list", "--project-id", project_id]);
     assert_eq!(project["result"].as_array().unwrap().len(), 1);
     assert_eq!(project["result"][0]["id"], first_id);
 
-    let tagged = cli.json(&["task", "list", "--tag", "work", "--tag", "urgent"]);
+    let tagged = cli.db_json(&["task", "list", "--tag", "work", "--tag", "urgent"]);
     assert_eq!(tagged["result"].as_array().unwrap().len(), 1);
     assert_eq!(tagged["result"][0]["id"], first_id);
 
-    let missing_tag = cli.json(&["task", "list", "--tag", "missing"]);
+    let missing_tag = cli.db_json(&["task", "list", "--tag", "missing"]);
     assert_eq!(missing_tag["result"].as_array().unwrap().len(), 0);
 
-    let due = cli.json(&[
+    let due = cli.db_json(&[
         "task",
         "list",
         "--due-after",
@@ -264,7 +238,7 @@ fn listing_supports_filters_and_sorting() {
         "created-at-asc",
         "created-at-desc",
     ] {
-        let sorted = cli.json(&["task", "list", "--sort", sort]);
+        let sorted = cli.db_json(&["task", "list", "--sort", sort]);
         assert_eq!(sorted["result"].as_array().unwrap().len(), 2);
     }
 }
@@ -272,11 +246,11 @@ fn listing_supports_filters_and_sorting() {
 #[test]
 fn search_returns_matches_from_title_and_body() {
     let cli = TaskCli::new();
-    let title_match = cli.json(&["task", "create", "alpha needle"]);
-    let body_match = cli.json(&["task", "create", "beta", "--body", "needle body"]);
-    cli.json(&["task", "create", "gamma"]);
+    let title_match = cli.db_json(&["task", "create", "alpha needle"]);
+    let body_match = cli.db_json(&["task", "create", "beta", "--body", "needle body"]);
+    cli.db_json(&["task", "create", "gamma"]);
 
-    let found = cli.json(&["task", "search", "needle"]);
+    let found = cli.db_json(&["task", "search", "needle"]);
     let ids: Vec<&str> = found["result"]
         .as_array()
         .unwrap()
@@ -292,10 +266,10 @@ fn search_returns_matches_from_title_and_body() {
 #[test]
 fn search_treats_punctuation_as_literal_text() {
     let cli = TaskCli::new();
-    let cpp = cli.json(&["task", "create", "learn C++"]);
-    let hyphen = cli.json(&["task", "create", "foo-bar"]);
+    let cpp = cli.db_json(&["task", "create", "learn C++"]);
+    let hyphen = cli.db_json(&["task", "create", "foo-bar"]);
 
-    let cpp_found = cli.json(&["task", "search", "C++"]);
+    let cpp_found = cli.db_json(&["task", "search", "C++"]);
     let cpp_ids: Vec<&str> = cpp_found["result"]
         .as_array()
         .unwrap()
@@ -304,7 +278,7 @@ fn search_treats_punctuation_as_literal_text() {
         .collect();
     assert!(cpp_ids.contains(&cpp["result"]["id"].as_str().unwrap()));
 
-    let hyphen_found = cli.json(&["task", "search", "foo-bar"]);
+    let hyphen_found = cli.db_json(&["task", "search", "foo-bar"]);
     let hyphen_ids: Vec<&str> = hyphen_found["result"]
         .as_array()
         .unwrap()
@@ -317,13 +291,13 @@ fn search_treats_punctuation_as_literal_text() {
 #[test]
 fn complete_and_reopen_map_to_status_patches() {
     let cli = TaskCli::new();
-    let created = cli.json(&["task", "create", "toggle"]);
+    let created = cli.db_json(&["task", "create", "toggle"]);
     let id = created["result"]["id"].as_str().unwrap();
 
-    let done = cli.json(&["task", "complete", id]);
+    let done = cli.db_json(&["task", "complete", id]);
     assert_eq!(done["result"]["status"], "done");
 
-    let reopened = cli.json(&["task", "reopen", id]);
+    let reopened = cli.db_json(&["task", "reopen", id]);
     assert_eq!(reopened["result"]["status"], "open");
 }
 

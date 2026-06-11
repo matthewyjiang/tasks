@@ -1,52 +1,16 @@
-use assert_cmd::Command;
+mod common;
+
 use predicates::prelude::*;
-use serde_json::Value;
-use tempfile::TempDir;
 
-struct SettingsCli {
-    _temp: TempDir,
-    config: std::path::PathBuf,
-}
+use common::CliTestEnv;
 
-impl SettingsCli {
-    fn new() -> Self {
-        let temp = tempfile::tempdir().unwrap();
-        let config = temp.path().join("settings.json");
-        Self {
-            _temp: temp,
-            config,
-        }
-    }
-
-    fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("tsk").unwrap();
-        cmd.args([
-            "--config",
-            self.config.to_str().unwrap(),
-            "--output",
-            "json",
-        ]);
-        cmd
-    }
-
-    fn json(&self, args: &[&str]) -> Value {
-        let output = self
-            .command()
-            .args(args)
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .clone();
-        serde_json::from_slice(&output).unwrap()
-    }
-}
+type SettingsCli = CliTestEnv;
 
 #[test]
 fn settings_get_returns_defaults_before_file_exists() {
     let cli = SettingsCli::new();
 
-    let output = cli.json(&["settings", "get"]);
+    let output = cli.config_json(&["settings", "get"]);
     assert_eq!(output["result"]["server_url"], "");
     assert_eq!(output["result"]["auth_method"], "password");
     assert_eq!(output["result"]["language"], "en");
@@ -57,22 +21,25 @@ fn settings_get_returns_defaults_before_file_exists() {
 fn settings_set_validates_and_persists_supported_keys() {
     let cli = SettingsCli::new();
 
-    cli.json(&["settings", "set", "server_url", "https://api.example.com"]);
-    cli.json(&["settings", "set", "auth_method", "pin"]);
-    cli.json(&["settings", "set", "language", "es"]);
-    cli.json(&["settings", "set", "last_sync_cursor", "42"]);
+    cli.config_json(&["settings", "set", "server_url", "https://api.example.com"]);
+    cli.config_json(&["settings", "set", "auth_method", "pin"]);
+    cli.config_json(&["settings", "set", "language", "es"]);
+    cli.config_json(&["settings", "set", "last_sync_cursor", "42"]);
 
     assert_eq!(
-        cli.json(&["settings", "get", "server_url"])["result"],
+        cli.config_json(&["settings", "get", "server_url"])["result"],
         "https://api.example.com"
     );
     assert_eq!(
-        cli.json(&["settings", "get", "auth_method"])["result"],
+        cli.config_json(&["settings", "get", "auth_method"])["result"],
         "pin"
     );
-    assert_eq!(cli.json(&["settings", "get", "language"])["result"], "es");
     assert_eq!(
-        cli.json(&["settings", "get", "last_sync_cursor"])["result"],
+        cli.config_json(&["settings", "get", "language"])["result"],
+        "es"
+    );
+    assert_eq!(
+        cli.config_json(&["settings", "get", "last_sync_cursor"])["result"],
         42
     );
 }
@@ -81,21 +48,21 @@ fn settings_set_validates_and_persists_supported_keys() {
 fn settings_reject_invalid_values() {
     let cli = SettingsCli::new();
 
-    cli.command()
+    cli.config_json_command()
         .args(["settings", "set", "server_url", "ftp://example.com"])
         .assert()
         .failure()
         .code(1)
         .stderr(predicate::str::contains("server_url"));
 
-    cli.command()
+    cli.config_json_command()
         .args(["settings", "set", "auth_method", "magic"])
         .assert()
         .failure()
         .code(1)
         .stderr(predicate::str::contains("auth_method"));
 
-    cli.command()
+    cli.config_json_command()
         .args(["settings", "set", "last_sync_cursor", "not-an-int"])
         .assert()
         .failure()
@@ -107,19 +74,19 @@ fn settings_reject_invalid_values() {
 fn settings_plaintext_sync_excludes_device_local_cursor() {
     let cli = SettingsCli::new();
 
-    cli.json(&["settings", "set", "server_url", "https://api.example.com"]);
-    cli.json(&["settings", "set", "last_sync_cursor", "99"]);
+    cli.config_json(&["settings", "set", "server_url", "https://api.example.com"]);
+    cli.config_json(&["settings", "set", "last_sync_cursor", "99"]);
 
-    let payload = cli.json(&["settings", "pull-plaintext"]);
+    let payload = cli.config_json(&["settings", "pull-plaintext"]);
     assert_eq!(payload["result"]["server_url"], "https://api.example.com");
     assert!(payload["result"].get("last_sync_cursor").is_none());
 
-    cli.json(&[
+    cli.config_json(&[
         "settings",
         "push-plaintext",
         r#"{"schema_version":1,"server_url":"https://next.example.com","auth_method":"biometric","language":"fr"}"#,
     ]);
-    let settings = cli.json(&["settings", "get"]);
+    let settings = cli.config_json(&["settings", "get"]);
     assert_eq!(settings["result"]["server_url"], "https://next.example.com");
     assert_eq!(settings["result"]["auth_method"], "biometric");
     assert_eq!(settings["result"]["language"], "fr");
@@ -135,7 +102,7 @@ fn settings_push_plaintext_rejects_invalid_synced_values() {
         r#"{"schema_version":1,"server_url":"https://api.example.com","auth_method":"password","language":""}"#,
         r#"{"schema_version":99,"server_url":"https://api.example.com","auth_method":"password","language":"en"}"#,
     ] {
-        cli.command()
+        cli.config_json_command()
             .args(["settings", "push-plaintext", payload])
             .assert()
             .failure()
@@ -143,7 +110,7 @@ fn settings_push_plaintext_rejects_invalid_synced_values() {
             .stderr(predicate::str::contains("input error"));
     }
 
-    let settings = cli.json(&["settings", "get"]);
+    let settings = cli.config_json(&["settings", "get"]);
     assert_eq!(settings["result"]["server_url"], "");
     assert_eq!(settings["result"]["language"], "en");
 }
@@ -152,7 +119,7 @@ fn settings_push_plaintext_rejects_invalid_synced_values() {
 fn settings_migrate_writes_default_file() {
     let cli = SettingsCli::new();
 
-    cli.json(&["settings", "migrate"]);
+    cli.config_json(&["settings", "migrate"]);
 
     assert!(cli.config.exists());
 }
