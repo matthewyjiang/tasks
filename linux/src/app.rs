@@ -742,7 +742,7 @@ fn build_ui(app: &adw::Application) {
     let tags_entry = gtk::Entry::new();
     tags_entry.set_placeholder_text(Some("Tags, comma separated"));
     let due_entry = gtk::Entry::new();
-    due_entry.set_placeholder_text(Some("Due date: YYYY-MM-DD, timestamp ms, or blank"));
+    due_entry.set_placeholder_text(Some("Due date"));
     let list_combo = gtk::ComboBoxText::new();
     list_combo.append(Some("inbox"), "Inbox");
     if let Ok(lists) = core.list_task_lists() {
@@ -821,6 +821,7 @@ fn build_ui(app: &adw::Application) {
     let body_stack = editor_widgets.body_stack;
     let due_calendar = editor_widgets.due_calendar;
     let due_popover = editor_widgets.due_popover;
+    let today_due_button = editor_widgets.today_due_button;
     let clear_due_button = editor_widgets.clear_due_button;
 
     let move_list_widgets = build_move_list_panel();
@@ -949,6 +950,24 @@ fn build_ui(app: &adw::Application) {
                 date.day_of_month()
             ));
             due_popover.popdown();
+        }
+    });
+    today_due_button.connect_clicked({
+        let due_entry = state.due_entry.clone();
+        let due_calendar = due_calendar.clone();
+        let due_popover = due_popover.clone();
+        move |_| match gtk::glib::DateTime::now_local() {
+            Ok(today) => {
+                due_calendar.select_day(&today);
+                due_entry.set_text(&format!(
+                    "{:04}-{:02}-{:02}",
+                    today.year(),
+                    today.month(),
+                    today.day_of_month()
+                ));
+                due_popover.popdown();
+            }
+            Err(error) => eprintln!("Failed to read local date: {error}"),
         }
     });
     clear_due_button.connect_clicked({
