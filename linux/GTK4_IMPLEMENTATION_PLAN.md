@@ -63,6 +63,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [ ] Add sync facade/client/UI.
 - [ ] Add Flatpak packaging.
 - [x] Validation completed for the initial GTK4 offline CRUD implementation.
+- [x] Linux app PR and release process documented.
 - [ ] Create PR to `main`.
 
 ## Recommended stack
@@ -496,6 +497,12 @@ cargo run -p tsk-linux
 - icon.
 - Flatpak manifest.
 
+## PR process
+
+Before opening or merging a Linux app PR, run the validation commands below. For UI-affecting changes, also run `cargo run -p tsk-linux` when a graphical Linux session is available, and note any manual coverage or skipped graphical validation in the PR description.
+
+Release-impacting commit conventions and Linux artifact tagging/publishing are defined in `RELEASE.md` under the `linux-app` artifact stream.
+
 ## Validation commands
 
 From repository root:
@@ -503,9 +510,8 @@ From repository root:
 ```sh
 cargo fmt --check
 cargo check -p tsk-linux
-cargo clippy -p tsk-linux --all-targets
+cargo clippy -p tsk-linux --all-targets -- -D warnings
 cargo test -p tsk-linux
-cargo run -p tsk-linux
 ```
 
 Existing packages should remain healthy:
@@ -519,9 +525,7 @@ cargo build --workspace
 GTK/system dependency checks:
 
 ```sh
-pkg-config --modversion gtk4
-pkg-config --modversion libadwaita-1
-pkg-config --modversion libsecret-1
+pkg-config --modversion gtk4 libadwaita-1 libsecret-1
 ```
 
 ## First implementation target

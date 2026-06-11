@@ -17,7 +17,7 @@ Additional platform app shells should get descriptive platform-specific artifact
 
 On every push to `main`, `.github/workflows/release.yml` runs `scripts/semantic_release.py` once per artifact. For each artifact, it looks at commits touching that artifact's paths since that artifact's latest tag.
 
-Conventional Commit rules:
+Conventional Commit rules apply per artifact path; prefer artifact scopes such as `fix(linux-app): ...` for changes under `linux/**`.
 
 - `fix: ...` creates a patch release, e.g. `server-v1.2.3` -> `server-v1.2.4`
 - `feat: ...` creates a minor release, e.g. `core-v1.2.3` -> `core-v1.3.0`
@@ -40,6 +40,7 @@ fix(server): reject invalid blob nonces
 feat(core): add recurrence parser
 feat(cli): add sync status command
 feat(linux-app): add command palette
+docs(linux-app): document GTK validation before PRs
 feat(server)!: change sync API response format
 ```
 
