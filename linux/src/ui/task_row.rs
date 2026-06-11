@@ -338,8 +338,8 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     let popover_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
     popover_content.add_css_class("task-date-popover");
     popover_content.append(&today);
-    popover_content.append(&clear);
     popover_content.append(&calendar);
+    popover_content.append(&clear);
 
     let popover = gtk::Popover::new();
     popover.set_has_arrow(false);
