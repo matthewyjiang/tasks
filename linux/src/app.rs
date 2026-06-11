@@ -132,12 +132,23 @@ impl AppState {
     fn load_tasks(self: &Rc<Self>) {
         let query = self.search_query.borrow().clone();
         let selected_list_id = *self.selected_list_id.borrow();
+        let show_completed = self
+            .core
+            .vault_settings()
+            .map(|settings| settings.show_completed)
+            .unwrap_or(false);
         let result = if query.is_empty() {
             let mut filter = if selected_list_id.is_some() {
                 TaskFilter::default()
             } else {
                 self.active_filter.borrow().to_filter(now_ms())
             };
+            if show_completed
+                && selected_list_id.is_none()
+                && filter.status == Some(TaskStatus::Open)
+            {
+                filter.status = None;
+            }
             filter.project_id = selected_list_id;
             self.core.list_tasks(filter, default_sort())
         } else {
@@ -164,7 +175,10 @@ impl AppState {
                 let now = now_ms();
                 let tasks = tasks
                     .into_iter()
-                    .filter(|task| selected_list_id.is_some() || task_matches_view(task, view, now))
+                    .filter(|task| {
+                        selected_list_id.is_some()
+                            || task_matches_view(task, view, now, show_completed)
+                    })
                     .collect::<Vec<_>>();
                 self.tasks.replace(tasks);
                 if let Some(list_id) = selected_list_id {
@@ -1209,7 +1223,10 @@ fn build_ui(app: &adw::Application) {
         move |_| {
             let request_sync: Rc<dyn Fn()> = Rc::new({
                 let state = Rc::clone(&state);
-                move || state.request_sync()
+                move || {
+                    state.request_sync();
+                    state.load_tasks();
+                }
             });
             show_settings_panel(
                 &settings_panel,
@@ -1951,6 +1968,9 @@ fn show_settings_panel(
                 eprintln!("Failed to save encrypted settings: {error}");
             } else {
                 apply_theme_choice(theme);
+                if let Some(on_auth_changed) = &on_auth_changed {
+                    on_auth_changed();
+                }
                 hide_floating_panel(&panel);
             }
         }
@@ -2744,7 +2764,7 @@ fn sidebar_filter_icon_class(filter: TaskFilterState) -> &'static str {
 fn count_for_filter(tasks: &[Task], filter: TaskFilterState, now_ms: i64) -> usize {
     tasks
         .iter()
-        .filter(|task| task_matches_view(task, filter, now_ms))
+        .filter(|task| task_matches_view(task, filter, now_ms, false))
         .count()
 }
 
