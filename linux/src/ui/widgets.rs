@@ -29,3 +29,17 @@ pub(crate) fn field_label(text: &str) -> gtk::Label {
     label.add_css_class("task-editor-field-label");
     label
 }
+
+pub(crate) fn settings_entry(label: &str, value: &str, content: &gtk::Box) -> gtk::Entry {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let name = gtk::Label::new(Some(label));
+    name.set_xalign(0.0);
+    name.set_hexpand(true);
+    let entry = gtk::Entry::new();
+    entry.set_text(value);
+    entry.set_width_chars(18);
+    row.append(&name);
+    row.append(&entry);
+    content.append(&row);
+    entry
+}
