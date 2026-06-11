@@ -4,8 +4,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{
     sync_pull, sync_push, Blob, BlobPush, CoreError, CoreResult, LocalDatabase, Platform,
-    PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    PlatformError, PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError,
+    ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -14,6 +14,7 @@ use crate::ui::settings::read_settings;
 
 pub(crate) const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
 pub(crate) const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
+pub(crate) const AUTH_SYNC_ORIGIN_ID: &str = "auth_sync_origin";
 
 pub struct LinuxHttpSyncClient {
     base_url: String,
@@ -22,12 +23,12 @@ pub struct LinuxHttpSyncClient {
 }
 
 impl LinuxHttpSyncClient {
-    pub fn new(base_url: String, token: String) -> Self {
-        Self {
-            base_url: base_url.trim_end_matches('/').to_owned(),
+    pub fn new(base_url: &str, token: String) -> CoreResult<Self> {
+        Ok(Self {
+            base_url: normalize_sync_server_url(base_url).map_err(sync_config_error)?,
             token,
             client: reqwest::blocking::Client::new(),
-        }
+        })
     }
 
     fn auth(
@@ -228,7 +229,13 @@ fn sync_auth_configured(
     platform: &LinuxPlatform,
     settings: &crate::ui::settings::LinuxSettings,
 ) -> bool {
-    !settings.server_url.trim().is_empty()
+    let Ok(settings_origin) = sync_server_origin(&settings.server_url) else {
+        return false;
+    };
+    let Ok(stored_origin) = load_utf8_key(platform, AUTH_SYNC_ORIGIN_ID, "sync origin") else {
+        return false;
+    };
+    settings_origin == stored_origin
         && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
         && platform.load_key(AUTH_REFRESH_TOKEN_ID).is_ok()
         && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
@@ -257,13 +264,14 @@ pub(crate) fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult
         return Ok(LinuxSyncSummary::default());
     }
     let platform = LinuxPlatform::new();
+    let server_url = normalize_sync_server_url(&settings.server_url).map_err(sync_config_error)?;
     let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
     let database = LocalDatabase::open(db_path)?;
 
-    match run_linux_sync_once(&database, &platform, &settings.server_url, &data_key) {
+    match run_linux_sync_once(&database, &platform, &server_url, &data_key) {
         Err(CoreError::Sync(SyncError::AuthExpired)) => {
-            refresh_linux_auth(&platform, &settings.server_url)?;
-            run_linux_sync_once(&database, &platform, &settings.server_url, &data_key)
+            refresh_linux_auth(&platform, &server_url)?;
+            run_linux_sync_once(&database, &platform, &server_url, &data_key)
         }
         result => result,
     }
@@ -276,7 +284,7 @@ pub(crate) fn run_linux_sync_once(
     data_key: &[u8],
 ) -> CoreResult<LinuxSyncSummary> {
     let token = load_utf8_key(platform, AUTH_ACCESS_TOKEN_ID, "access token")?;
-    let client = LinuxHttpSyncClient::new(server_url.to_owned(), token);
+    let client = LinuxHttpSyncClient::new(server_url, token)?;
     let pull = sync_pull(database, &client, data_key)?;
     let push = sync_push(database, platform, &client, data_key)?;
     Ok(LinuxSyncSummary {
@@ -289,10 +297,11 @@ pub(crate) fn run_linux_sync_once(
 }
 
 fn refresh_linux_auth(platform: &LinuxPlatform, server_url: &str) -> CoreResult<()> {
+    let server_url = normalize_sync_server_url(server_url).map_err(sync_config_error)?;
     let refresh_token = load_utf8_key(platform, AUTH_REFRESH_TOKEN_ID, "refresh token")?;
     let client = reqwest::blocking::Client::new();
     let tokens = client
-        .post(format!("{}/auth/refresh", server_url.trim_end_matches('/')))
+        .post(format!("{server_url}/auth/refresh"))
         .json(&RefreshTokenRequest { refresh_token })
         .send()
         .map_err(|_| SyncError::NetworkUnavailable)?
@@ -311,9 +320,55 @@ fn refresh_linux_auth(platform: &LinuxPlatform, server_url: &str) -> CoreResult<
 
 fn load_utf8_key(platform: &LinuxPlatform, key_id: &str, label: &str) -> CoreResult<String> {
     String::from_utf8(platform.load_key(key_id)?).map_err(|error| {
-        taskmanager_core::PlatformError::OperationFailed(format!(
-            "stored {label} is not UTF-8: {error}"
-        ))
-        .into()
+        PlatformError::OperationFailed(format!("stored {label} is not UTF-8: {error}")).into()
     })
+}
+
+pub(crate) fn normalize_sync_server_url(server_url: &str) -> Result<String, String> {
+    let server_url = server_url.trim().trim_end_matches('/').to_owned();
+    if server_url.is_empty() {
+        return Err("server URL is required".to_owned());
+    }
+
+    let parsed =
+        reqwest::Url::parse(&server_url).map_err(|_| "server URL is invalid".to_owned())?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("server URL must not include credentials".to_owned());
+    }
+
+    match parsed.scheme() {
+        "https" => Ok(server_url),
+        "http" if sync_host_is_loopback(&parsed) => Ok(server_url),
+        "http" => Err("server URL must use HTTPS unless it targets localhost".to_owned()),
+        _ => Err("server URL must use HTTPS".to_owned()),
+    }
+}
+
+pub(crate) fn sync_server_origin(server_url: &str) -> Result<String, String> {
+    let server_url = normalize_sync_server_url(server_url)?;
+    let parsed =
+        reqwest::Url::parse(&server_url).map_err(|_| "server URL is invalid".to_owned())?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "server URL must include a host".to_owned())?;
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "server URL must include a valid port".to_owned())?;
+    Ok(format!("{}://{}:{}", parsed.scheme(), host, port))
+}
+
+fn sync_host_is_loopback(parsed: &reqwest::Url) -> bool {
+    parsed
+        .host_str()
+        .map(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+        .unwrap_or(false)
+}
+
+fn sync_config_error(error: String) -> CoreError {
+    PlatformError::OperationFailed(error).into()
 }
