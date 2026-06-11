@@ -94,6 +94,12 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             font-size: 12px;
             font-weight: 700;
         }
+        .list-progress {
+            min-width: 18px;
+            min-height: 18px;
+            margin-top: 1px;
+            margin-bottom: 1px;
+        }
         .sidebar-bottom-bar,
         .content-bottom-bar {
             border-top: 1px solid @borders;

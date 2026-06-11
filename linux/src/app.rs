@@ -35,7 +35,7 @@ use crate::ui::search::{
 };
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, SyncStatus};
 use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
-use crate::ui::sidebar::user_list_row;
+use crate::ui::sidebar::{list_progress, user_list_row};
 use crate::ui::sync_setup::{build_sync_setup_panel, configure_sync_auth, sync_auth_configured};
 use crate::ui::task_editor::build_task_editor_panel;
 use crate::ui::task_row::{task_row, TaskRowActions, TaskRowExpansion};
@@ -575,10 +575,10 @@ impl AppState {
                 label.set_visible(false);
             }
         }
-        self.render_user_lists();
+        self.render_user_lists(&tasks);
     }
 
-    fn render_user_lists(self: &Rc<Self>) {
+    fn render_user_lists(self: &Rc<Self>, tasks: &[Task]) {
         while let Some(row) = self.user_list_box.first_child() {
             self.user_list_box.remove(&row);
         }
@@ -594,7 +594,8 @@ impl AppState {
         self.refresh_editor_list_choices(&lists);
 
         for list in lists {
-            self.user_list_box.append(&user_list_row(&list));
+            let progress = list_progress(&list, tasks);
+            self.user_list_box.append(&user_list_row(&list, progress));
         }
     }
 
@@ -634,7 +635,6 @@ impl AppState {
             Ok(list) => {
                 self.list_heading.set_text(&list.name);
                 self.list_name_entry.set_text(&list.name);
-                self.render_user_lists();
                 self.load_tasks();
                 self.request_sync();
                 self.list.grab_focus();
@@ -653,7 +653,6 @@ impl AppState {
             Ok(list) => {
                 self.selected_list_id.replace(Some(list.id));
                 self.active_filter.replace(TaskFilterState::Upcoming);
-                self.render_user_lists();
                 self.load_tasks();
                 self.show_list_rename_editor();
                 self.request_sync();
@@ -1365,7 +1364,6 @@ fn build_ui(app: &adw::Application) {
             } else {
                 state.request_sync();
             }
-            state.render_user_lists();
             state.navigate_to_page(TaskFilterState::Inbox, None);
         }
     });
