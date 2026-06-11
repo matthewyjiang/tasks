@@ -8,7 +8,7 @@ use taskmanager_core::{Keybindings, TaskManagerCore};
 
 use crate::platform::LinuxPlatform;
 use crate::ui::floating_panel::{hide_floating_panel, show_floating_panel};
-use crate::ui::settings::{read_settings, write_settings, LinuxSettings, ThemeChoice};
+use crate::ui::settings::{read_settings, write_settings, LinuxSettings, SyncStatus, ThemeChoice};
 use crate::ui::sync_setup::{logout_sync_auth, show_sync_setup_window, sync_auth_configured};
 use crate::ui::widgets::settings_entry;
 
@@ -105,6 +105,17 @@ pub(crate) fn show_settings_panel(
     sync_account_row.append(&sync_account);
     sync_account_row.append(&sync_logout_button);
     sync_page.append(&sync_account_row);
+
+    let sync_status_title = gtk::Label::new(Some("Status"));
+    sync_status_title.set_xalign(0.0);
+    sync_status_title.add_css_class("task-menu-heading");
+    sync_page.append(&sync_status_title);
+    let sync_status_label =
+        gtk::Label::new(Some(&format_sync_settings_status(&settings.sync_status)));
+    sync_status_label.set_xalign(0.0);
+    sync_status_label.set_wrap(true);
+    sync_status_label.add_css_class("dim-label");
+    sync_page.append(&sync_status_label);
 
     let appearance_title = gtk::Label::new(Some("Appearance"));
     appearance_title.set_xalign(0.0);
@@ -209,6 +220,7 @@ pub(crate) fn show_settings_panel(
         let sync_setup_button = sync_setup_button.clone();
         let sync_account_row = sync_account_row.clone();
         let sync_account = sync_account.clone();
+        let sync_status_label = sync_status_label.clone();
         let on_auth_changed = on_auth_changed.clone();
         move |_| {
             let refresh_settings_sync_state: Rc<dyn Fn()> = Rc::new({
@@ -216,12 +228,14 @@ pub(crate) fn show_settings_panel(
                 let sync_setup_button = sync_setup_button.clone();
                 let sync_account_row = sync_account_row.clone();
                 let sync_account = sync_account.clone();
+                let sync_status_label = sync_status_label.clone();
                 let on_auth_changed = on_auth_changed.clone();
                 move || {
                     let settings = read_settings(&settings_path).unwrap_or_default();
                     let signed_in = sync_auth_configured(&LinuxPlatform::new(), &settings);
                     sync_setup_button.set_visible(!signed_in);
                     sync_account_row.set_visible(signed_in);
+                    sync_status_label.set_text(&format_sync_settings_status(&settings.sync_status));
                     if signed_in {
                         sync_account.set_text(&format!(
                             "Signed in as {}",
@@ -280,6 +294,7 @@ pub(crate) fn show_settings_panel(
                 sync_email: current_settings.sync_email,
                 theme,
                 show_completed: false,
+                sync_status: current_settings.sync_status,
             };
             let mut vault_settings = core.vault_settings().unwrap_or_default();
             vault_settings.show_completed = show_completed.is_active();
@@ -307,4 +322,47 @@ pub(crate) fn show_settings_panel(
 
     panel.append(&content);
     show_floating_panel(panel);
+}
+
+fn format_sync_settings_status(status: &SyncStatus) -> String {
+    match (&status.last_attempt_at, &status.last_success_at) {
+        (None, _) => "No sync has run yet.".to_owned(),
+        (_, Some(success_at)) if status.last_error.is_empty() => format!(
+            "Last synced {}. {} pushed · {} pulled{}",
+            relative_time(*success_at),
+            status.last_pushed,
+            status.last_pulled,
+            if status.last_failed == 0 {
+                String::new()
+            } else {
+                format!(" · {} failed", status.last_failed)
+            }
+        ),
+        (Some(attempt_at), last_success) => {
+            let previous_success = last_success
+                .map(|success_at| format!(" Last successful sync {}.", relative_time(success_at)))
+                .unwrap_or_default();
+            format!(
+                "Last sync failed {}. {}{}",
+                relative_time(*attempt_at),
+                status.last_error,
+                previous_success
+            )
+        }
+    }
+}
+
+fn relative_time(timestamp_ms: i64) -> String {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or_default();
+    let elapsed = ((now_ms - timestamp_ms).max(0)) / 1000;
+    match elapsed {
+        0..=4 => "just now".to_owned(),
+        5..=59 => format!("{elapsed}s ago"),
+        60..=3599 => format!("{}m ago", elapsed / 60),
+        3600..=86_399 => format!("{}h ago", elapsed / 3600),
+        _ => format!("{}d ago", elapsed / 86_400),
+    }
 }

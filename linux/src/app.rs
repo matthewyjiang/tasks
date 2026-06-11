@@ -34,7 +34,7 @@ use crate::ui::search::{
     build_move_list_panel, move_list_result_row, normalize_query, regex_from_query,
     regex_matches_task, task_search_result_row,
 };
-use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
+use crate::ui::settings::{read_settings, write_settings, LinuxSettings, SyncStatus};
 use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
 use crate::ui::sidebar::user_list_row;
 use crate::ui::sync_setup::{build_sync_setup_panel, configure_sync_auth, sync_auth_configured};
@@ -129,6 +129,7 @@ impl AppState {
                 Ok(result) => {
                     state.sync_in_progress.replace(false);
                     state.set_sync_running(false);
+                    record_sync_status(&state.settings_path, &result);
                     match result {
                         Ok(summary) => {
                             if summary.changed() {
@@ -1294,6 +1295,35 @@ fn build_ui(app: &adw::Application) {
     state.load_tasks();
     state.request_sync();
     window.present();
+}
+
+fn record_sync_status(
+    settings_path: &std::path::Path,
+    result: &taskmanager_core::CoreResult<LinuxSyncSummary>,
+) {
+    let mut settings = read_settings(settings_path).unwrap_or_default();
+    let now = now_ms();
+    settings.sync_status = match result {
+        Ok(summary) => SyncStatus {
+            last_attempt_at: Some(now),
+            last_success_at: Some(now),
+            last_pushed: summary.pushed,
+            last_pulled: summary.pulled,
+            last_failed: summary.failed,
+            last_error: String::new(),
+        },
+        Err(error) => SyncStatus {
+            last_attempt_at: Some(now),
+            last_success_at: settings.sync_status.last_success_at,
+            last_pushed: settings.sync_status.last_pushed,
+            last_pulled: settings.sync_status.last_pulled,
+            last_failed: settings.sync_status.last_failed,
+            last_error: error.to_string(),
+        },
+    };
+    if let Err(error) = write_settings(settings_path, &settings) {
+        eprintln!("Failed to persist sync status: {error}");
+    }
 }
 
 fn build_sync_activity_icon(angle: Rc<Cell<f64>>) -> gtk::DrawingArea {
