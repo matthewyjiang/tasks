@@ -5,6 +5,40 @@ use taskmanager_core::Task;
 
 use crate::task_format::format_task_row_summary;
 
+pub(crate) struct MoveListPanelWidgets {
+    pub(crate) panel: gtk::Box,
+    pub(crate) search_entry: gtk::SearchEntry,
+    pub(crate) results: gtk::ListBox,
+}
+
+pub(crate) fn build_move_list_panel() -> MoveListPanelWidgets {
+    let panel = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    panel.add_css_class("move-list-panel");
+    panel.set_width_request(460);
+    panel.set_halign(gtk::Align::Center);
+    panel.set_valign(gtk::Align::Center);
+    panel.set_opacity(0.0);
+    panel.set_visible(false);
+    let search_entry = gtk::SearchEntry::new();
+    search_entry.add_css_class("move-list-search");
+    search_entry.set_placeholder_text(Some("Search lists with regex"));
+    let results = gtk::ListBox::new();
+    results.add_css_class("move-list-results");
+    results.set_selection_mode(gtk::SelectionMode::None);
+    let scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(260)
+        .child(&results)
+        .build();
+    panel.append(&search_entry);
+    panel.append(&scroll);
+
+    MoveListPanelWidgets {
+        panel,
+        search_entry,
+        results,
+    }
+}
+
 pub(crate) fn normalize_query(query: &str) -> String {
     query.trim().to_owned()
 }

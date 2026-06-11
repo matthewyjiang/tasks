@@ -14,6 +14,80 @@ use crate::platform::LinuxPlatform;
 use crate::sync::{AUTH_ACCESS_TOKEN_ID, AUTH_REFRESH_TOKEN_ID};
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
 
+pub(crate) struct SyncSetupPanelWidgets {
+    pub(crate) panel: gtk::Box,
+    pub(crate) server_entry: gtk::Entry,
+    pub(crate) email_entry: gtk::Entry,
+    pub(crate) password_entry: gtk::PasswordEntry,
+    pub(crate) status_label: gtk::Label,
+    pub(crate) local_button: gtk::Button,
+    pub(crate) login_button: gtk::Button,
+}
+
+pub(crate) fn build_sync_setup_panel(configured: bool, server_url: &str) -> SyncSetupPanelWidgets {
+    let setup_panel = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    setup_panel.add_css_class("setup-panel");
+    setup_panel.set_halign(gtk::Align::Fill);
+    setup_panel.set_valign(gtk::Align::Fill);
+    setup_panel.set_visible(!configured);
+
+    let setup_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    setup_card.set_halign(gtk::Align::Center);
+    setup_card.set_valign(gtk::Align::Center);
+    setup_card.set_width_request(460);
+    let setup_title = gtk::Label::new(Some("Set up sync"));
+    setup_title.set_xalign(0.0);
+    setup_title.add_css_class("pane-title");
+    let setup_subtitle = gtk::Label::new(Some(
+        "Sign in to sync tasks across devices, or keep working locally.",
+    ));
+    setup_subtitle.set_xalign(0.0);
+    setup_subtitle.set_wrap(true);
+    setup_subtitle.add_css_class("dim-label");
+    let server_entry = gtk::Entry::new();
+    server_entry.set_placeholder_text(Some("Server URL, e.g. http://127.0.0.1:18080"));
+    server_entry.set_text(server_url);
+    let email_entry = gtk::Entry::new();
+    email_entry.set_placeholder_text(Some("Email"));
+    let password_entry = gtk::PasswordEntry::new();
+    password_entry.set_placeholder_text(Some("Password"));
+    let status_label = gtk::Label::new(None);
+    status_label.set_xalign(0.0);
+    status_label.add_css_class("dim-label");
+    let setup_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    setup_actions.set_halign(gtk::Align::End);
+    let local_button = gtk::Button::with_label("Work local");
+    let login_button = gtk::Button::with_label("Login / Register");
+    login_button.add_css_class("suggested-action");
+    setup_actions.append(&local_button);
+    setup_actions.append(&login_button);
+
+    setup_card.append(&setup_title);
+    setup_card.append(&setup_subtitle);
+    setup_card.append(&server_entry);
+    setup_card.append(&email_entry);
+    setup_card.append(&password_entry);
+    setup_card.append(&status_label);
+    setup_card.append(&setup_actions);
+    let setup_top_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    setup_top_spacer.set_vexpand(true);
+    let setup_bottom_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    setup_bottom_spacer.set_vexpand(true);
+    setup_panel.append(&setup_top_spacer);
+    setup_panel.append(&setup_card);
+    setup_panel.append(&setup_bottom_spacer);
+
+    SyncSetupPanelWidgets {
+        panel: setup_panel,
+        server_entry,
+        email_entry,
+        password_entry,
+        status_label,
+        local_button,
+        login_button,
+    }
+}
+
 pub(crate) fn sync_auth_configured(platform: &LinuxPlatform, settings: &LinuxSettings) -> bool {
     !settings.server_url.trim().is_empty()
         && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
