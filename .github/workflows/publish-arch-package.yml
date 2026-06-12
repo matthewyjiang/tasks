@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           useradd --create-home builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-          runuser -u builder -- makepkg -p packaging/arch/PKGBUILD -s --noconfirm
+          runuser -u builder -- bash -lc "cd '$GITHUB_WORKSPACE/packaging/arch' && makepkg -s --noconfirm"
 
       - name: Checkout mjiang-extras
         uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
           set -euo pipefail
 
           chmod +x mjiang-extras/scripts/publish-packages.sh
-          mjiang-extras/scripts/publish-packages.sh --repo-dir mjiang-extras ./*.pkg.tar.zst
+          mjiang-extras/scripts/publish-packages.sh --repo-dir mjiang-extras packaging/arch/*.pkg.tar.zst
 
           cd mjiang-extras
           git config user.name "github-actions[bot]"
