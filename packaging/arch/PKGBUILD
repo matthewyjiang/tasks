@@ -1,15 +1,16 @@
 # Maintainer: Matthew Jiang <matthewyjiang@users.noreply.github.com>
 pkgname=tsk-linux
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="GTK/libadwaita desktop client for the local-first encrypted task manager"
 arch=("x86_64")
 url="https://github.com/matthewyjiang/tasks"
 license=("custom")
-depends=("gcc-libs" "glibc" "gtk4" "libadwaita" "libsecret" "openssl" "sqlite")
-makedepends=("cargo" "openssl" "sqlite")
+depends=("gcc-libs" "glibc" "gtk4" "libadwaita" "libsecret" "sqlite")
+makedepends=("cargo" "sqlite")
 source=()
 sha256sums=()
+options=("!lto")
 
 _repo_root() {
   if [[ -f "$startdir/../../linux/Cargo.toml" ]]; then
@@ -28,21 +29,37 @@ prepare() {
   cargo fetch --locked
 }
 
+_prepare_rust_build_env() {
+  # Arch's Rust package may prefer lld for Rust final links under makepkg, and
+  # makepkg's LTO flags can also leak into native build scripts. ring's generated
+  # static objects are sensitive to that combination, so keep the normal debug
+  # remapping flags but use the system linker without LTO for Cargo builds.
+  export RUSTFLAGS="${RUSTFLAGS:-} -C linker-features=-lld"
+  export CFLAGS="${CFLAGS// -flto=auto/}"
+  export CXXFLAGS="${CXXFLAGS// -flto=auto/}"
+  export LDFLAGS="${LDFLAGS// -flto=auto/}"
+}
+
 build() {
   cd "$(_repo_root)"
-  cargo build --release --locked -p tsk-linux --no-default-features --features native-tls
+  _prepare_rust_build_env
+  cargo build --release --locked -p tsk-linux --no-default-features
 }
 
 check() {
   cd "$(_repo_root)"
-  cargo test --locked -p tsk-linux --no-default-features --features native-tls
+  _prepare_rust_build_env
+  cargo test --locked -p tsk-linux --no-default-features
 }
 
 package() {
   local repo_root
   repo_root="$(_repo_root)"
 
-  install -Dm755 "$repo_root/target/release/tsk-gui" "$pkgdir/usr/bin/tsk-gui"
+  local target_dir
+  target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
+
+  install -Dm755 "$target_dir/release/tsk-gui" "$pkgdir/usr/bin/tsk-gui"
   install -Dm644 "$repo_root/linux/resources/io.github.matthewyjiang.tsk.desktop" \
     "$pkgdir/usr/share/applications/io.github.matthewyjiang.tsk.desktop"
   install -Dm644 "$repo_root/linux/resources/io.github.matthewyjiang.tsk.metainfo.xml" \
