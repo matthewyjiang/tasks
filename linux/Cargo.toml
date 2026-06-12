@@ -7,8 +7,12 @@ edition = "2021"
 name = "tsk-gui"
 path = "src/main.rs"
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["taskmanager-core/bundled-sqlite"]
+
 [dependencies]
-taskmanager-core = { path = "../core" }
+taskmanager-core = { path = "../core", default-features = false }
 gtk4 = { version = "0.9", features = ["v4_6"] }
 libadwaita = "0.7"
 directories = "5"
