@@ -6,8 +6,8 @@ pkgdesc="GTK/libadwaita desktop client for the local-first encrypted task manage
 arch=("x86_64")
 url="https://github.com/matthewyjiang/tasks"
 license=("custom")
-depends=("gcc-libs" "glibc" "gtk4" "libadwaita" "libsecret" "sqlite")
-makedepends=("cargo" "sqlite")
+depends=("gcc-libs" "glibc" "gtk4" "libadwaita" "libsecret" "openssl" "sqlite")
+makedepends=("cargo" "openssl" "sqlite")
 source=()
 sha256sums=()
 
@@ -30,12 +30,12 @@ prepare() {
 
 build() {
   cd "$(_repo_root)"
-  cargo build --release --locked -p tsk-linux --no-default-features
+  cargo build --release --locked -p tsk-linux --no-default-features --features native-tls
 }
 
 check() {
   cd "$(_repo_root)"
-  cargo test --locked -p tsk-linux --no-default-features
+  cargo test --locked -p tsk-linux --no-default-features --features native-tls
 }
 
 package() {
