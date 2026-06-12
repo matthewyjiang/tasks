@@ -52,6 +52,18 @@ def run(args: list[str], *, check: bool = True) -> str:
     return proc.stdout.strip()
 
 
+def dispatch_linux_arch_package(tag: str) -> None:
+    """Start Arch package publishing for auto-created linux-app tags.
+
+    Tags pushed by the release workflow use GITHUB_TOKEN. GitHub suppresses most
+    workflow runs caused by GITHUB_TOKEN-created events, including push tags, so
+    the publish-arch-package workflow's tag trigger is only useful for manually
+    pushed tags. workflow_dispatch is allowed, so dispatch it explicitly.
+    """
+    run(["gh", "workflow", "run", "publish-arch-package.yml", "--ref", tag])
+    print(f"Dispatched publish-arch-package.yml for {tag}.")
+
+
 def latest_tag(prefix: str) -> tuple[str | None, Version]:
     tags = run(["git", "tag", "--list", f"{prefix}-v*"], check=True).splitlines()
     best_tag: str | None = None
@@ -304,6 +316,8 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         run(["gh", "release", "create", tag, "--title", tag, "--notes", notes])
+        if args.artifact == "linux-app":
+            dispatch_linux_arch_package(tag)
     else:
         print("GITHUB_TOKEN not set; skipped GitHub Release creation.")
     return 0
