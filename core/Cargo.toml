@@ -7,13 +7,17 @@ edition = "2021"
 name = "taskmanager_core"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]
+
 [dependencies]
 aes-gcm = "0.10"
 anyhow = "1"
 hkdf = "0.12"
 p256 = { version = "0.13", features = ["ecdh"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
