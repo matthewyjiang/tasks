@@ -1,0 +1,36 @@
+# Maintainer: Matthew Jiang <matthewyjiang@users.noreply.github.com>
+pkgname=tsk-linux
+pkgver=0.3.0
+pkgrel=1
+pkgdesc="GTK/libadwaita desktop client for the local-first encrypted task manager"
+arch=("x86_64")
+url="https://github.com/matthewyjiang/tasks"
+license=("custom")
+depends=("gcc-libs" "glibc" "gtk4" "libadwaita" "libsecret")
+makedepends=("cargo")
+source=()
+sha256sums=()
+
+pkgver() {
+  awk -F '"' '/^version = / { print $2; exit }' linux/Cargo.toml
+}
+
+prepare() {
+  cargo fetch --locked
+}
+
+build() {
+  cargo build --release --locked -p tsk-linux
+}
+
+check() {
+  cargo test --locked -p tsk-linux
+}
+
+package() {
+  install -Dm755 target/release/tsk-gui "$pkgdir/usr/bin/tsk-gui"
+  install -Dm644 linux/resources/io.github.matthewyjiang.tsk.desktop \
+    "$pkgdir/usr/share/applications/io.github.matthewyjiang.tsk.desktop"
+  install -Dm644 linux/resources/io.github.matthewyjiang.tsk.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/io.github.matthewyjiang.tsk.metainfo.xml"
+}
