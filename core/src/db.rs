@@ -101,7 +101,10 @@ impl LocalDatabase {
         tags: Vec<String>,
     ) -> CoreResult<Task> {
         if let Some(list_id) = project_id {
-            self.get_list(list_id)?;
+            let list = self.get_list(list_id)?;
+            if list.deleted {
+                return Err(DbError::InvalidRowData(format!("list is deleted: {list_id}")).into());
+            }
         }
 
         let now = now_ms();
@@ -235,13 +238,19 @@ impl LocalDatabase {
     }
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
+        let escaped_query = escape_like_query(&query);
+        let pattern = format!("%{escaped_query}%");
         let mut statement = self.connection.prepare(
-            "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
-             FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
-             WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
-             ORDER BY rank, t.updated_at DESC, t.id ASC",
+            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty
+             FROM tasks
+             WHERE deleted = 0
+               AND id != ?2
+               AND (title LIKE ?1 ESCAPE '\\'
+                    OR body LIKE ?1 ESCAPE '\\'
+                    OR EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE value LIKE ?1 ESCAPE '\\'))
+             ORDER BY updated_at DESC, id ASC",
         )?;
-        let tasks = statement.query_map(params![query, Uuid::nil().to_string()], read_task)?;
+        let tasks = statement.query_map(params![pattern, Uuid::nil().to_string()], read_task)?;
         collect_tasks(tasks)
     }
 
@@ -518,6 +527,13 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         deleted: db_to_bool(row.get(9)?),
         dirty: db_to_bool(row.get(10)?),
     })
+}
+
+fn escape_like_query(query: &str) -> String {
+    query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn parse_uuid(text: &str, column: &'static str) -> rusqlite::Result<Uuid> {
@@ -827,6 +843,17 @@ mod tests {
         let database = db();
         let title_match = create_named(&database, "alpha project", "ordinary", None);
         let body_match = create_named(&database, "ordinary", "contains beta", None);
+        let tag_match = create_named(&database, "ordinary", "ordinary", None);
+        let punctuation_match = create_named(&database, "foo-bar", "ordinary", None);
+        database
+            .update_task(
+                tag_match.id,
+                TaskPatch {
+                    tags: Some(vec!["urgent".to_owned()]),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
 
         assert_eq!(
             database.search_tasks("alpha".to_owned()).unwrap()[0].id,
@@ -835,6 +862,14 @@ mod tests {
         assert_eq!(
             database.search_tasks("beta".to_owned()).unwrap()[0].id,
             body_match.id
+        );
+        assert_eq!(
+            database.search_tasks("urgent".to_owned()).unwrap()[0].id,
+            tag_match.id
+        );
+        assert_eq!(
+            database.search_tasks("foo-bar".to_owned()).unwrap()[0].id,
+            punctuation_match.id
         );
 
         database

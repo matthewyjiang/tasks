@@ -1262,6 +1262,8 @@ fn build_ui(app: &adw::Application) {
         let state = Rc::clone(&state);
         let filter_list = filter_list.clone();
         move || {
+            state.selected_list_id.replace(None);
+            state.active_filter.replace(TaskFilterState::Inbox);
             if let Some(row) = filter_list.row_at_index(0) {
                 filter_list.select_row(Some(&row));
             }

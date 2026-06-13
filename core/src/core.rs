@@ -245,6 +245,32 @@ mod tests {
     }
 
     #[test]
+    fn create_task_with_options_rejects_deleted_lists() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let list = core.create_list("Work".to_owned()).unwrap();
+        core.delete_list(list.id).unwrap();
+
+        let error = core
+            .create_task_with_options(
+                "title".to_owned(),
+                "body".to_owned(),
+                None,
+                Some(list.id),
+                Vec::new(),
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoreError::Database(DbError::InvalidRowData(_))
+        ));
+        assert!(core
+            .list_tasks(TaskFilter::default(), TaskSort::UpdatedAtDesc)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn facade_preserves_database_error_semantics() {
         let core = TaskManagerCore::open_in_memory().unwrap();
         let missing_id = Uuid::new_v4();
