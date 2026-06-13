@@ -238,20 +238,31 @@ impl LocalDatabase {
     }
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
-        let escaped_query = escape_like_query(&query);
-        let pattern = format!("%{escaped_query}%");
+        let query = normalize_search_query(&query);
+        let terms = query
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>();
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let mut statement = self.connection.prepare(
             "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty
              FROM tasks
-             WHERE deleted = 0
-               AND id != ?2
-               AND (title LIKE ?1 ESCAPE '\\'
-                    OR body LIKE ?1 ESCAPE '\\'
-                    OR EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE value LIKE ?1 ESCAPE '\\'))
+             WHERE deleted = 0 AND id != ?1
              ORDER BY updated_at DESC, id ASC",
         )?;
-        let tasks = statement.query_map(params![pattern, Uuid::nil().to_string()], read_task)?;
-        collect_tasks(tasks)
+        let tasks = statement.query_map(params![Uuid::nil().to_string()], read_task)?;
+        let tasks = collect_tasks(tasks)?
+            .into_iter()
+            .filter(|task| {
+                terms
+                    .iter()
+                    .all(|term| task_matches_search_term(task, term))
+            })
+            .collect();
+        Ok(tasks)
     }
 
     fn initialize_schema(&self) -> CoreResult<()> {
@@ -529,11 +540,22 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     })
 }
 
-fn escape_like_query(query: &str) -> String {
-    query
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+fn normalize_search_query(query: &str) -> String {
+    let query = query.trim();
+    if query.len() >= 2 && query.starts_with('"') && query.ends_with('"') {
+        query[1..query.len() - 1].replace("\"\"", "\"")
+    } else {
+        query.to_owned()
+    }
+}
+
+fn task_matches_search_term(task: &Task, term: &str) -> bool {
+    task.title.to_lowercase().contains(term)
+        || task.body.to_lowercase().contains(term)
+        || task
+            .tags
+            .iter()
+            .any(|tag| tag.to_lowercase().contains(term))
 }
 
 fn parse_uuid(text: &str, column: &'static str) -> rusqlite::Result<Uuid> {
