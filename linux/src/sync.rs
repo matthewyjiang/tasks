@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{
     sync_pull, sync_push, Blob, BlobPush, CoreError, CoreResult, LocalDatabase, Platform,
-    PlatformError, PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError,
+    PlatformError, PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError, TaskManagerCore,
     ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
@@ -268,13 +268,17 @@ pub(crate) fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult
     let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
     let database = LocalDatabase::open(db_path)?;
 
-    match run_linux_sync_once(&database, &platform, &server_url, &data_key) {
+    let mut summary = match run_linux_sync_once(&database, &platform, &server_url, &data_key) {
         Err(CoreError::Sync(SyncError::AuthExpired)) => {
             refresh_linux_auth(&platform, &server_url)?;
-            run_linux_sync_once(&database, &platform, &server_url, &data_key)
+            run_linux_sync_once(&database, &platform, &server_url, &data_key)?
         }
-        result => result,
-    }
+        result => result?,
+    };
+    summary.pending_retries = TaskManagerCore::open(db_path)?
+        .sync_status()?
+        .retry_queue_depth;
+    Ok(summary)
 }
 
 pub(crate) fn run_linux_sync_once(
@@ -291,7 +295,7 @@ pub(crate) fn run_linux_sync_once(
         pushed: push.pushed,
         pulled: pull.pulled,
         failed: push.failed,
-        pending_retries: database.retry_queue_entries()?.len(),
+        pending_retries: 0,
         conflicts: pull.failed,
     })
 }

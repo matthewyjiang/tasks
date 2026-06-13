@@ -89,6 +89,21 @@ impl LocalDatabase {
         body: String,
         due_at: Option<i64>,
     ) -> CoreResult<Task> {
+        self.create_task_with_options(title, body, due_at, None, Vec::new())
+    }
+
+    pub fn create_task_with_options(
+        &self,
+        title: String,
+        body: String,
+        due_at: Option<i64>,
+        project_id: Option<Uuid>,
+        tags: Vec<String>,
+    ) -> CoreResult<Task> {
+        if let Some(list_id) = project_id {
+            self.get_list(list_id)?;
+        }
+
         let now = now_ms();
         let task = Task {
             id: Uuid::new_v4(),
@@ -96,8 +111,8 @@ impl LocalDatabase {
             body,
             due_at,
             status: TaskStatus::Open,
-            project_id: None,
-            tags: Vec::new(),
+            project_id,
+            tags,
             created_at: now,
             updated_at: now,
             deleted: false,

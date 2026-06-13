@@ -337,8 +337,14 @@ fn format_sync_settings_status(status: &SyncStatus) -> String {
             if status.last_failed > 0 {
                 details.push_str(&format!(" · {} failed", status.last_failed));
             }
+            if status.dirty_count > 0 {
+                details.push_str(&format!(" · {} unsynced local change", status.dirty_count));
+            }
             if status.pending_retries > 0 {
                 details.push_str(&format!(" · {} pending retry", status.pending_retries));
+            }
+            if status.cursor > 0 {
+                details.push_str(&format!(" · cursor {}", status.cursor));
             }
             if status.conflicts > 0 {
                 details.push_str(&format!(

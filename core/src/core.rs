@@ -49,6 +49,18 @@ impl TaskManagerCore {
         self.database.create_task(title, body, due_at)
     }
 
+    pub fn create_task_with_options(
+        &self,
+        title: String,
+        body: String,
+        due_at: Option<i64>,
+        project_id: Option<Uuid>,
+        tags: Vec<String>,
+    ) -> CoreResult<Task> {
+        self.database
+            .create_task_with_options(title, body, due_at, project_id, tags)
+    }
+
     pub fn get_task(&self, task_id: Uuid) -> CoreResult<Task> {
         self.database.get_task(task_id)
     }
@@ -205,6 +217,31 @@ mod tests {
 
         core.delete_task(created.id).unwrap();
         assert!(core.get_task(created.id).unwrap().deleted);
+    }
+
+    #[test]
+    fn create_task_with_options_validates_list_before_insert() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let missing_list = Uuid::new_v4();
+
+        let error = core
+            .create_task_with_options(
+                "title".to_owned(),
+                "body".to_owned(),
+                None,
+                Some(missing_list),
+                vec!["tag".to_owned()],
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoreError::Database(DbError::InvalidRowData(_))
+        ));
+        assert!(core
+            .list_tasks(TaskFilter::default(), TaskSort::UpdatedAtDesc)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

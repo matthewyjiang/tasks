@@ -6,7 +6,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{
-    init_account, LocalDatabase, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+    init_account, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
 };
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ use crate::ui::layout::{
 use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::{
     build_move_list_panel, move_list_result_row, normalize_query, regex_from_query,
-    regex_matches_task, task_search_result_row,
+    task_search_result_row,
 };
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, SyncStatus};
 use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
@@ -134,7 +134,7 @@ impl AppState {
                 Ok(result) => {
                     state.sync_in_progress.replace(false);
                     state.set_sync_running(false);
-                    record_sync_status(&state.settings_path, &state.db_path, &result);
+                    record_sync_status(&state.settings_path, &state.core, &result);
                     match result {
                         Ok(summary) => {
                             if summary.changed() {
@@ -185,21 +185,7 @@ impl AppState {
             filter.project_id = selected_list_id;
             self.core.list_tasks(filter, default_sort())
         } else {
-            match regex_from_query(&query) {
-                Ok(regex) => self
-                    .core
-                    .list_tasks(TaskFilter::default(), default_sort())
-                    .map(|tasks| {
-                        tasks
-                            .into_iter()
-                            .filter(|task| regex_matches_task(&regex, task))
-                            .collect()
-                    }),
-                Err(error) => {
-                    self.toast(format!("Invalid regex: {error}"));
-                    Ok(Vec::new())
-                }
-            }
+            self.core.search_tasks(query)
         };
 
         match result {
@@ -542,13 +528,18 @@ impl AppState {
     }
 
     fn create_task(self: &Rc<Self>) {
-        match self
-            .core
-            .create_task("New task".to_owned(), String::new(), None)
-        {
+        let selected_list_id = *self.selected_list_id.borrow();
+        match self.core.create_task_with_options(
+            "New task".to_owned(),
+            String::new(),
+            None,
+            selected_list_id,
+            Vec::new(),
+        ) {
             Ok(task) => {
-                self.selected_list_id.replace(None);
-                self.active_filter.replace(TaskFilterState::Inbox);
+                if selected_list_id.is_none() {
+                    self.active_filter.replace(TaskFilterState::Inbox);
+                }
                 self.load_tasks();
                 self.select_task_with_focus(task.id, true);
                 self.request_sync();
@@ -1512,11 +1503,23 @@ fn build_ui(app: &adw::Application) {
 
 fn record_sync_status(
     settings_path: &std::path::Path,
-    db_path: &std::path::Path,
+    core: &TaskManagerCore,
     result: &taskmanager_core::CoreResult<LinuxSyncSummary>,
 ) {
     let mut settings = read_settings(settings_path).unwrap_or_default();
     let now = now_ms();
+    let core_status = core.sync_status().ok();
+    let pending_retries = core_status
+        .as_ref()
+        .map(|status| status.retry_queue_depth)
+        .unwrap_or(settings.sync_status.pending_retries);
+    let dirty_count = core_status
+        .as_ref()
+        .map(|status| status.dirty_count)
+        .unwrap_or(settings.sync_status.dirty_count);
+    let cursor = core_status
+        .map(|status| status.cursor)
+        .unwrap_or(settings.sync_status.cursor);
     settings.sync_status = match result {
         Ok(summary) => SyncStatus {
             last_attempt_at: Some(now),
@@ -1525,7 +1528,9 @@ fn record_sync_status(
             last_pulled: summary.pulled,
             last_failed: summary.failed,
             last_error: String::new(),
-            pending_retries: summary.pending_retries,
+            pending_retries,
+            dirty_count,
+            cursor,
             conflicts: summary.conflicts,
         },
         Err(error) => SyncStatus {
@@ -1535,9 +1540,9 @@ fn record_sync_status(
             last_pulled: settings.sync_status.last_pulled,
             last_failed: settings.sync_status.last_failed,
             last_error: error.to_string(),
-            pending_retries: LocalDatabase::open(db_path)
-                .and_then(|database| database.retry_queue_entries().map(|entries| entries.len()))
-                .unwrap_or(settings.sync_status.pending_retries),
+            pending_retries,
+            dirty_count,
+            cursor,
             conflicts: settings.sync_status.conflicts,
         },
     };
@@ -1647,21 +1652,10 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
         return;
     }
 
-    let regex = match regex_from_query(query) {
-        Ok(regex) => regex,
-        Err(error) => {
-            state.toast(format!("Invalid regex: {error}"));
-            return;
-        }
-    };
-    match state.core.list_tasks(TaskFilter::default(), default_sort()) {
+    match state.core.search_tasks(query.to_owned()) {
         Ok(tasks) => {
             let mut has_results = false;
-            for task in tasks
-                .into_iter()
-                .filter(|task| regex_matches_task(&regex, task))
-                .take(10)
-            {
+            for task in tasks.into_iter().take(10) {
                 has_results = true;
                 results.append(&task_search_result_row(&task));
             }
