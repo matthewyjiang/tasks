@@ -9,3 +9,6 @@ __pycache__/
 
 # Rust
 target/
+
+# Swift Package Manager
+ios/tsk/.build/

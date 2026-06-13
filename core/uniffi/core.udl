@@ -12,6 +12,29 @@ enum FfiTaskSort {
   "CreatedAtDesc"
 };
 
+enum FfiAuthMethod {
+  "Biometric",
+  "Pin",
+  "Password"
+};
+
+enum FfiTheme {
+  "Light",
+  "Dark",
+  "System"
+};
+
+enum FfiDefaultSort {
+  "DueAtAsc",
+  "UpdatedAtDesc"
+};
+
+enum FfiDisplayDensity {
+  "Compact",
+  "Comfortable",
+  "Spacious"
+};
+
 dictionary FfiTask {
   string id;
   string title;
@@ -20,6 +43,15 @@ dictionary FfiTask {
   FfiTaskStatus status;
   string? project_id;
   sequence<string> tags;
+  i64 created_at;
+  i64 updated_at;
+  boolean deleted;
+  boolean dirty;
+};
+
+dictionary FfiTaskList {
+  string id;
+  string name;
   i64 created_at;
   i64 updated_at;
   boolean deleted;
@@ -51,6 +83,64 @@ dictionary FfiBlob {
   sequence<u8> nonce;
 };
 
+dictionary FfiTagColor {
+  string tag;
+  string color;
+};
+
+dictionary FfiKeybindings {
+  string add_task;
+  string search;
+  string close_overlay;
+  string confirm_rename;
+  string delete_task;
+  string toggle_done;
+};
+
+dictionary FfiPlaintextSettings {
+  i32 schema_version;
+  string server_url;
+  FfiAuthMethod auth_method;
+  string language;
+  i64 last_sync_cursor;
+};
+
+dictionary FfiVaultSettings {
+  i32 schema_version;
+  FfiTheme theme;
+  FfiDefaultSort default_sort;
+  boolean show_completed;
+  i32 default_reminder_minutes;
+  sequence<FfiTagColor> tag_colors;
+  FfiDisplayDensity display_density;
+  i32 first_day_of_week;
+  string notification_sound;
+  FfiKeybindings keybindings;
+};
+
+dictionary FfiSyncStatus {
+  u64 dirty_count;
+  u64 retry_queue_depth;
+  i64 cursor;
+};
+
+dictionary FfiRetryQueueEntry {
+  string task_id;
+  i64 attempt;
+  i64 next_retry;
+};
+
+dictionary FfiDeviceKeypair {
+  sequence<u8> private_key;
+  sequence<u8> public_key;
+};
+
+dictionary FfiLocalAccountBootstrap {
+  sequence<u8> device_private_key;
+  sequence<u8> device_public_key;
+  sequence<u8> account_data_key;
+};
+
 [Error]
 interface FfiCoreError {
   CryptoError(string error_message);
@@ -67,8 +157,20 @@ interface FfiCoreError {
 interface FfiTaskManagerCore {
   [Throws=FfiCoreError]
   constructor(string database_path);
+
+  [Throws=FfiCoreError]
+  FfiTaskList create_list(string name);
+  [Throws=FfiCoreError]
+  sequence<FfiTaskList> list_task_lists();
+  [Throws=FfiCoreError]
+  FfiTaskList update_list(string list_id, string name);
+  [Throws=FfiCoreError]
+  void delete_list(string list_id);
+
   [Throws=FfiCoreError]
   FfiTask create_task(string title, string body, i64? due_at);
+  [Throws=FfiCoreError]
+  FfiTask create_task_with_options(string title, string body, i64? due_at, string? project_id, sequence<string> tags);
   [Throws=FfiCoreError]
   FfiTask get_task(string task_id);
   [Throws=FfiCoreError]
@@ -79,6 +181,17 @@ interface FfiTaskManagerCore {
   sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
   [Throws=FfiCoreError]
   sequence<FfiTask> search_tasks(string query);
+
+  [Throws=FfiCoreError]
+  FfiVaultSettings vault_settings();
+  [Throws=FfiCoreError]
+  FfiVaultSettings update_vault_settings(FfiVaultSettings settings);
+  [Throws=FfiCoreError]
+  FfiSyncStatus sync_status();
+  [Throws=FfiCoreError]
+  sequence<FfiRetryQueueEntry> retry_queue_entries();
+  [Throws=FfiCoreError]
+  FfiRetryQueueEntry queue_sync_retry(string task_id, i64 now);
 };
 
 namespace taskmanager_core {
@@ -87,4 +200,20 @@ namespace taskmanager_core {
   [Throws=FfiCoreError]
   FfiTask decrypt_task_blob(FfiBlob blob, sequence<u8> key);
   sequence<u8> generate_account_data_key();
+
+  FfiDeviceKeypair generate_ffi_device_keypair();
+  FfiLocalAccountBootstrap generate_local_account_bootstrap();
+  [Throws=FfiCoreError]
+  sequence<u8> device_public_key_from_private_key(sequence<u8> private_key);
+  [Throws=FfiCoreError]
+  FfiBlob wrap_account_data_key(sequence<u8> data_key, sequence<u8> peer_public_key, sequence<u8> own_private_key);
+  [Throws=FfiCoreError]
+  sequence<u8> unwrap_account_data_key(FfiBlob wrapped, sequence<u8> peer_public_key, sequence<u8> own_private_key);
+  string device_private_key_id();
+  string account_data_key_id();
+
+  [Throws=FfiCoreError]
+  FfiPlaintextSettings read_plaintext_settings(string path);
+  [Throws=FfiCoreError]
+  void write_plaintext_settings(string path, FfiPlaintextSettings settings);
 };
