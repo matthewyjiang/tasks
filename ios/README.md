@@ -35,8 +35,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-pa
 Generate UniFFI Swift bindings after Rust tooling is installed:
 
 ```sh
-cargo install uniffi_bindgen --version 0.31.1
 ./ios/tsk/Scripts/generate-uniffi-bindings.sh
 ```
 
-The generated Swift bindings are expected under `ios/tsk/Sources/TskCore/Generated/` and will be wired into the repository implementation during the remainder of Phase 1.
+The script builds `taskmanager-core`, runs a temporary `uniffi_bindgen = 0.31.1` runner, and writes Swift bindings under `ios/tsk/Sources/TskCore/Generated/`. The Swift package links against the local debug core dylib for Phase 1 development and tests.

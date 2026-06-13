@@ -15,9 +15,9 @@ Rule for this branch: implement and validate **one phase at a time**. Current ac
 - [x] Add basic native SwiftUI shell with sidebar, task list, task detail placeholder, and settings placeholder.
 - [x] Add iOS sandbox path helper for the local SQLite database path.
 - [x] Add first Swift unit tests for shell/path/filtering helpers.
-- [ ] Generate and consume UniFFI Swift bindings for iOS once `cargo` and `uniffi-bindgen` are available in the environment.
-- [ ] Wire Swift repository implementation to generated UniFFI bindings and open the real SQLite database.
-- [ ] Display the basic task list from the shared Rust core instead of the preview repository.
+- [x] Generate and consume UniFFI Swift bindings for iOS.
+- [x] Wire Swift repository implementation to generated UniFFI bindings and open the real SQLite database.
+- [x] Display the basic task list from the shared Rust core instead of the preview repository.
 - [x] Run and fix current Rust Phase 1 validation checks (`cargo fmt --check`, `cargo test -p taskmanager-core`, `cargo clippy -p taskmanager-core --all-targets -- -D warnings`).
 - [x] Run and fix current Swift Phase 1 validation checks (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path ios/tsk`).
 

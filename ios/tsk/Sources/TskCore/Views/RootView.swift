@@ -5,11 +5,22 @@ public struct RootView: View {
     @StateObject private var model: AppModel
 
     public init() {
-        _model = StateObject(wrappedValue: AppModel())
+        _model = StateObject(wrappedValue: Self.makeDefaultModel())
     }
 
     public init(model: AppModel) {
         _model = StateObject(wrappedValue: model)
+    }
+
+    private static func makeDefaultModel() -> AppModel {
+        do {
+            let paths = try AppPaths()
+            try paths.createDirectories()
+            let repository = try CoreTaskRepository(databaseURL: paths.databaseURL)
+            return AppModel(repository: repository)
+        } catch {
+            return AppModel()
+        }
     }
 
     public var body: some View {
