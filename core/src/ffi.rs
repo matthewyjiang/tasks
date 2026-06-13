@@ -332,7 +332,7 @@ impl FfiTaskManagerCore {
         let validated_patch = TaskPatch::try_from(patch)?;
         let created = self.create_task(title, body, due_at)?;
         if validated_patch.project_id.is_none()
-            && validated_patch.tags.as_ref().map_or(true, Vec::is_empty)
+            && validated_patch.tags.as_ref().is_none_or(Vec::is_empty)
         {
             return Ok(created);
         }

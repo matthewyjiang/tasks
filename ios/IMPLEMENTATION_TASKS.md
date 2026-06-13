@@ -1,8 +1,10 @@
 # Issue 92 iOS implementation task list
 
-Branch: `issue-92-ios-app`
+Branch: `issue-92-ios-phase2-offline-ui`
 
-Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 1**.
+Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 2**.
+
+SwiftUI rule: keep the iOS app on intended native SwiftUI containers/modifiers first (`NavigationStack`, `NavigationSplitView`, `List`, `Form`, `.searchable`, toolbars, selection bindings). Avoid custom geometry, fixed-width panes, safe-area compensations, or gesture/state workarounds unless a native approach has been ruled out and the reason is documented.
 
 ## Phase 1: iOS shell and core binding
 
@@ -28,13 +30,15 @@ Rule for this branch: implement and validate **one phase at a time**. Current ac
 
 ## Phase 2: Offline task UI
 
-Not started. Do not begin until Phase 1 is complete.
+Implemented on `issue-92-ios-phase2-offline-ui`.
 
-- [ ] Add/create/edit/delete task flows backed by core.
-- [ ] Add smart views backed by core filters.
-- [ ] Add user lists backed by core.
-- [ ] Add due dates, tags, done/open state, and list assignment persistence through core.
-- [ ] Add native search backed by core/local database behavior.
+- [x] Add/create/edit/delete task flows backed by core.
+- [x] Add smart views over the local core-backed task database.
+- [x] Add user lists backed by core.
+- [x] Add due dates, tags, done/open state, and list assignment persistence through core.
+- [x] Add native local search over core-backed task data.
+- [x] Refactor regular-width iPad UI onto native SwiftUI `NavigationSplitView` and sidebar `List(selection:)`, removing custom pane/header/sidebar layout workarounds.
+- [x] Review compact iPhone UI for layout/navigation workarounds and keep it on native `NavigationStack`, `List`, `NavigationLink`, and `Form` patterns.
 
 ## Phase 3: iOS platform adapter
 
@@ -64,6 +68,8 @@ Not started. Do not begin until Phase 4 is complete.
 - [ ] Register background refresh.
 - [ ] Reconcile notifications after background/foreground sync once reminder semantics exist.
 - [ ] Add iPad adaptive layout polish.
+- [ ] Evaluate a native three-column iPad split view for sidebar, task list, and task detail once Phase 4 sync flows are stable.
+- [ ] Add UI smoke tests or snapshot-style checks for iPad sidebar/task-list geometry to catch regressions in split-view layout.
 - [ ] Add accessibility pass.
 - [ ] Add README and development checks.
 - [ ] Document Linux API reuse opportunities.
@@ -74,7 +80,7 @@ Not started. Do not begin until Phase 4 is complete.
   - `PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH" cargo fmt --check`
   - `PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH" cargo test -p taskmanager-core`
   - `PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH" cargo clippy -p taskmanager-core --all-targets -- -D warnings`
-- Swift package tests pass with full Xcode selected via `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path ios/tsk`.
+- Swift package tests pass with full Xcode selected via `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path ios/tsk` from the repository root, or with an absolute package path from `ios/`.
 - `ios/tsk/Scripts/generate-uniffi-bindings.sh` builds the Rust core for `aarch64-apple-darwin`, `aarch64-apple-ios-sim`, and `aarch64-apple-ios`, then packages those static libraries plus the UniFFI header/module map into `ios/tsk/Frameworks/TaskmanagerCore.xcframework`.
 - The Swift package consumes that XCFramework through the `taskmanager_coreFFI` binary target, allowing the same generated bindings to compile for SwiftPM tests.
 - Simulator/device app launches should use `ios/tsk/tsk.xcodeproj` from the repo root, or `tsk/tsk.xcodeproj` from the `ios/` directory. The project builds a real `tsk.app` bundle with `com.matthewyjiang.tsk`; running a Swift package executable directly can crash in UIKit because SwiftPM executables do not provide an iOS app bundle identifier.
