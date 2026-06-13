@@ -6,6 +6,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000001 /* SecureSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* SecureSecretStore.swift */; };
+		A10000000000000000000002 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* KeychainSecretStore.swift */; };
+		A10000000000000000000003 /* LocalFirstBootstrapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LocalFirstBootstrapService.swift */; };
+		A10000000000000000000004 /* NotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* NotificationScheduler.swift */; };
+		A10000000000000000000005 /* ReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* ReachabilityMonitor.swift */; };
 		7ABB6B5BA8B141E7BD3B8CDB /* StartupFailedRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102066F2F8994ED898431844 /* StartupFailedRepository.swift */; };
 		FA494AF7D3E5475B9B33359B /* TskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CB85414C9C40F0A6D187D1 /* TskApp.swift */; };
 		20F2EC00E7364FA88CA59BC8 /* taskmanager_core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A7A2EB40684703865A794B /* taskmanager_core.swift */; };
@@ -25,6 +30,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B10000000000000000000001 /* SecureSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/SecureSecretStore.swift"; sourceTree = "<group>"; };
+		B10000000000000000000002 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/KeychainSecretStore.swift"; sourceTree = "<group>"; };
+		B10000000000000000000003 /* LocalFirstBootstrapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/LocalFirstBootstrapService.swift"; sourceTree = "<group>"; };
+		B10000000000000000000004 /* NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/NotificationScheduler.swift"; sourceTree = "<group>"; };
+		B10000000000000000000005 /* ReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/ReachabilityMonitor.swift"; sourceTree = "<group>"; };
 		102066F2F8994ED898431844 /* StartupFailedRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/StartupFailedRepository.swift; sourceTree = "<group>"; };
 		41CB85414C9C40F0A6D187D1 /* TskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/tsk/TskApp.swift"; sourceTree = "<group>"; };
 		74A7A2EB40684703865A794B /* taskmanager_core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Generated/taskmanager_core.swift"; sourceTree = "<group>"; };
@@ -74,6 +84,11 @@
 				69DD31A06C93492F8B1F7775 /* TaskFiltering.swift */,
 				7EE9BBD9CDE64D6AB8834F89 /* TaskModels.swift */,
 				51E57C3920C9496E8028E0A7 /* AppPaths.swift */,
+				B10000000000000000000001 /* SecureSecretStore.swift */,
+				B10000000000000000000002 /* KeychainSecretStore.swift */,
+				B10000000000000000000003 /* LocalFirstBootstrapService.swift */,
+				B10000000000000000000004 /* NotificationScheduler.swift */,
+				B10000000000000000000005 /* ReachabilityMonitor.swift */,
 				0124E614FF084E3C8F7C8573 /* AppModel.swift */,
 				102066F2F8994ED898431844 /* StartupFailedRepository.swift */,
 				7BD2CD39752A4ACFAB7DABF0 /* CoreTaskRepository.swift */,
@@ -151,6 +166,11 @@
 				077D06F90C764BD0AE5B2D6A /* TaskFiltering.swift in Sources */,
 				FF7169C0A12B43B39AD3EA1F /* TaskModels.swift in Sources */,
 				971534EC317A43C6875950F0 /* AppPaths.swift in Sources */,
+				A10000000000000000000001 /* SecureSecretStore.swift in Sources */,
+				A10000000000000000000002 /* KeychainSecretStore.swift in Sources */,
+				A10000000000000000000003 /* LocalFirstBootstrapService.swift in Sources */,
+				A10000000000000000000004 /* NotificationScheduler.swift in Sources */,
+				A10000000000000000000005 /* ReachabilityMonitor.swift in Sources */,
 				C0A26763FB6642A289A95525 /* AppModel.swift in Sources */,
 				5A34C48815C243B8A11F3B6C /* CoreTaskRepository.swift in Sources */,
 				A11A756FAFEC441CA643F390 /* TaskRepository.swift in Sources */,

@@ -10,14 +10,20 @@ public final class AppModel: ObservableObject {
     @Published public var selectedTaskID: UUID?
     @Published public var searchQuery: String = ""
     @Published public private(set) var syncSummary = SyncSummary()
+    @Published public private(set) var localAccount: LocalAccountBootstrapState?
     @Published public private(set) var errorMessage: String?
 
     private let repository: any TaskRepository
     private let filterEngine: TaskFilterEngine
 
-    public init(repository: any TaskRepository = PreviewTaskRepository(), filterEngine: TaskFilterEngine = TaskFilterEngine()) {
+    public init(
+        repository: any TaskRepository = PreviewTaskRepository(),
+        filterEngine: TaskFilterEngine = TaskFilterEngine(),
+        localAccount: LocalAccountBootstrapState? = nil
+    ) {
         self.repository = repository
         self.filterEngine = filterEngine
+        self.localAccount = localAccount
     }
 
     public var selectedTask: TaskItem? {
@@ -49,6 +55,10 @@ public final class AppModel: ObservableObject {
         errorMessage = nil
     }
 
+    public func updateReachability(_ status: ReachabilityStatus) {
+        syncSummary.isOnline = status.isOnline
+    }
+
     public func select(_ destination: AppDestination) {
         self.destination = destination
         switch destination {
@@ -67,9 +77,11 @@ public final class AppModel: ObservableObject {
             async let loadedSync = repository.syncSummary()
             let allTasks = try await loadedTasks
             let allLists = try await loadedLists
+            let wasOnline = syncSummary.isOnline
             tasks = allTasks.filter { !$0.deleted }
             lists = allLists.filter { !$0.deleted }
             syncSummary = try await loadedSync
+            syncSummary.isOnline = wasOnline
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

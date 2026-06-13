@@ -2,7 +2,7 @@
 
 Native SwiftUI iOS client for `tsk`, backed by the shared Rust `taskmanager-core` through UniFFI.
 
-Current implementation scope is Phase 2 from issue #92: offline task UI backed by the shared core. Platform adapter, sync/auth, and background sync phases are intentionally not started yet.
+Current implementation scope is Phase 3 from issue #92: iOS platform adapters for local-first offline use. Sync/auth and background sync phases are intentionally not started yet.
 
 ## Structure
 
@@ -74,3 +74,7 @@ It installs missing Rust targets with `rustup`, prefers the full Xcode developer
 ## Implemented offline UI
 
 Phase 2 adds native SwiftUI flows for creating, editing, completing/reopening, and deleting tasks offline. Task detail editing persists title, notes, due date, list assignment, tags, and open/done status through the Rust core. The sidebar supports creating, renaming, deleting, and selecting user lists. Built-in views and `.searchable` remain local-first over local core-backed SQLite data.
+
+## Implemented platform adapters
+
+Phase 3 initializes local-first device/account keys on first launch before sign-in is required. The device private key and account data key are stored in device-only Keychain items available after first unlock. The app also has native `NWPathMonitor` reachability plumbing and `UNUserNotificationCenter` schedule/cancel hooks; detailed reminder behavior remains deferred until the shared core/spec defines reminder semantics.
