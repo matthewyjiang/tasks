@@ -9,3 +9,12 @@ __pycache__/
 
 # Rust
 target/
+
+# Swift / iOS generated outputs
+ios/tsk/.build/
+ios/tsk/Frameworks/
+
+# Xcode user-local state
+*.xcuserstate
+xcuserdata/
+ios/tsk/.swiftpm/xcode/
