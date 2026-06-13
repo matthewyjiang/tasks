@@ -6,10 +6,22 @@ IOS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${IOS_DIR}/../.." && pwd)"
 CORE_DIR="${REPO_ROOT}/core"
 GENERATED_DIR="${IOS_DIR}/Sources/TskCore/Generated"
+FRAMEWORKS_DIR="${IOS_DIR}/Frameworks"
+XCFRAMEWORK_PATH="${FRAMEWORKS_DIR}/TaskmanagerCore.xcframework"
 UDL_FILE="${CORE_DIR}/uniffi/core.udl"
 LIB_NAME="taskmanager_core"
+MODULE_NAME="taskmanager_coreFFI"
+CARGO_PROFILE="${CARGO_PROFILE:-debug}"
 
-mkdir -p "${GENERATED_DIR}"
+# Cargo (and uniffi's bindgen runner via cargo_metadata) needs to be invoked
+# from inside the workspace, regardless of the user's CWD.
+cd "${REPO_ROOT}"
+
+RUST_TARGETS=(
+  "aarch64-apple-darwin"
+  "aarch64-apple-ios"
+  "aarch64-apple-ios-sim"
+)
 
 if [ -d "${HOME}/.cargo/bin" ]; then
   export PATH="${HOME}/.cargo/bin:${PATH}"
@@ -17,19 +29,43 @@ fi
 if [ -d "${HOME}/.rustup/toolchains/stable-aarch64-apple-darwin/bin" ]; then
   export PATH="${HOME}/.rustup/toolchains/stable-aarch64-apple-darwin/bin:${PATH}"
 fi
+if [ -d "/opt/homebrew/bin" ]; then
+  export PATH="/opt/homebrew/bin:${PATH}"
+fi
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "error: cargo is required to build taskmanager-core and run UniFFI bindgen" >&2
   exit 1
 fi
+if ! command -v rustup >/dev/null 2>&1; then
+  echo "error: rustup is required to install Apple Rust targets" >&2
+  exit 1
+fi
 
-cargo build -p taskmanager-core
+# CommandLineTools cannot create xcframeworks; point at a real Xcode if present.
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+  export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+fi
+if ! command -v xcodebuild >/dev/null 2>&1; then
+  echo "error: xcodebuild is required to create the XCFramework" >&2
+  exit 1
+fi
 
-RUNNER_DIR="$(mktemp -d)"
+INSTALLED_TARGETS="$(rustup target list --installed)"
+for target in "${RUST_TARGETS[@]}"; do
+  if ! grep -q "^${target}\$" <<<"${INSTALLED_TARGETS}"; then
+    echo "Installing Rust target ${target}..."
+    rustup target add "${target}"
+  fi
+done
+
+STAGING_DIR="$(mktemp -d)"
 cleanup() {
-  rm -rf "${RUNNER_DIR}"
+  rm -rf "${STAGING_DIR}"
 }
 trap cleanup EXIT
+
+RUNNER_DIR="${STAGING_DIR}/bindgen-runner"
 mkdir -p "${RUNNER_DIR}/src"
 cat > "${RUNNER_DIR}/Cargo.toml" <<'RUNNER_TOML'
 [package]
@@ -59,9 +95,52 @@ fn main() -> anyhow::Result<()> {
 }
 RUNNER_RS
 
-cargo run --manifest-path "${RUNNER_DIR}/Cargo.toml" -- "${UDL_FILE}" "${GENERATED_DIR}"
+BINDGEN_OUT="${STAGING_DIR}/bindgen"
+mkdir -p "${BINDGEN_OUT}"
+cargo run --manifest-path "${RUNNER_DIR}/Cargo.toml" -- "${UDL_FILE}" "${BINDGEN_OUT}"
 
-# SwiftPM system library targets require the module map to be named module.modulemap.
-cp "${GENERATED_DIR}/${LIB_NAME}FFI.modulemap" "${GENERATED_DIR}/module.modulemap"
+CARGO_BUILD_FLAGS=()
+if [ "${CARGO_PROFILE}" = "release" ]; then
+  CARGO_BUILD_FLAGS+=("--release")
+fi
+
+# Cap concurrency: parallel cross-builds of taskmanager-core (rusqlite/bundled
+# pulls in a heavy C compile) have blown past available RAM and panicked the
+# kernel. Override with CARGO_BUILD_JOBS=<N> if your machine has more headroom.
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+CARGO_BUILD_FLAGS+=("-j" "${CARGO_BUILD_JOBS}")
+
+for target in "${RUST_TARGETS[@]}"; do
+  cargo build -p taskmanager-core --target "${target}" ${CARGO_BUILD_FLAGS[@]+"${CARGO_BUILD_FLAGS[@]}"}
+done
+
+# The XCFramework needs the FFI header alongside a `module.modulemap` so that
+# `import taskmanager_coreFFI` resolves from Swift.
+HEADERS_DIR="${STAGING_DIR}/headers"
+mkdir -p "${HEADERS_DIR}"
+cp "${BINDGEN_OUT}/${MODULE_NAME}.h" "${HEADERS_DIR}/"
+cp "${BINDGEN_OUT}/${MODULE_NAME}.modulemap" "${HEADERS_DIR}/module.modulemap"
+
+mkdir -p "${FRAMEWORKS_DIR}"
+rm -rf "${XCFRAMEWORK_PATH}"
+
+XCFRAMEWORK_ARGS=()
+for target in "${RUST_TARGETS[@]}"; do
+  XCFRAMEWORK_ARGS+=(
+    "-library" "${REPO_ROOT}/target/${target}/${CARGO_PROFILE}/lib${LIB_NAME}.a"
+    "-headers" "${HEADERS_DIR}"
+  )
+done
+xcodebuild -create-xcframework "${XCFRAMEWORK_ARGS[@]}" -output "${XCFRAMEWORK_PATH}"
+
+mkdir -p "${GENERATED_DIR}"
+# The Swift bindings live as a regular source file; the header/modulemap now
+# live inside the XCFramework, so drop any older copies from the source tree.
+rm -f "${GENERATED_DIR}/${LIB_NAME}.swift"
+rm -f "${GENERATED_DIR}/${MODULE_NAME}.h"
+rm -f "${GENERATED_DIR}/${MODULE_NAME}.modulemap"
+rm -f "${GENERATED_DIR}/module.modulemap"
+cp "${BINDGEN_OUT}/${LIB_NAME}.swift" "${GENERATED_DIR}/${LIB_NAME}.swift"
 
 echo "Generated UniFFI Swift bindings in ${GENERATED_DIR}"
+echo "Created ${XCFRAMEWORK_PATH}"

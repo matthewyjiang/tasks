@@ -26,6 +26,22 @@ import Testing
     #expect(engine.tasks(tasks, for: .list(listID), now: now).map(\.title) == ["List task"])
 }
 
+@Test func todayIncludesTheFullFinalSecond() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let engine = TaskFilterEngine(calendar: calendar)
+    let now = calendar.date(from: DateComponents(year: 2026, month: 6, day: 13, hour: 12))!
+    let finalMillisecond = calendar.date(from: DateComponents(year: 2026, month: 6, day: 13, hour: 23, minute: 59, second: 59, nanosecond: 999_000_000))!
+    let nextDayStart = calendar.date(from: DateComponents(year: 2026, month: 6, day: 14))!
+    let tasks = [
+        TaskItem(title: "End", dueAt: finalMillisecond, updatedAt: now),
+        TaskItem(title: "Tomorrow", dueAt: nextDayStart, updatedAt: now)
+    ]
+
+    #expect(engine.tasks(tasks, for: .builtIn(.today), now: now).map(\.title) == ["End"])
+    #expect(engine.tasks(tasks, for: .builtIn(.upcoming), now: now).map(\.title) == ["Tomorrow"])
+}
+
 @Test func searchChecksTitleBodyAndTagsLocally() {
     let engine = TaskFilterEngine()
     let tasks = [

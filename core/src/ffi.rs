@@ -167,17 +167,38 @@ pub struct FfiRetryQueueEntry {
     pub next_retry: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct FfiDeviceKeypair {
     pub private_key: Vec<u8>,
     pub public_key: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl fmt::Debug for FfiDeviceKeypair {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FfiDeviceKeypair")
+            .field("private_key", &"<redacted>")
+            .field("public_key", &self.public_key)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct FfiLocalAccountBootstrap {
     pub device_private_key: Vec<u8>,
     pub device_public_key: Vec<u8>,
     pub account_data_key: Vec<u8>,
+}
+
+impl fmt::Debug for FfiLocalAccountBootstrap {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FfiLocalAccountBootstrap")
+            .field("device_private_key", &"<redacted>")
+            .field("device_public_key", &self.device_public_key)
+            .field("account_data_key", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -303,19 +324,23 @@ impl FfiTaskManagerCore {
         project_id: Option<String>,
         tags: Vec<String>,
     ) -> Result<FfiTask, FfiCoreError> {
+        let patch = FfiTaskPatch {
+            project_id,
+            tags: Some(tags),
+            ..FfiTaskPatch::default()
+        };
+        let validated_patch = TaskPatch::try_from(patch)?;
         let created = self.create_task(title, body, due_at)?;
-        if project_id.is_none() && tags.is_empty() {
+        if validated_patch.project_id.is_none()
+            && validated_patch.tags.as_ref().map_or(true, Vec::is_empty)
+        {
             return Ok(created);
         }
 
-        self.update_task(
-            created.id,
-            FfiTaskPatch {
-                project_id,
-                tags: Some(tags),
-                ..FfiTaskPatch::default()
-            },
-        )
+        self.inner()?
+            .update_task(parse_uuid(&created.id)?, validated_patch)
+            .map(FfiTask::from)
+            .map_err(FfiCoreError::from)
     }
 
     pub fn get_task(&self, task_id: String) -> Result<FfiTask, FfiCoreError> {

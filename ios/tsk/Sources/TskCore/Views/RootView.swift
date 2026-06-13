@@ -19,7 +19,7 @@ public struct RootView: View {
             let repository = try CoreTaskRepository(databaseURL: paths.databaseURL)
             return AppModel(repository: repository)
         } catch {
-            return AppModel()
+            return AppModel(repository: StartupFailedRepository(error: error))
         }
     }
 

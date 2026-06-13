@@ -11,11 +11,16 @@ Rule for this branch: implement and validate **one phase at a time**. Current ac
 - [x] Extend Rust UniFFI surface for task lists, plaintext settings, encrypted vault settings, sync status, retry queue, and account/device key helpers needed by iOS.
 - [x] Add Rust FFI unit tests covering the new iOS-facing surface.
 - [x] Add Swift Package based iOS app shell under `ios/tsk`.
+- [x] Add a runnable Xcode iOS app target with a real app bundle identifier for Simulator/device launches.
 - [x] Add UniFFI binding generation script and README instructions.
 - [x] Add basic native SwiftUI shell with sidebar, task list, task detail placeholder, and settings placeholder.
 - [x] Add iOS sandbox path helper for the local SQLite database path.
 - [x] Add first Swift unit tests for shell/path/filtering helpers.
 - [x] Generate and consume UniFFI Swift bindings for iOS.
+- [x] Fix the binding generation/build script to produce a `TaskmanagerCore.xcframework` with macOS, iOS Simulator, and physical iOS device slices.
+- [x] Move the UniFFI header/module map into the XCFramework and keep only generated Swift source under `Sources/TskCore/Generated/`.
+- [x] Update `Package.swift` to link `TskCore` against the generated `taskmanager_coreFFI` binary target instead of a local debug dylib.
+- [x] Add build-script hardening: automatic Rust target installation, full-Xcode selection, and capped Cargo parallelism for cross-build memory usage.
 - [x] Wire Swift repository implementation to generated UniFFI bindings and open the real SQLite database.
 - [x] Display the basic task list from the shared Rust core instead of the preview repository.
 - [x] Run and fix current Rust Phase 1 validation checks (`cargo fmt --check`, `cargo test -p taskmanager-core`, `cargo clippy -p taskmanager-core --all-targets -- -D warnings`).
@@ -70,3 +75,6 @@ Not started. Do not begin until Phase 4 is complete.
   - `PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH" cargo test -p taskmanager-core`
   - `PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH" cargo clippy -p taskmanager-core --all-targets -- -D warnings`
 - Swift package tests pass with full Xcode selected via `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path ios/tsk`.
+- `ios/tsk/Scripts/generate-uniffi-bindings.sh` builds the Rust core for `aarch64-apple-darwin`, `aarch64-apple-ios-sim`, and `aarch64-apple-ios`, then packages those static libraries plus the UniFFI header/module map into `ios/tsk/Frameworks/TaskmanagerCore.xcframework`.
+- The Swift package consumes that XCFramework through the `taskmanager_coreFFI` binary target, allowing the same generated bindings to compile for SwiftPM tests.
+- Simulator/device app launches should use `ios/tsk/tsk.xcodeproj` from the repo root, or `tsk/tsk.xcodeproj` from the `ios/` directory. The project builds a real `tsk.app` bundle with `com.matthewyjiang.tsk`; running a Swift package executable directly can crash in UIKit because SwiftPM executables do not provide an iOS app bundle identifier.

@@ -30,10 +30,10 @@ public struct TaskFilterEngine: Sendable {
             return task.status == .open && task.listID == nil
         case .today:
             guard task.status == .open, let dueAt = task.dueAt else { return false }
-            return dueAt <= endOfDay(containing: now)
+            return dueAt < startOfNextDay(containing: now)
         case .upcoming:
             guard task.status == .open, let dueAt = task.dueAt else { return false }
-            return dueAt > endOfDay(containing: now)
+            return dueAt >= startOfNextDay(containing: now)
         case .anytime:
             return task.status == .open && task.dueAt == nil
         case .done:
@@ -51,9 +51,9 @@ public struct TaskFilterEngine: Sendable {
         }
     }
 
-    private func endOfDay(containing date: Date) -> Date {
+    private func startOfNextDay(containing date: Date) -> Date {
         let start = calendar.startOfDay(for: date)
-        return calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? date
+        return calendar.date(byAdding: .day, value: 1, to: start) ?? date
     }
 
     private func taskSort(_ lhs: TaskItem, _ rhs: TaskItem) -> Bool {

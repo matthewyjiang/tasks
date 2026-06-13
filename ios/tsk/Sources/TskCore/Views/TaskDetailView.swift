@@ -2,10 +2,12 @@ import SwiftUI
 
 public struct TaskDetailView: View {
     @ObservedObject var model: AppModel
+    private let task: TaskItem
     @State private var draft: TaskItem
 
     public init(model: AppModel, task: TaskItem) {
         self.model = model
+        self.task = task
         _draft = State(initialValue: task)
     }
 
@@ -44,6 +46,6 @@ public struct TaskDetailView: View {
                 }
             }
         }
-        .onChange(of: draft.id) { _, _ in }
+        .onChange(of: task.id) { _, _ in draft = task }
     }
 }
