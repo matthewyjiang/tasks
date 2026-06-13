@@ -18,8 +18,8 @@ public struct SettingsView: View {
                 Text("Secrets: iOS Keychain")
             }
 
-            Section("Phase 1") {
-                Text("This shell is ready to be wired to generated UniFFI bindings and the shared Rust core.")
+            Section("Offline UI") {
+                Text("Tasks, lists, due dates, tags, done/open state, and local search are backed by the shared Rust core database and work offline.")
                     .foregroundStyle(.secondary)
             }
         }

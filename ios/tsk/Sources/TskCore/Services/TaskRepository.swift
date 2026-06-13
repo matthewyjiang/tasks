@@ -59,6 +59,7 @@ public actor PreviewTaskRepository: TaskRepository {
     public func createList(name: String) async throws -> TaskListItem {
         let list = TaskListItem(name: name)
         lists.append(list)
+        sync.dirtyCount += 1
         return list
     }
 
@@ -71,6 +72,7 @@ public actor PreviewTaskRepository: TaskRepository {
         } else {
             lists.append(updated)
         }
+        sync.dirtyCount += 1
         return updated
     }
 
@@ -81,6 +83,7 @@ public actor PreviewTaskRepository: TaskRepository {
             tasks[index].dirty = true
             tasks[index].updatedAt = Date()
         }
+        sync.dirtyCount += 1
     }
 }
 

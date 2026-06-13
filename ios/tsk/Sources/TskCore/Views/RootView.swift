@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 public struct RootView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var model: AppModel
 
     public init() {
@@ -24,22 +25,35 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        NavigationSplitView {
-            SidebarView(model: model)
-        } content: {
-            TaskListView(model: model)
-        } detail: {
-            if let task = model.selectedTask {
-                TaskDetailView(model: model, task: task)
-            } else {
-                ContentUnavailableView("Select a task", systemImage: "checklist", description: Text("Choose a task or create a new one."))
+        rootContent
+            .task { await model.load() }
+            .alert("tsk", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.clearError() } })) {
+                Button("OK", role: .cancel) { model.clearError() }
+            } message: {
+                Text(model.errorMessage ?? "")
             }
-        }
-        .task { await model.load() }
-        .alert("tsk", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.clearError() } })) {
-            Button("OK", role: .cancel) { model.clearError() }
-        } message: {
-            Text(model.errorMessage ?? "")
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if horizontalSizeClass == .compact {
+            NavigationStack {
+                CompactSidebarView(model: model)
+            }
+        } else {
+            NavigationSplitView {
+                SidebarView(model: model)
+            } detail: {
+                NavigationStack {
+                    switch model.destination {
+                    case .tasks(let selection):
+                        TaskListView(model: model, selection: selection)
+                    case .settings:
+                        SettingsView(model: model)
+                    }
+                }
+            }
+            .navigationSplitViewStyle(.balanced)
         }
     }
 }

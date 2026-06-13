@@ -56,6 +56,18 @@ public enum TaskSelection: Hashable, Identifiable, Sendable {
     }
 }
 
+public enum AppDestination: Hashable, Identifiable, Sendable {
+    case tasks(TaskSelection)
+    case settings
+
+    public var id: String {
+        switch self {
+        case .tasks(let selection): "tasks:\(selection.id)"
+        case .settings: "settings"
+        }
+    }
+}
+
 public struct TaskItem: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var title: String
