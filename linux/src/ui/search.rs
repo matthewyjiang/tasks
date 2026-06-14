@@ -79,6 +79,11 @@ pub(crate) fn move_list_result_row(id: &str, name: &str) -> gtk::ListBoxRow {
     row
 }
 
+pub(crate) fn regex_from_query(query: &str) -> Result<Regex, regex::Error> {
+    let pattern = if query.is_empty() { ".*" } else { query };
+    Regex::new(&format!("(?i){pattern}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,15 +92,4 @@ mod tests {
     fn normalize_query_trims_whitespace() {
         assert_eq!(normalize_query("  open  "), "open");
     }
-}
-
-pub(crate) fn regex_from_query(query: &str) -> Result<Regex, regex::Error> {
-    let pattern = if query.is_empty() { ".*" } else { query };
-    Regex::new(&format!("(?i){pattern}"))
-}
-
-pub(crate) fn regex_matches_task(regex: &Regex, task: &Task) -> bool {
-    regex.is_match(&task.title)
-        || regex.is_match(&task.body)
-        || task.tags.iter().any(|tag| regex.is_match(tag))
 }

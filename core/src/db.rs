@@ -89,6 +89,24 @@ impl LocalDatabase {
         body: String,
         due_at: Option<i64>,
     ) -> CoreResult<Task> {
+        self.create_task_with_options(title, body, due_at, None, Vec::new())
+    }
+
+    pub fn create_task_with_options(
+        &self,
+        title: String,
+        body: String,
+        due_at: Option<i64>,
+        project_id: Option<Uuid>,
+        tags: Vec<String>,
+    ) -> CoreResult<Task> {
+        if let Some(list_id) = project_id {
+            let list = self.get_list(list_id)?;
+            if list.deleted {
+                return Err(DbError::InvalidRowData(format!("list is deleted: {list_id}")).into());
+            }
+        }
+
         let now = now_ms();
         let task = Task {
             id: Uuid::new_v4(),
@@ -96,8 +114,8 @@ impl LocalDatabase {
             body,
             due_at,
             status: TaskStatus::Open,
-            project_id: None,
-            tags: Vec::new(),
+            project_id,
+            tags,
             created_at: now,
             updated_at: now,
             deleted: false,
@@ -220,14 +238,69 @@ impl LocalDatabase {
     }
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
+        let search = SearchQuery::parse(&query);
+        if search.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tasks = if let Some(fts_query) = search.fts_query() {
+            let mut statement = self.connection.prepare(
+                "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
+                 FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
+                 WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
+                 ORDER BY rank, t.updated_at DESC, t.id ASC",
+            )?;
+            let rows =
+                statement.query_map(params![fts_query, Uuid::nil().to_string()], read_task)?;
+            let tasks = collect_tasks(rows)?;
+            if search.phrase {
+                tasks
+                    .into_iter()
+                    .filter(|task| search.matches_task(task))
+                    .collect()
+            } else {
+                tasks
+            }
+        } else {
+            Vec::new()
+        };
+
         let mut statement = self.connection.prepare(
-            "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
-             FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
-             WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
-             ORDER BY rank, t.updated_at DESC, t.id ASC",
+            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty
+             FROM tasks
+             WHERE deleted = 0
+               AND id != ?1
+               AND EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE lower(value) LIKE ?2 ESCAPE '\\')
+             ORDER BY updated_at DESC, id ASC",
         )?;
-        let tasks = statement.query_map(params![query, Uuid::nil().to_string()], read_task)?;
-        collect_tasks(tasks)
+        let tag_pattern = search.tag_like_pattern();
+        for task in collect_tasks(
+            statement.query_map(params![Uuid::nil().to_string(), tag_pattern], read_task)?,
+        )? {
+            if !tasks.iter().any(|existing| existing.id == task.id) {
+                tasks.push(task);
+            }
+        }
+
+        if search.requires_literal_fallback() {
+            let mut statement = self.connection.prepare(
+                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty
+                 FROM tasks
+                 WHERE deleted = 0 AND id != ?1
+                 ORDER BY updated_at DESC, id ASC",
+            )?;
+            for task in
+                collect_tasks(statement.query_map(params![Uuid::nil().to_string()], read_task)?)?
+            {
+                if search.matches_task(&task)
+                    && !tasks.iter().any(|existing| existing.id == task.id)
+                {
+                    tasks.push(task);
+                }
+            }
+        }
+
+        Ok(tasks)
     }
 
     fn initialize_schema(&self) -> CoreResult<()> {
@@ -503,6 +576,98 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         deleted: db_to_bool(row.get(9)?),
         dirty: db_to_bool(row.get(10)?),
     })
+}
+
+struct SearchQuery {
+    text: String,
+    phrase: bool,
+}
+
+impl SearchQuery {
+    fn parse(query: &str) -> Self {
+        let query = query.trim();
+        if query.len() >= 2 && query.starts_with('"') && query.ends_with('"') {
+            Self {
+                text: query[1..query.len() - 1].replace("\"\"", "\""),
+                phrase: true,
+            }
+        } else {
+            Self {
+                text: query.to_owned(),
+                phrase: false,
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.text.trim().is_empty()
+    }
+
+    fn terms(&self) -> Vec<String> {
+        if self.phrase {
+            vec![self.text.to_lowercase()]
+        } else {
+            self.text
+                .split_whitespace()
+                .map(str::to_lowercase)
+                .collect()
+        }
+    }
+
+    fn fts_query(&self) -> Option<String> {
+        if !self
+            .text
+            .chars()
+            .all(|character| character.is_alphanumeric() || character.is_whitespace())
+        {
+            return None;
+        }
+        if self.phrase {
+            Some(format!("\"{}\"", self.text.replace('"', "\"\"")))
+        } else {
+            let terms = self.terms();
+            (!terms.is_empty()).then(|| terms.join(" "))
+        }
+    }
+
+    fn tag_like_pattern(&self) -> String {
+        let value = if self.phrase {
+            self.text.to_lowercase()
+        } else {
+            self.terms().join("%")
+        };
+        format!("%{}%", escape_like_query(&value))
+    }
+
+    fn requires_literal_fallback(&self) -> bool {
+        self.fts_query().is_none()
+    }
+
+    fn matches_task(&self, task: &Task) -> bool {
+        let title = task.title.to_lowercase();
+        let body = task.body.to_lowercase();
+        let tags = task
+            .tags
+            .iter()
+            .map(|tag| tag.to_lowercase())
+            .collect::<Vec<_>>();
+        if self.phrase {
+            let phrase = self.text.to_lowercase();
+            return title.contains(&phrase)
+                || body.contains(&phrase)
+                || tags.iter().any(|tag| tag.contains(&phrase));
+        }
+        self.terms().iter().all(|term| {
+            title.contains(term) || body.contains(term) || tags.iter().any(|tag| tag.contains(term))
+        })
+    }
+}
+
+fn escape_like_query(query: &str) -> String {
+    query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn parse_uuid(text: &str, column: &'static str) -> rusqlite::Result<Uuid> {
@@ -812,6 +977,19 @@ mod tests {
         let database = db();
         let title_match = create_named(&database, "alpha project", "ordinary", None);
         let body_match = create_named(&database, "ordinary", "contains beta", None);
+        let tag_match = create_named(&database, "ordinary", "ordinary", None);
+        let punctuation_match = create_named(&database, "foo-bar", "ordinary", None);
+        let phrase_match = create_named(&database, "foo bar", "ordinary", None);
+        create_named(&database, "foo", "contains bar", None);
+        database
+            .update_task(
+                tag_match.id,
+                TaskPatch {
+                    tags: Some(vec!["urgent".to_owned()]),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
 
         assert_eq!(
             database.search_tasks("alpha".to_owned()).unwrap()[0].id,
@@ -821,6 +999,17 @@ mod tests {
             database.search_tasks("beta".to_owned()).unwrap()[0].id,
             body_match.id
         );
+        assert_eq!(
+            database.search_tasks("urgent".to_owned()).unwrap()[0].id,
+            tag_match.id
+        );
+        assert_eq!(
+            database.search_tasks("foo-bar".to_owned()).unwrap()[0].id,
+            punctuation_match.id
+        );
+        let phrase_results = database.search_tasks("\"foo bar\"".to_owned()).unwrap();
+        assert_eq!(phrase_results.len(), 1);
+        assert_eq!(phrase_results[0].id, phrase_match.id);
 
         database
             .update_task(

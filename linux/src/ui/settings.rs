@@ -26,6 +26,10 @@ pub struct SyncStatus {
     #[serde(default)]
     pub pending_retries: usize,
     #[serde(default)]
+    pub dirty_count: usize,
+    #[serde(default)]
+    pub cursor: i64,
+    #[serde(default)]
     pub conflicts: usize,
 }
 

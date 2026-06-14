@@ -330,15 +330,14 @@ impl FfiTaskManagerCore {
             ..FfiTaskPatch::default()
         };
         let validated_patch = TaskPatch::try_from(patch)?;
-        let created = self.create_task(title, body, due_at)?;
-        if validated_patch.project_id.is_none()
-            && validated_patch.tags.as_ref().is_none_or(Vec::is_empty)
-        {
-            return Ok(created);
-        }
-
         self.inner()?
-            .update_task(parse_uuid(&created.id)?, validated_patch)
+            .create_task_with_options(
+                title,
+                body,
+                due_at,
+                validated_patch.project_id.unwrap_or(None),
+                validated_patch.tags.unwrap_or_default(),
+            )
             .map(FfiTask::from)
             .map_err(FfiCoreError::from)
     }

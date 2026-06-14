@@ -6,6 +6,10 @@ Follow `RELEASE.md` for path-scoped semantic release behavior, artifact tag nami
 
 Key reminder: this monorepo uses artifact-prefixed tags only (`server-vX.Y.Z`, `core-vX.Y.Z`, `app-vX.Y.Z`). Do not create unscoped `vX.Y.Z` tags.
 
+## Core API layering
+
+When adding app-facing behavior, implement it in native `core` first. UniFFI/FFI should expose or adapt native core functionality, not contain standalone business logic or FFI-only convenience workflows. Linux should call native `TaskManagerCore` APIs directly; iOS should use generated bindings for the same core APIs.
+
 ## CLI validation
 
 When changing files under `cli/`, run the normal CLI checks before committing:
