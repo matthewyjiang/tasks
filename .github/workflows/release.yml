@@ -51,6 +51,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_UPDATE_PACKAGE_VERSION: "1"
+          RELEASE_UPDATE_CHANGELOG: "1"
           RELEASE_VERSION_PR: "1"
         run: |
           python3 scripts/semantic_release.py \
