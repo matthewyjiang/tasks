@@ -157,6 +157,18 @@ def replace_package_version(manifest: Path, version: Version) -> None:
     raise RuntimeError(f"did not find [package] version in {manifest}")
 
 
+def replace_arch_pkgbuild_version(pkgbuild: Path, version: Version) -> None:
+    text = pkgbuild.read_text()
+    lines = text.splitlines(keepends=True)
+    for idx, line in enumerate(lines):
+        if line.startswith("pkgver="):
+            newline = "\n" if line.endswith("\n") else ""
+            lines[idx] = f"pkgver={version}{newline}"
+            pkgbuild.write_text("".join(lines))
+            return
+    raise RuntimeError(f"did not find pkgver in {pkgbuild}")
+
+
 def update_cargo_lock_package(lockfile: Path, package: str, version: Version) -> None:
     if not lockfile.exists():
         return
@@ -192,7 +204,8 @@ def update_artifact_version(artifact: str, version: Version) -> list[str]:
     if artifact == "linux-app":
         replace_package_version(Path("linux/Cargo.toml"), version)
         update_cargo_lock_package(Path("Cargo.lock"), "tsk-linux", version)
-        return ["linux/Cargo.toml", "Cargo.lock"]
+        replace_arch_pkgbuild_version(Path("packaging/arch/PKGBUILD"), version)
+        return ["linux/Cargo.toml", "Cargo.lock", "packaging/arch/PKGBUILD"]
     return []
 
 
