@@ -127,6 +127,7 @@ pub struct Task {
     pub title:      String,
     pub body:       String,
     pub due_at:     Option<i64>,    // Unix timestamp (ms)
+    pub reminder_offset_ms: Option<i64>, // notify this many ms before due_at
     pub status:     TaskStatus,
     pub project_id: Option<Uuid>,
     pub tags:       Vec<String>,

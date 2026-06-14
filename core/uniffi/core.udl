@@ -40,6 +40,7 @@ dictionary FfiTask {
   string title;
   string body;
   i64? due_at;
+  i64? reminder_offset_ms;
   FfiTaskStatus status;
   string? project_id;
   sequence<string> tags;
@@ -63,6 +64,8 @@ dictionary FfiTaskPatch {
   string? body;
   i64? due_at;
   boolean clear_due_at;
+  i64? reminder_offset_ms;
+  boolean clear_reminder_offset_ms;
   FfiTaskStatus? status;
   string? project_id;
   boolean clear_project_id;

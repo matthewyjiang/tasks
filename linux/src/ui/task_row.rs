@@ -11,6 +11,7 @@ use crate::ui::widgets::font_awesome_label;
 pub(crate) struct TaskRowActions {
     pub(crate) save_task: Rc<dyn Fn(Uuid, String, String)>,
     pub(crate) update_due_date: Rc<dyn Fn(Uuid, Option<i64>)>,
+    pub(crate) update_reminder_offset: Rc<dyn Fn(Uuid, Option<i64>)>,
     pub(crate) toggle_status: Rc<dyn Fn(Uuid, TaskStatus)>,
     pub(crate) move_task: Rc<dyn Fn(Uuid)>,
     pub(crate) delete_task: Rc<dyn Fn(Uuid)>,
@@ -347,6 +348,24 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     popover_content.add_css_class("task-date-popover");
     popover_content.append(&today);
     popover_content.append(&calendar);
+
+    let reminder_label = gtk::Label::new(Some("Reminder"));
+    reminder_label.set_xalign(0.0);
+    reminder_label.add_css_class("dim-label");
+    let reminder_combo = gtk::ComboBoxText::new();
+    for (id, label) in reminder_presets() {
+        reminder_combo.append(Some(id), label);
+    }
+    let active_reminder_id = reminder_offset_id(task.reminder_offset_ms);
+    if let Some(offset) = task.reminder_offset_ms {
+        if active_reminder_id.is_none() {
+            let custom_id = reminder_custom_id(offset);
+            reminder_combo.append(Some(&custom_id), &format_reminder_offset(offset));
+        }
+    }
+    reminder_combo.set_active_id(active_reminder_id.as_deref());
+    popover_content.append(&reminder_label);
+    popover_content.append(&reminder_combo);
     popover_content.append(&clear);
 
     let popover = gtk::Popover::new();
@@ -386,6 +405,19 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
         }
     });
 
+    reminder_combo.connect_changed({
+        let update_reminder_offset = Rc::clone(&actions.update_reminder_offset);
+        let task_id = task.id;
+        move |combo| {
+            if let Some(offset) = combo
+                .active_id()
+                .and_then(|id| reminder_offset_from_id(&id))
+            {
+                update_reminder_offset(task_id, offset);
+            }
+        }
+    });
+
     calendar.connect_day_selected({
         let update_due_date = Rc::clone(&actions.update_due_date);
         let popover = popover.clone();
@@ -410,6 +442,73 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     });
 
     button
+}
+
+fn reminder_presets() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("none", "None"),
+        ("0", "At due time"),
+        ("300000", "5 minutes before"),
+        ("900000", "15 minutes before"),
+        ("3600000", "1 hour before"),
+        ("86400000", "1 day before"),
+    ]
+}
+
+fn reminder_offset_id(offset: Option<i64>) -> Option<String> {
+    Some(match offset {
+        None => "none".to_owned(),
+        Some(0) => "0".to_owned(),
+        Some(300_000) => "300000".to_owned(),
+        Some(900_000) => "900000".to_owned(),
+        Some(3_600_000) => "3600000".to_owned(),
+        Some(86_400_000) => "86400000".to_owned(),
+        Some(offset) if offset >= 0 => reminder_custom_id(offset),
+        Some(_) => return None,
+    })
+}
+
+fn reminder_custom_id(offset: i64) -> String {
+    format!("custom:{offset}")
+}
+
+fn format_reminder_offset(offset: i64) -> String {
+    if offset == 0 {
+        return "At due time".to_owned();
+    }
+    let minutes = offset / 60_000;
+    if minutes > 0 && offset % 60_000 == 0 {
+        if minutes % (24 * 60) == 0 {
+            let days = minutes / (24 * 60);
+            return format!("{days} day{} before", if days == 1 { "" } else { "s" });
+        }
+        if minutes % 60 == 0 {
+            let hours = minutes / 60;
+            return format!("{hours} hour{} before", if hours == 1 { "" } else { "s" });
+        }
+        return format!(
+            "{minutes} minute{} before",
+            if minutes == 1 { "" } else { "s" }
+        );
+    }
+    format!("{} ms before", offset)
+}
+
+fn reminder_offset_from_id(id: &str) -> Option<Option<i64>> {
+    match id {
+        "none" => Some(None),
+        "0" => Some(Some(0)),
+        "300000" => Some(Some(300_000)),
+        "900000" => Some(Some(900_000)),
+        "3600000" => Some(Some(3_600_000)),
+        "86400000" => Some(Some(86_400_000)),
+        custom if custom.starts_with("custom:") => custom["custom:".len()..]
+            .parse::<i64>()
+            .ok()
+            .filter(|offset| *offset >= 0)
+            .map(Some),
+        _ => None,
+    }
 }
 
 fn list_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {

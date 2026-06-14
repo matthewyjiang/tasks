@@ -201,6 +201,7 @@ impl VaultSettings {
             title: VAULT_SETTINGS_ID.to_owned(),
             body: serde_json::to_string(self)?,
             due_at: None,
+            reminder_offset_ms: None,
             status: TaskStatus::Open,
             project_id: None,
             tags: Vec::new(),

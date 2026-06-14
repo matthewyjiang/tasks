@@ -113,6 +113,7 @@ impl LocalDatabase {
             title,
             body,
             due_at,
+            reminder_offset_ms: None,
             status: TaskStatus::Open,
             project_id,
             tags,
@@ -129,7 +130,7 @@ impl LocalDatabase {
     pub fn get_task(&self, task_id: Uuid) -> CoreResult<Task> {
         self.connection
             .query_row(
-                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1",
+                "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1",
                 params![task_id.to_string()],
                 read_task,
             )
@@ -148,6 +149,15 @@ impl LocalDatabase {
         }
         if let Some(due_at) = patch.due_at {
             task.due_at = due_at;
+        }
+        if let Some(reminder_offset_ms) = patch.reminder_offset_ms {
+            if reminder_offset_ms.is_some_and(|offset| offset < 0) {
+                return Err(DbError::InvalidRowData(
+                    "reminder offset cannot be negative".to_owned(),
+                )
+                .into());
+            }
+            task.reminder_offset_ms = reminder_offset_ms;
         }
         if let Some(status) = patch.status {
             task.status = status;
@@ -175,7 +185,7 @@ impl LocalDatabase {
 
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
         let mut sql = String::from(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
+            "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
         );
         let mut values = vec![Value::Text(Uuid::nil().to_string())];
 
@@ -221,7 +231,7 @@ impl LocalDatabase {
         let task = self
             .connection
             .query_row(
-                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1 AND title = ?2",
+                "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1 AND title = ?2",
                 params![Uuid::nil().to_string(), VAULT_SETTINGS_ID],
                 read_task,
             )
@@ -245,7 +255,7 @@ impl LocalDatabase {
 
         let mut tasks = if let Some(fts_query) = search.fts_query() {
             let mut statement = self.connection.prepare(
-                "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
+                "SELECT t.id, t.title, t.body, t.due_at, t.reminder_offset_ms, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
                  FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
                  WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
                  ORDER BY rank, t.updated_at DESC, t.id ASC",
@@ -266,7 +276,7 @@ impl LocalDatabase {
         };
 
         let mut statement = self.connection.prepare(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty
+            "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty
              FROM tasks
              WHERE deleted = 0
                AND id != ?1
@@ -284,7 +294,7 @@ impl LocalDatabase {
 
         if search.requires_literal_fallback() {
             let mut statement = self.connection.prepare(
-                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty
+                "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty
                  FROM tasks
                  WHERE deleted = 0 AND id != ?1
                  ORDER BY updated_at DESC, id ASC",
@@ -310,6 +320,7 @@ impl LocalDatabase {
                 title       TEXT NOT NULL,
                 body        TEXT NOT NULL DEFAULT '',
                 due_at      INTEGER,
+                reminder_offset_ms INTEGER,
                 status      TEXT NOT NULL DEFAULT 'open',
                 project_id  TEXT,
                 tags        TEXT NOT NULL DEFAULT '[]',
@@ -368,6 +379,24 @@ impl LocalDatabase {
             CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_task_id_unique
             ON sync_queue(task_id);",
         )?;
+        self.add_column_if_missing("tasks", "reminder_offset_ms", "INTEGER")?;
+        Ok(())
+    }
+
+    fn add_column_if_missing(&self, table: &str, column: &str, definition: &str) -> CoreResult<()> {
+        let mut statement = self
+            .connection
+            .prepare(&format!("PRAGMA table_info({table})"))?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+        for existing in columns {
+            if existing? == column {
+                return Ok(());
+            }
+        }
+        self.connection.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
         Ok(())
     }
 
@@ -399,7 +428,7 @@ impl LocalDatabase {
 
     pub(crate) fn dirty_tasks(&self) -> CoreResult<Vec<Task>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE dirty = 1 ORDER BY updated_at ASC, id ASC",
+            "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE dirty = 1 ORDER BY updated_at ASC, id ASC",
         )?;
         let tasks = statement.query_map([], read_task)?;
         collect_tasks(tasks)
@@ -477,14 +506,20 @@ impl LocalDatabase {
     }
 
     fn upsert_task(&self, task: &Task) -> CoreResult<()> {
+        if task.reminder_offset_ms.is_some_and(|offset| offset < 0) {
+            return Err(
+                DbError::InvalidRowData("reminder offset cannot be negative".to_owned()).into(),
+            );
+        }
         self.connection.execute(
             "INSERT INTO tasks
-             (id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             (id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 body = excluded.body,
                 due_at = excluded.due_at,
+                reminder_offset_ms = excluded.reminder_offset_ms,
                 status = excluded.status,
                 project_id = excluded.project_id,
                 tags = excluded.tags,
@@ -497,6 +532,7 @@ impl LocalDatabase {
                 task.title,
                 task.body,
                 task.due_at,
+                task.reminder_offset_ms,
                 status_to_db(task.status),
                 task.project_id.map(|id| id.to_string()),
                 serde_json::to_string(&task.tags)?,
@@ -544,9 +580,9 @@ fn collect_tasks(
 
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     let id_text: String = row.get(0)?;
-    let status_text: String = row.get(4)?;
-    let project_id_text: Option<String> = row.get(5)?;
-    let tags_text: String = row.get(6)?;
+    let status_text: String = row.get(5)?;
+    let project_id_text: Option<String> = row.get(6)?;
+    let tags_text: String = row.get(7)?;
 
     let id = parse_uuid(&id_text, "id")?;
     let project_id = project_id_text
@@ -555,7 +591,7 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         .transpose()?;
     let tags = serde_json::from_str(&tags_text).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(
-            6,
+            7,
             rusqlite::types::Type::Text,
             Box::new(DbError::InvalidRowData(format!(
                 "invalid tags JSON: {error}"
@@ -568,13 +604,14 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         title: row.get(1)?,
         body: row.get(2)?,
         due_at: row.get(3)?,
+        reminder_offset_ms: row.get(4)?,
         status: status_from_db(&status_text)?,
         project_id,
         tags,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
-        deleted: db_to_bool(row.get(9)?),
-        dirty: db_to_bool(row.get(10)?),
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+        deleted: db_to_bool(row.get(10)?),
+        dirty: db_to_bool(row.get(11)?),
     })
 }
 
@@ -768,6 +805,45 @@ mod tests {
     }
 
     #[test]
+    fn task_schema_migrates_missing_reminder_column() {
+        let path = temporary_database_path("task_schema_migrates_missing_reminder_column");
+        let task_id = Uuid::new_v4();
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute(
+                    "CREATE TABLE tasks (
+                        id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        body TEXT NOT NULL DEFAULT '',
+                        due_at INTEGER,
+                        status TEXT NOT NULL DEFAULT 'open',
+                        project_id TEXT,
+                        tags TEXT NOT NULL DEFAULT '[]',
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        deleted INTEGER NOT NULL DEFAULT 0,
+                        dirty INTEGER NOT NULL DEFAULT 1
+                    )",
+                    [],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES (?1, 'old', '', 'open', '[]', 1, 1)",
+                    params![task_id.to_string()],
+                )
+                .unwrap();
+        }
+
+        let database = LocalDatabase::open(&path).unwrap();
+        let task = database.get_task(task_id).unwrap();
+
+        assert_eq!(task.reminder_offset_ms, None);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn sync_queue_migrates_old_non_unique_schema() {
         let path = temporary_database_path("sync_queue_migrates_old_non_unique_schema");
         {
@@ -818,6 +894,7 @@ mod tests {
                 TaskPatch {
                     title: Some("new".to_owned()),
                     status: Some(TaskStatus::Done),
+                    reminder_offset_ms: Some(Some(600_000)),
                     project_id: Some(Some(project_id)),
                     tags: Some(vec!["tag".to_owned()]),
                     ..TaskPatch::default()
@@ -828,6 +905,7 @@ mod tests {
         assert_eq!(updated.title, "new");
         assert_eq!(updated.body, task.body);
         assert_eq!(updated.due_at, task.due_at);
+        assert_eq!(updated.reminder_offset_ms, Some(600_000));
         assert_eq!(updated.status, TaskStatus::Done);
         assert_eq!(updated.project_id, Some(project_id));
         assert_eq!(updated.tags, vec!["tag"]);

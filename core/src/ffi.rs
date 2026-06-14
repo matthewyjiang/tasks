@@ -40,6 +40,7 @@ pub struct FfiTask {
     pub title: String,
     pub body: String,
     pub due_at: Option<i64>,
+    pub reminder_offset_ms: Option<i64>,
     pub status: FfiTaskStatus,
     pub project_id: Option<String>,
     pub tags: Vec<String>,
@@ -65,6 +66,8 @@ pub struct FfiTaskPatch {
     pub body: Option<String>,
     pub due_at: Option<i64>,
     pub clear_due_at: bool,
+    pub reminder_offset_ms: Option<i64>,
+    pub clear_reminder_offset_ms: bool,
     pub status: Option<FfiTaskStatus>,
     pub project_id: Option<String>,
     pub clear_project_id: bool,
@@ -560,6 +563,7 @@ impl From<Task> for FfiTask {
             title: task.title,
             body: task.body,
             due_at: task.due_at,
+            reminder_offset_ms: task.reminder_offset_ms,
             status: task.status.into(),
             project_id: task.project_id.map(|id| id.to_string()),
             tags: task.tags,
@@ -580,6 +584,7 @@ impl TryFrom<FfiTask> for Task {
             title: task.title,
             body: task.body,
             due_at: task.due_at,
+            reminder_offset_ms: task.reminder_offset_ms,
             status: task.status.into(),
             project_id: task.project_id.as_deref().map(parse_uuid).transpose()?,
             tags: task.tags,
@@ -628,6 +633,17 @@ impl TryFrom<FfiTaskPatch> for TaskPatch {
                 error_message: "due_at cannot be set and cleared in the same patch".to_owned(),
             });
         }
+        if patch.clear_reminder_offset_ms && patch.reminder_offset_ms.is_some() {
+            return Err(FfiCoreError::InvalidPatch {
+                error_message: "reminder_offset_ms cannot be set and cleared in the same patch"
+                    .to_owned(),
+            });
+        }
+        if patch.reminder_offset_ms.is_some_and(|offset| offset < 0) {
+            return Err(FfiCoreError::InvalidPatch {
+                error_message: "reminder_offset_ms cannot be negative".to_owned(),
+            });
+        }
         if patch.clear_project_id && patch.project_id.is_some() {
             return Err(FfiCoreError::InvalidPatch {
                 error_message: "project_id cannot be set and cleared in the same patch".to_owned(),
@@ -641,6 +657,11 @@ impl TryFrom<FfiTaskPatch> for TaskPatch {
                 Some(None)
             } else {
                 patch.due_at.map(Some)
+            },
+            reminder_offset_ms: if patch.clear_reminder_offset_ms {
+                Some(None)
+            } else {
+                patch.reminder_offset_ms.map(Some)
             },
             status: patch.status.map(TaskStatus::from),
             project_id: if patch.clear_project_id {
@@ -944,6 +965,7 @@ mod tests {
                 FfiTaskPatch {
                     title: Some("updated".to_owned()),
                     status: Some(FfiTaskStatus::Open),
+                    reminder_offset_ms: Some(5),
                     project_id: Some(project_id.clone()),
                     tags: Some(vec!["work".to_owned(), "urgent".to_owned()]),
                     ..FfiTaskPatch::default()
@@ -953,6 +975,7 @@ mod tests {
 
         assert_eq!(updated.title, "updated");
         assert_eq!(updated.project_id, Some(project_id.clone()));
+        assert_eq!(updated.reminder_offset_ms, Some(5));
         assert_eq!(updated.tags, vec!["work", "urgent"]);
         assert_eq!(core.get_task(created.id.clone()).unwrap(), updated);
         assert_eq!(
@@ -1111,6 +1134,24 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(project_id_error.kind(), FfiCoreErrorKind::InvalidPatch);
+
+        let reminder_error = TaskPatch::try_from(FfiTaskPatch {
+            reminder_offset_ms: Some(10),
+            clear_reminder_offset_ms: true,
+            ..FfiTaskPatch::default()
+        })
+        .unwrap_err();
+        assert_eq!(reminder_error.kind(), FfiCoreErrorKind::InvalidPatch);
+
+        let negative_reminder_error = TaskPatch::try_from(FfiTaskPatch {
+            reminder_offset_ms: Some(-1),
+            ..FfiTaskPatch::default()
+        })
+        .unwrap_err();
+        assert_eq!(
+            negative_reminder_error.kind(),
+            FfiCoreErrorKind::InvalidPatch
+        );
     }
 
     #[test]
@@ -1121,6 +1162,7 @@ mod tests {
             title: "title".to_owned(),
             body: "body".to_owned(),
             due_at: None,
+            reminder_offset_ms: None,
             status: FfiTaskStatus::Done,
             project_id: None,
             tags: vec!["tag".to_owned()],
