@@ -2,6 +2,9 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+mod sidebar_controller;
+mod sync_status;
+
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
@@ -15,10 +18,9 @@ use crate::notifications::emit_task_reminder;
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
 use crate::style::install_css;
-use crate::sync::{linux_sync_configured, run_linux_sync, LinuxSyncSummary};
 use crate::task_format::{
-    count_for_filter, markdown_to_pango_markup, parse_due_date_entry, parse_tags,
-    sidebar_filter_icon, sidebar_filter_icon_class, sidebar_filter_order, sidebar_filter_title,
+    markdown_to_pango_markup, parse_due_date_entry, parse_tags, sidebar_filter_icon,
+    sidebar_filter_icon_class, sidebar_filter_order, sidebar_filter_title,
 };
 use crate::task_model::{default_sort, task_matches_view, TaskFilterState};
 use crate::time::now_ms;
@@ -34,9 +36,8 @@ use crate::ui::search::{
     build_move_list_panel, move_list_result_row, normalize_query, regex_from_query,
     task_search_result_row,
 };
-use crate::ui::settings::{read_settings, write_settings, LinuxSettings, SyncStatus};
+use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
 use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
-use crate::ui::sidebar::{list_progress, user_list_row};
 use crate::ui::sync_setup::{build_sync_setup_panel, configure_sync_auth, sync_auth_configured};
 use crate::ui::task_editor::build_task_editor_panel;
 use crate::ui::task_row::{task_row, TaskRowActions, TaskRowExpansion};
@@ -147,72 +148,6 @@ struct AppState {
 }
 
 impl AppState {
-    fn request_sync(self: &Rc<Self>) {
-        self.request_sync_with_feedback(false);
-    }
-
-    fn request_manual_sync(self: &Rc<Self>) {
-        self.request_sync_with_feedback(true);
-    }
-
-    fn request_sync_with_feedback(self: &Rc<Self>, notify: bool) {
-        if *self.sync_in_progress.borrow() {
-            if !notify {
-                self.sync_pending.replace(true);
-            }
-            return;
-        }
-        if !linux_sync_configured(&self.settings_path) {
-            if notify {
-                self.toast("Sync is not configured yet.".to_owned());
-            }
-            return;
-        }
-        self.set_sync_running(true);
-        self.sync_in_progress.replace(true);
-        let db_path = self.db_path.clone();
-        let settings_path = self.settings_path.clone();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result = run_linux_sync(&db_path, &settings_path);
-            let _ = sender.send(result);
-        });
-        let state = Rc::clone(self);
-        gtk::glib::timeout_add_local(
-            std::time::Duration::from_millis(120),
-            move || match receiver.try_recv() {
-                Ok(result) => {
-                    state.sync_in_progress.replace(false);
-                    state.set_sync_running(false);
-                    record_sync_status(&state.settings_path, &state.core, &result);
-                    match result {
-                        Ok(summary) => {
-                            if summary.changed() {
-                                state.load_tasks();
-                                state.reconcile_notifications();
-                            }
-                            if notify {
-                                state.toast(format_sync_status(&summary));
-                            }
-                        }
-                        Err(error) => state.toast(format!("Sync failed: {error}")),
-                    }
-                    if state.sync_pending.replace(false) {
-                        state.request_sync();
-                    }
-                    gtk::glib::ControlFlow::Break
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    state.sync_in_progress.replace(false);
-                    state.set_sync_running(false);
-                    state.toast("Sync failed: worker disconnected".to_owned());
-                    gtk::glib::ControlFlow::Break
-                }
-            },
-        );
-    }
-
     fn load_tasks(self: &Rc<Self>) {
         let query = self.search_query.borrow().clone();
         let selected_list_id = *self.selected_list_id.borrow();
@@ -664,127 +599,8 @@ impl AppState {
         }
     }
 
-    fn refresh_sidebar_metadata(self: &Rc<Self>) {
-        let Ok(tasks) = self.core.list_tasks(TaskFilter::default(), default_sort()) else {
-            return;
-        };
-        let now = now_ms();
-        for (label, filter) in self
-            .filter_count_labels
-            .iter()
-            .zip(sidebar_filter_order().iter().copied())
-        {
-            if filter == TaskFilterState::Today {
-                label.set_text(&count_for_filter(&tasks, filter, now).to_string());
-                label.set_visible(true);
-            } else {
-                label.set_text("");
-                label.set_visible(false);
-            }
-        }
-        self.render_user_lists(&tasks);
-    }
-
-    fn render_user_lists(self: &Rc<Self>, tasks: &[Task]) {
-        while let Some(row) = self.user_list_box.first_child() {
-            self.user_list_box.remove(&row);
-        }
-
-        let lists = match self.core.list_task_lists() {
-            Ok(lists) => lists,
-            Err(error) => {
-                self.toast(format!("Failed to load lists: {error}"));
-                return;
-            }
-        };
-        self.user_lists.replace(lists.clone());
-        self.refresh_editor_list_choices(&lists);
-
-        for list in lists {
-            let progress = list_progress(&list, tasks);
-            self.user_list_box.append(&user_list_row(&list, progress));
-        }
-    }
-
-    fn refresh_editor_list_choices(&self, lists: &[TaskList]) {
-        let active_id = self.list_combo.active_id().map(|id| id.to_string());
-        self.list_combo.remove_all();
-        self.list_combo.append(Some("inbox"), "Inbox");
-        for list in lists {
-            self.list_combo
-                .append(Some(&list.id.to_string()), &list.name);
-        }
-        if let Some(active_id) = active_id {
-            self.list_combo.set_active_id(Some(&active_id));
-        }
-    }
-
-    fn show_list_rename_editor(&self) {
-        self.list_heading.set_visible(false);
-        self.list_name_entry.set_visible(true);
-        self.list_rename_button.set_visible(true);
-        update_entry_width(&self.list_name_entry);
-        self.list_name_entry.grab_focus();
-        self.list_name_entry.select_region(0, -1);
-    }
-
-    fn rename_selected_list(self: &Rc<Self>) -> bool {
-        let Some(list_id) = *self.selected_list_id.borrow() else {
-            return false;
-        };
-        let name = self.list_name_entry.text().trim().to_owned();
-        if name.is_empty() {
-            self.toast("List name cannot be empty".to_owned());
-            self.show_list_rename_editor();
-            return false;
-        }
-        match self.core.update_list(list_id, name) {
-            Ok(list) => {
-                self.list_heading.set_text(&list.name);
-                self.list_name_entry.set_text(&list.name);
-                self.load_tasks();
-                self.request_sync();
-                self.list.grab_focus();
-                true
-            }
-            Err(error) => {
-                self.toast(format!("Failed to rename list: {error}"));
-                self.show_list_rename_editor();
-                false
-            }
-        }
-    }
-
-    fn create_list(self: &Rc<Self>) {
-        match self.core.create_list("New List".to_owned()) {
-            Ok(list) => {
-                self.selected_list_id.replace(Some(list.id));
-                self.active_filter.replace(TaskFilterState::Upcoming);
-                self.list_heading.set_text(&list.name);
-                self.list_name_entry.set_text(&list.name);
-                self.load_tasks();
-                self.show_list_rename_editor();
-                self.request_sync();
-            }
-            Err(error) => self.toast(format!("Failed to create list: {error}")),
-        }
-    }
-
     fn toast(&self, message: String) {
         self.toast_overlay.add_toast(adw::Toast::new(&message));
-    }
-
-    fn set_sync_running(&self, running: bool) {
-        self.sync_button.set_sensitive(!running);
-        self.sync_icon.set_visible(!running);
-        self.sync_activity.set_visible(running);
-        if running {
-            self.sync_stack.set_visible_child_name("activity");
-            self.sync_button.set_tooltip_text(Some("Syncing…"));
-        } else {
-            self.sync_stack.set_visible_child_name("icon");
-            self.sync_button.set_tooltip_text(Some("Sync now"));
-        }
     }
 }
 
@@ -1037,7 +853,7 @@ fn build_ui(app: &adw::Application) {
     let sync_stack = gtk::Stack::new();
     let sync_icon = font_awesome_label("\u{f021}");
     let sync_angle = Rc::new(Cell::new(0.0));
-    let sync_activity = build_sync_activity_icon(Rc::clone(&sync_angle));
+    let sync_activity = sync_status::build_sync_activity_icon(Rc::clone(&sync_angle));
     sync_activity.set_visible(false);
     sync_stack.add_named(&sync_icon, Some("icon"));
     sync_stack.add_named(&sync_activity, Some("activity"));
@@ -1618,105 +1434,6 @@ fn build_ui(app: &adw::Application) {
     state.reconcile_notifications();
     state.request_sync();
     window.present();
-}
-
-fn record_sync_status(
-    settings_path: &std::path::Path,
-    core: &TaskManagerCore,
-    result: &taskmanager_core::CoreResult<LinuxSyncSummary>,
-) {
-    let mut settings = read_settings(settings_path).unwrap_or_default();
-    let now = now_ms();
-    let core_status = core.sync_status().ok();
-    let pending_retries = core_status
-        .as_ref()
-        .map(|status| status.retry_queue_depth)
-        .unwrap_or(settings.sync_status.pending_retries);
-    let dirty_count = core_status
-        .as_ref()
-        .map(|status| status.dirty_count)
-        .unwrap_or(settings.sync_status.dirty_count);
-    let cursor = core_status
-        .map(|status| status.cursor)
-        .unwrap_or(settings.sync_status.cursor);
-    settings.sync_status = match result {
-        Ok(summary) => SyncStatus {
-            last_attempt_at: Some(now),
-            last_success_at: Some(now),
-            last_pushed: summary.pushed,
-            last_pulled: summary.pulled,
-            last_failed: summary.failed,
-            last_error: String::new(),
-            pending_retries,
-            dirty_count,
-            cursor,
-            conflicts: summary.conflicts,
-        },
-        Err(error) => SyncStatus {
-            last_attempt_at: Some(now),
-            last_success_at: settings.sync_status.last_success_at,
-            last_pushed: settings.sync_status.last_pushed,
-            last_pulled: settings.sync_status.last_pulled,
-            last_failed: settings.sync_status.last_failed,
-            last_error: error.to_string(),
-            pending_retries,
-            dirty_count,
-            cursor,
-            conflicts: settings.sync_status.conflicts,
-        },
-    };
-    if let Err(error) = write_settings(settings_path, &settings) {
-        eprintln!("Failed to persist sync status: {error}");
-    }
-}
-
-fn build_sync_activity_icon(angle: Rc<Cell<f64>>) -> gtk::DrawingArea {
-    let area = gtk::DrawingArea::new();
-    area.set_content_width(18);
-    area.set_content_height(18);
-    area.set_draw_func(move |_, cr, width, height| {
-        let size = f64::from(width.min(height));
-        let center = size / 2.0;
-        let radius = size * 0.31;
-        cr.translate(f64::from(width) / 2.0, f64::from(height) / 2.0);
-        cr.rotate(angle.get());
-        cr.set_source_rgba(0.50, 0.58, 0.68, 1.0);
-        cr.set_line_width(1.8);
-        cr.set_line_cap(gtk::cairo::LineCap::Round);
-        cr.arc(0.0, 0.0, radius, -0.35, std::f64::consts::TAU - 0.95);
-        let _ = cr.stroke();
-
-        let tip_angle: f64 = -0.35;
-        let tip_x = radius * tip_angle.cos();
-        let tip_y = radius * tip_angle.sin();
-        cr.move_to(tip_x, tip_y);
-        cr.line_to(tip_x - center * 0.18, tip_y - center * 0.02);
-        cr.move_to(tip_x, tip_y);
-        cr.line_to(tip_x - center * 0.06, tip_y + center * 0.17);
-        let _ = cr.stroke();
-    });
-    area
-}
-
-fn format_sync_status(summary: &LinuxSyncSummary) -> String {
-    if summary.pushed == 0
-        && summary.pulled == 0
-        && summary.failed == 0
-        && summary.pending_retries == 0
-        && summary.conflicts == 0
-    {
-        "Synced. Everything is up to date.".to_owned()
-    } else if summary.failed == 0 && summary.pending_retries == 0 && summary.conflicts == 0 {
-        format!(
-            "Synced. {} pushed, {} pulled.",
-            summary.pushed, summary.pulled
-        )
-    } else {
-        format!(
-            "Synced with issues. {} pushed, {} pulled, {} failed, {} pending retry, {} conflict resolved automatically (last write wins).",
-            summary.pushed, summary.pulled, summary.failed, summary.pending_retries, summary.conflicts
-        )
-    }
 }
 
 fn delete_selected_task(state: &Rc<AppState>) {
