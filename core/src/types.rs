@@ -17,6 +17,8 @@ pub struct Task {
     pub title: String,
     pub body: String,
     pub due_at: Option<i64>,
+    #[serde(default)]
+    pub reminder_offset_ms: Option<i64>,
     pub status: TaskStatus,
     pub project_id: Option<Uuid>,
     pub tags: Vec<String>,
@@ -33,11 +35,41 @@ pub enum TaskStatus {
     Done,
 }
 
+impl Task {
+    pub fn notification_at(&self) -> Option<i64> {
+        let due_at = self.due_at?;
+        let offset = self.reminder_offset_ms?;
+        if offset < 0 {
+            return None;
+        }
+        due_at.checked_sub(offset)
+    }
+
+    pub fn notification_enabled(&self) -> bool {
+        !self.deleted && self.status != TaskStatus::Done
+    }
+
+    pub fn schedulable_notification_at(&self, now_ms: i64) -> Option<i64> {
+        if !self.notification_enabled() {
+            return None;
+        }
+        self.notification_at().filter(|fire_at| *fire_at > now_ms)
+    }
+
+    pub fn notification_due(&self, now_ms: i64) -> bool {
+        self.notification_enabled()
+            && self
+                .notification_at()
+                .is_some_and(|fire_at| fire_at <= now_ms)
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TaskPatch {
     pub title: Option<String>,
     pub body: Option<String>,
     pub due_at: Option<Option<i64>>,
+    pub reminder_offset_ms: Option<Option<i64>>,
     pub status: Option<TaskStatus>,
     pub project_id: Option<Option<Uuid>>,
     pub tags: Option<Vec<String>>,
@@ -102,6 +134,7 @@ mod tests {
             title: "Write readable core".to_owned(),
             body: "Start with stable domain types.".to_owned(),
             due_at: Some(1_717_603_200_000),
+            reminder_offset_ms: Some(600_000),
             status: TaskStatus::Open,
             project_id: Some(Uuid::parse_str("018f6f4a-c9f4-7724-91ef-2f7b38a62601").unwrap()),
             tags: vec!["core".to_owned(), "rust".to_owned()],
@@ -158,6 +191,46 @@ mod tests {
     }
 
     #[test]
+    fn missing_reminder_offset_defaults_to_none_for_old_payloads() {
+        let json = r#"{
+            "id":"018f6f4a-c9f4-7724-91ef-2f7b38a62600",
+            "title":"old",
+            "body":"payload",
+            "due_at":1717603200000,
+            "status":"open",
+            "project_id":null,
+            "tags":[],
+            "created_at":1,
+            "updated_at":2,
+            "deleted":false,
+            "dirty":false
+        }"#;
+
+        let task: Task = serde_json::from_str(json).unwrap();
+
+        assert_eq!(task.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn notification_helpers_apply_core_reminder_semantics() {
+        let mut task = sample_task();
+        task.due_at = Some(10_000);
+        task.reminder_offset_ms = Some(1_000);
+        assert_eq!(task.notification_at(), Some(9_000));
+        assert_eq!(task.schedulable_notification_at(8_999), Some(9_000));
+        assert_eq!(task.schedulable_notification_at(9_000), None);
+        assert!(task.notification_due(9_000));
+
+        task.status = TaskStatus::Done;
+        assert_eq!(task.schedulable_notification_at(8_000), None);
+        assert!(!task.notification_due(10_000));
+
+        task.status = TaskStatus::Open;
+        task.reminder_offset_ms = Some(-1);
+        assert_eq!(task.notification_at(), None);
+    }
+
+    #[test]
     fn tag_lists_round_trip_when_empty_and_populated() {
         let mut task = sample_task();
         task.tags = Vec::new();
@@ -194,6 +267,7 @@ mod tests {
                 title: None,
                 body: None,
                 due_at: None,
+                reminder_offset_ms: None,
                 status: None,
                 project_id: None,
                 tags: None,

@@ -816,6 +816,7 @@ fn run_crypto(
                 title: "crypto verify".to_owned(),
                 body: String::new(),
                 due_at: None,
+                reminder_offset_ms: None,
                 status: TaskStatus::Open,
                 project_id: None,
                 tags: Vec::new(),
@@ -942,6 +943,7 @@ fn run_task(
                     args.project_id.map(Some)
                 },
                 tags: args.tags,
+                ..TaskPatch::default()
             };
             core.update_task(args.id, patch)
                 .map_err(CliError::from)

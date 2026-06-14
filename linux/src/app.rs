@@ -11,6 +11,7 @@ use taskmanager_core::{
 use uuid::Uuid;
 
 use crate::keybindings::{install_keybindings, KeybindingActions};
+use crate::notifications::emit_task_reminder;
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
 use crate::style::install_css;
@@ -44,9 +45,58 @@ use crate::ui::widgets::{
 };
 
 pub fn run() {
+    if handle_helper_command() {
+        return;
+    }
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_activate(build_ui);
     app.run();
+}
+
+fn handle_helper_command() -> bool {
+    let mut args = std::env::args().skip(1);
+    let Some(command) = args.next() else {
+        return false;
+    };
+    if command != "--emit-reminder" {
+        return false;
+    }
+    let Some(task_id) = args.next() else {
+        eprintln!("--emit-reminder requires a task id");
+        return true;
+    };
+    let task_id = match Uuid::parse_str(&task_id) {
+        Ok(task_id) => task_id,
+        Err(error) => {
+            eprintln!("invalid reminder task id: {error}");
+            return true;
+        }
+    };
+    let mut database_path = None;
+    while let Some(arg) = args.next() {
+        if arg == "--db" {
+            let Some(path) = args.next() else {
+                eprintln!("--db requires a path");
+                return true;
+            };
+            database_path = Some(PathBuf::from(path));
+        }
+    }
+
+    let database_path = match database_path {
+        Some(path) => path,
+        None => match resolve_paths() {
+            Ok(paths) => paths.database_path,
+            Err(error) => {
+                eprintln!("failed to resolve app paths: {error}");
+                return true;
+            }
+        },
+    };
+    if let Err(error) = emit_task_reminder(&database_path, task_id) {
+        eprintln!("failed to emit reminder: {error}");
+    }
+    true
 }
 
 struct AppState {
@@ -139,6 +189,7 @@ impl AppState {
                         Ok(summary) => {
                             if summary.changed() {
                                 state.load_tasks();
+                                state.reconcile_notifications();
                             }
                             if notify {
                                 state.toast(format_sync_status(&summary));
@@ -284,10 +335,29 @@ impl AppState {
                         due_at: Some(due_at),
                         ..TaskPatch::default()
                     };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to update due date: {error}"));
-                    } else {
-                        state.request_sync();
+                    match state.core.update_task(task_id, patch) {
+                        Ok(task) => {
+                            state.sync_task_notification(&task);
+                            state.request_sync();
+                        }
+                        Err(error) => state.toast(format!("Failed to update due date: {error}")),
+                    }
+                    state.load_tasks();
+                }
+            }),
+            update_reminder_offset: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id, reminder_offset_ms| {
+                    let patch = TaskPatch {
+                        reminder_offset_ms: Some(reminder_offset_ms),
+                        ..TaskPatch::default()
+                    };
+                    match state.core.update_task(task_id, patch) {
+                        Ok(task) => {
+                            state.sync_task_notification(&task);
+                            state.request_sync();
+                        }
+                        Err(error) => state.toast(format!("Failed to update reminder: {error}")),
                     }
                     state.load_tasks();
                 }
@@ -299,10 +369,12 @@ impl AppState {
                         status: Some(status),
                         ..TaskPatch::default()
                     };
-                    if let Err(error) = state.core.update_task(task_id, patch) {
-                        state.toast(format!("Failed to update task: {error}"));
-                    } else {
-                        state.request_sync();
+                    match state.core.update_task(task_id, patch) {
+                        Ok(task) => {
+                            state.sync_task_notification(&task);
+                            state.request_sync();
+                        }
+                        Err(error) => state.toast(format!("Failed to update task: {error}")),
                     }
                     state.load_tasks();
                 }
@@ -461,6 +533,7 @@ impl AppState {
         if let Err(error) = self.core.delete_task(task_id) {
             self.toast(format!("Failed to delete task: {error}"));
         } else {
+            self.cancel_task_notification(task_id);
             self.request_sync();
         }
         self.load_tasks();
@@ -517,14 +590,57 @@ impl AppState {
             due_at: Some(due_at),
             project_id,
             tags: Some(parse_tags(&self.tags_entry.text())),
+            ..TaskPatch::default()
         };
-        if let Err(error) = self.core.update_task(task_id, patch) {
-            self.toast(format!("Failed to save task: {error}"));
-            return;
-        }
+        let task = match self.core.update_task(task_id, patch) {
+            Ok(task) => task,
+            Err(error) => {
+                self.toast(format!("Failed to save task: {error}"));
+                return;
+            }
+        };
+        self.sync_task_notification(&task);
         self.hide_task_editor();
         self.load_tasks();
         self.request_sync();
+    }
+
+    fn sync_task_notification(&self, task: &Task) {
+        if let Err(error) =
+            LinuxPlatform::new().sync_task_notification(task, now_ms(), Some(self.db_path.clone()))
+        {
+            self.toast(format!("Failed to update reminder schedule: {error}"));
+        }
+    }
+
+    fn cancel_task_notification(&self, task_id: Uuid) {
+        if let Err(error) =
+            LinuxPlatform::new().cancel_task_notification(task_id, Some(self.db_path.clone()))
+        {
+            self.toast(format!("Failed to cancel reminder: {error}"));
+        }
+    }
+
+    fn reconcile_notifications(&self) {
+        let filter = TaskFilter {
+            include_deleted: true,
+            ..TaskFilter::default()
+        };
+        match self.core.list_tasks(filter, default_sort()) {
+            Ok(tasks) => {
+                let now = now_ms();
+                for task in tasks {
+                    if let Err(error) = LinuxPlatform::new().sync_task_notification(
+                        &task,
+                        now,
+                        Some(self.db_path.clone()),
+                    ) {
+                        eprintln!("Failed to reconcile reminder for {}: {error}", task.id);
+                    }
+                }
+            }
+            Err(error) => eprintln!("Failed to reconcile reminders: {error}"),
+        }
     }
 
     fn create_task(self: &Rc<Self>) {
@@ -1499,6 +1615,7 @@ fn build_ui(app: &adw::Application) {
         filter_list.select_row(Some(&row));
     }
     state.load_tasks();
+    state.reconcile_notifications();
     state.request_sync();
     window.present();
 }
@@ -1611,6 +1728,9 @@ fn delete_selected_task(state: &Rc<AppState>) {
     if let Some(task_id) = selected_task_id(state) {
         if let Err(error) = state.core.delete_task(task_id) {
             state.toast(format!("Failed to delete task: {error}"));
+        } else {
+            state.cancel_task_notification(task_id);
+            state.request_sync();
         }
         state.load_tasks();
     }
@@ -1628,8 +1748,12 @@ fn toggle_selected_task_done(state: &Rc<AppState>) {
                     }),
                     ..TaskPatch::default()
                 };
-                if let Err(error) = state.core.update_task(task_id, patch) {
-                    state.toast(format!("Failed to update task: {error}"));
+                match state.core.update_task(task_id, patch) {
+                    Ok(task) => {
+                        state.sync_task_notification(&task);
+                        state.request_sync();
+                    }
+                    Err(error) => state.toast(format!("Failed to update task: {error}")),
                 }
                 state.load_tasks();
             }

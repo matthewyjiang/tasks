@@ -1,5 +1,9 @@
-use taskmanager_core::{CoreError, CoreResult, Platform, PlatformError};
+use taskmanager_core::{CoreError, CoreResult, Platform, PlatformError, Task};
 use uuid::Uuid;
+
+use crate::notifications::{
+    reconcile_task_notification, NotificationScheduler, SystemdUserNotificationScheduler,
+};
 
 #[derive(Clone, Debug)]
 pub struct LinuxPlatform {
@@ -34,6 +38,24 @@ impl LinuxPlatform {
             PlatformError::OperationFailed(format!("failed to open keyring entry {id}: {error}"))
                 .into()
         })
+    }
+
+    pub fn sync_task_notification(
+        &self,
+        task: &Task,
+        now_ms: i64,
+        database_path: Option<std::path::PathBuf>,
+    ) -> CoreResult<()> {
+        let scheduler = SystemdUserNotificationScheduler::new(database_path)?;
+        reconcile_task_notification(&scheduler, task, now_ms)
+    }
+
+    pub fn cancel_task_notification(
+        &self,
+        task_id: Uuid,
+        database_path: Option<std::path::PathBuf>,
+    ) -> CoreResult<()> {
+        SystemdUserNotificationScheduler::new(database_path)?.cancel(task_id)
     }
 }
 
@@ -70,32 +92,17 @@ impl Platform for LinuxPlatform {
         }
     }
 
-    fn schedule_notification(&self, task_id: Uuid, _fire_at: i64, title: &str) -> CoreResult<()> {
-        notify_rust::Notification::new()
-            .appname("tsk")
-            .summary("tsk reminder")
-            .body(title)
-            .id(notification_id(task_id))
-            .show()
-            .map(|_| ())
-            .map_err(|error| {
-                PlatformError::OperationFailed(format!("failed to show notification: {error}"))
-                    .into()
-            })
+    fn schedule_notification(&self, task_id: Uuid, fire_at: i64, _title: &str) -> CoreResult<()> {
+        SystemdUserNotificationScheduler::new(None)?.schedule(task_id, fire_at)
     }
 
-    fn cancel_notification(&self, _task_id: Uuid) -> CoreResult<()> {
-        Ok(())
+    fn cancel_notification(&self, task_id: Uuid) -> CoreResult<()> {
+        SystemdUserNotificationScheduler::new(None)?.cancel(task_id)
     }
 
     fn network_available(&self) -> bool {
         !self.offline
     }
-}
-
-fn notification_id(task_id: Uuid) -> u32 {
-    let bytes = task_id.as_bytes();
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 fn hex_encode(bytes: &[u8]) -> String {

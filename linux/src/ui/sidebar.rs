@@ -118,6 +118,7 @@ mod tests {
             title: "task".to_owned(),
             body: String::new(),
             due_at: None,
+            reminder_offset_ms: None,
             status,
             project_id,
             tags: Vec::new(),

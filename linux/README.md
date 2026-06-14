@@ -20,6 +20,12 @@ During sync, the app uses the stored access token. If the server rejects it as e
 
 Failed outbound task changes stay dirty and are recorded in the SQLite `sync_queue` with exponential backoff metadata, so pending retries survive app restart and are retried by later sync runs. Conflicts are resolved automatically with the core last-write-wins policy (`updated_at`, then a deterministic id tie-breaker); the Linux UI surfaces the number of automatically resolved conflicts and pending retry entries in sync status text.
 
+## Reminders
+
+Task reminder intent is stored in core as an encrypted `reminder_offset_ms` value on each task. The Linux app schedules open, non-deleted tasks at `due_at - reminder_offset_ms` and cancels reminders when a task is done, deleted, has no due date, or has reminders disabled.
+
+Persistent scheduling uses per-task `systemd --user` timer units. The timer calls the hidden helper mode `tsk-gui --emit-reminder <task-id>`, which reopens the local database and validates the task state before showing a desktop notification with `notify-rust`/the desktop notification service. Only the task id is stored in the unit file; the task title is read at fire time.
+
 ## Development checks
 
 ```sh

@@ -1317,6 +1317,7 @@ public struct FfiTask: Equatable, Hashable {
     public var title: String
     public var body: String
     public var dueAt: Int64?
+    public var reminderOffsetMs: Int64?
     public var status: FfiTaskStatus
     public var projectId: String?
     public var tags: [String]
@@ -1327,11 +1328,12 @@ public struct FfiTask: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, title: String, body: String, dueAt: Int64?, status: FfiTaskStatus, projectId: String?, tags: [String], createdAt: Int64, updatedAt: Int64, deleted: Bool, dirty: Bool) {
+    public init(id: String, title: String, body: String, dueAt: Int64?, reminderOffsetMs: Int64?, status: FfiTaskStatus, projectId: String?, tags: [String], createdAt: Int64, updatedAt: Int64, deleted: Bool, dirty: Bool) {
         self.id = id
         self.title = title
         self.body = body
         self.dueAt = dueAt
+        self.reminderOffsetMs = reminderOffsetMs
         self.status = status
         self.projectId = projectId
         self.tags = tags
@@ -1361,6 +1363,7 @@ public struct FfiConverterTypeFfiTask: FfiConverterRustBuffer {
                 title: FfiConverterString.read(from: &buf), 
                 body: FfiConverterString.read(from: &buf), 
                 dueAt: FfiConverterOptionInt64.read(from: &buf), 
+                reminderOffsetMs: FfiConverterOptionInt64.read(from: &buf), 
                 status: FfiConverterTypeFfiTaskStatus.read(from: &buf), 
                 projectId: FfiConverterOptionString.read(from: &buf), 
                 tags: FfiConverterSequenceString.read(from: &buf), 
@@ -1376,6 +1379,7 @@ public struct FfiConverterTypeFfiTask: FfiConverterRustBuffer {
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterString.write(value.body, into: &buf)
         FfiConverterOptionInt64.write(value.dueAt, into: &buf)
+        FfiConverterOptionInt64.write(value.reminderOffsetMs, into: &buf)
         FfiConverterTypeFfiTaskStatus.write(value.status, into: &buf)
         FfiConverterOptionString.write(value.projectId, into: &buf)
         FfiConverterSequenceString.write(value.tags, into: &buf)
@@ -1547,6 +1551,8 @@ public struct FfiTaskPatch: Equatable, Hashable {
     public var body: String?
     public var dueAt: Int64?
     public var clearDueAt: Bool
+    public var reminderOffsetMs: Int64?
+    public var clearReminderOffsetMs: Bool
     public var status: FfiTaskStatus?
     public var projectId: String?
     public var clearProjectId: Bool
@@ -1554,11 +1560,13 @@ public struct FfiTaskPatch: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(title: String?, body: String?, dueAt: Int64?, clearDueAt: Bool, status: FfiTaskStatus?, projectId: String?, clearProjectId: Bool, tags: [String]?) {
+    public init(title: String?, body: String?, dueAt: Int64?, clearDueAt: Bool, reminderOffsetMs: Int64?, clearReminderOffsetMs: Bool, status: FfiTaskStatus?, projectId: String?, clearProjectId: Bool, tags: [String]?) {
         self.title = title
         self.body = body
         self.dueAt = dueAt
         self.clearDueAt = clearDueAt
+        self.reminderOffsetMs = reminderOffsetMs
+        self.clearReminderOffsetMs = clearReminderOffsetMs
         self.status = status
         self.projectId = projectId
         self.clearProjectId = clearProjectId
@@ -1585,6 +1593,8 @@ public struct FfiConverterTypeFfiTaskPatch: FfiConverterRustBuffer {
                 body: FfiConverterOptionString.read(from: &buf), 
                 dueAt: FfiConverterOptionInt64.read(from: &buf), 
                 clearDueAt: FfiConverterBool.read(from: &buf), 
+                reminderOffsetMs: FfiConverterOptionInt64.read(from: &buf), 
+                clearReminderOffsetMs: FfiConverterBool.read(from: &buf), 
                 status: FfiConverterOptionTypeFfiTaskStatus.read(from: &buf), 
                 projectId: FfiConverterOptionString.read(from: &buf), 
                 clearProjectId: FfiConverterBool.read(from: &buf), 
@@ -1597,6 +1607,8 @@ public struct FfiConverterTypeFfiTaskPatch: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.body, into: &buf)
         FfiConverterOptionInt64.write(value.dueAt, into: &buf)
         FfiConverterBool.write(value.clearDueAt, into: &buf)
+        FfiConverterOptionInt64.write(value.reminderOffsetMs, into: &buf)
+        FfiConverterBool.write(value.clearReminderOffsetMs, into: &buf)
         FfiConverterOptionTypeFfiTaskStatus.write(value.status, into: &buf)
         FfiConverterOptionString.write(value.projectId, into: &buf)
         FfiConverterBool.write(value.clearProjectId, into: &buf)

@@ -1,5 +1,6 @@
 mod app;
 mod keybindings;
+mod notifications;
 mod paths;
 mod platform;
 mod style;
