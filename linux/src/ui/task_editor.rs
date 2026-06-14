@@ -1,7 +1,10 @@
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-use crate::ui::layout::{TASK_EDITOR_BODY_HEIGHT, TASK_EDITOR_MIN_HEIGHT, TASK_EDITOR_MIN_WIDTH};
+use crate::ui::layout::{
+    TASK_ACTION_POPOVER_WIDTH, TASK_EDITOR_BODY_HEIGHT, TASK_EDITOR_MIN_HEIGHT,
+    TASK_EDITOR_MIN_WIDTH,
+};
 use crate::ui::widgets::{field_label, font_awesome_label};
 
 pub(crate) struct TaskEditorWidgets {
@@ -66,10 +69,14 @@ pub(crate) fn build_task_editor_panel(
     today_due_button.add_css_class("task-date-quick-button");
     today_due_button.set_tooltip_text(Some("Set due date to today"));
     let due_popover_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    due_popover_content.add_css_class("task-date-popover");
+    due_popover_content.add_css_class("task-action-popover");
+    due_popover_content.set_size_request(TASK_ACTION_POPOVER_WIDTH, -1);
     due_popover_content.append(&today_due_button);
     due_popover_content.append(&due_calendar);
     let due_popover = gtk::Popover::new();
+    due_popover.set_has_arrow(false);
+    due_popover.set_position(gtk::PositionType::Bottom);
+    due_popover.set_offset(0, 8);
     due_popover.set_child(Some(&due_popover_content));
     let due_icon = font_awesome_label("\u{f073}");
     let due_button = gtk::MenuButton::builder()

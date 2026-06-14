@@ -52,7 +52,16 @@ func ValidatePayload(ciphertext, nonce []byte, maxBytes int64) error {
 func NowUnixMillis() int64 { return time.Now().UnixMilli() }
 
 func (r Repository) ListSince(ctx context.Context, ownerID uuid.UUID, since int64) ([]Blob, int64, error) {
-	rows, err := r.DB.Query(ctx, `SELECT task_id, owner_id, ciphertext, nonce, updated_at, deleted FROM blobs WHERE owner_id=$1 AND updated_at > $2 ORDER BY updated_at ASC`, ownerID, since)
+	rows, err := r.DB.Query(ctx, `
+SELECT task_id, owner_id, ciphertext, nonce, updated_at, deleted
+FROM blobs
+WHERE owner_id=$1 AND updated_at > $2
+UNION ALL
+SELECT b.task_id, b.owner_id, b.ciphertext, b.nonce, b.updated_at, b.deleted
+FROM shared_blobs s
+JOIN blobs b ON b.task_id=s.task_id AND b.owner_id=s.owner_id
+WHERE s.recipient_id=$1 AND b.updated_at > $2
+ORDER BY updated_at ASC`, ownerID, since)
 	if err != nil {
 		return nil, 0, err
 	}

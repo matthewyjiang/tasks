@@ -7,7 +7,10 @@ use uuid::Uuid;
 
 use crate::error::{CoreResult, DbError};
 use crate::settings::{VaultSettings, VAULT_SETTINGS_ID};
-use crate::types::{Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus};
+use crate::types::{
+    Blob, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, Task, TaskFilter, TaskList,
+    TaskPatch, TaskSort, TaskStatus,
+};
 
 pub struct LocalDatabase {
     connection: Connection,
@@ -247,6 +250,140 @@ impl LocalDatabase {
         Ok(settings.clone())
     }
 
+    pub fn share_task(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        task_key: Vec<u8>,
+        wrapped_task_key: Blob,
+    ) -> CoreResult<SharedTaskRecipient> {
+        self.get_task(task_id)?;
+        let now = now_ms();
+        self.connection.execute(
+            "INSERT INTO shared_task_state (task_id, owner_id, task_key, accepted_at, revoked_at)
+             VALUES (?1, NULL, ?2, NULL, NULL)
+             ON CONFLICT(task_id) DO UPDATE SET revoked_at = NULL",
+            params![task_id.to_string(), task_key],
+        )?;
+        self.connection.execute(
+            "INSERT INTO shared_task_recipients (task_id, recipient_id, wrapped_task_key, nonce, created_at, revoked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+             ON CONFLICT(task_id, recipient_id) DO UPDATE SET wrapped_task_key = excluded.wrapped_task_key, nonce = excluded.nonce, created_at = excluded.created_at, revoked_at = NULL",
+            params![task_id.to_string(), recipient_id.to_string(), wrapped_task_key.ciphertext, wrapped_task_key.nonce.to_vec(), now],
+        )?;
+        self.mark_task_dirty(task_id)?;
+        Ok(SharedTaskRecipient {
+            task_id,
+            recipient_id,
+            wrapped_task_key,
+            created_at: now,
+            revoked_at: None,
+        })
+    }
+
+    pub fn accept_shared_task(
+        &self,
+        invite: SharedTaskInvite,
+        task_key: Vec<u8>,
+    ) -> CoreResult<SharedTaskState> {
+        let now = now_ms();
+        self.connection.execute(
+            "INSERT INTO shared_task_state (task_id, owner_id, task_key, accepted_at, revoked_at)
+             VALUES (?1, ?2, ?3, ?4, NULL)
+             ON CONFLICT(task_id) DO UPDATE SET owner_id = excluded.owner_id, task_key = excluded.task_key, accepted_at = excluded.accepted_at, revoked_at = NULL",
+            params![invite.task_id.to_string(), invite.owner_id.to_string(), task_key, now],
+        )?;
+        self.shared_task_state(invite.task_id)
+    }
+
+    pub fn revoke_shared_task_recipient(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        rotated_task_key: Vec<u8>,
+        rewrapped_recipients: Vec<SharedTaskRecipient>,
+    ) -> CoreResult<SharedTaskState> {
+        self.connection.execute(
+            "UPDATE shared_task_state SET task_key = ?2, revoked_at = NULL WHERE task_id = ?1",
+            params![task_id.to_string(), rotated_task_key],
+        )?;
+        let now = now_ms();
+        self.connection.execute(
+            "UPDATE shared_task_recipients SET revoked_at = ?3 WHERE task_id = ?1 AND recipient_id = ?2 AND revoked_at IS NULL",
+            params![task_id.to_string(), recipient_id.to_string(), now],
+        )?;
+        for recipient in rewrapped_recipients {
+            self.connection.execute(
+                "UPDATE shared_task_recipients SET wrapped_task_key = ?3, nonce = ?4 WHERE task_id = ?1 AND recipient_id = ?2 AND revoked_at IS NULL",
+                params![task_id.to_string(), recipient.recipient_id.to_string(), recipient.wrapped_task_key.ciphertext, recipient.wrapped_task_key.nonce.to_vec()],
+            )?;
+        }
+        self.mark_task_dirty(task_id)?;
+        self.shared_task_state(task_id)
+    }
+
+    pub fn mark_task_dirty(&self, task_id: Uuid) -> CoreResult<()> {
+        let task = self.get_task(task_id)?;
+        let updated_at = now_ms().max(task.updated_at + 1);
+        self.connection.execute(
+            "UPDATE tasks SET updated_at = ?2, dirty = 1 WHERE id = ?1",
+            params![task_id.to_string(), updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn task_encryption_key(
+        &self,
+        task_id: Uuid,
+        account_data_key: &[u8],
+    ) -> CoreResult<Vec<u8>> {
+        match self.shared_task_state(task_id) {
+            Ok(state) => Ok(state.task_key),
+            Err(_) => Ok(account_data_key.to_vec()),
+        }
+    }
+
+    pub fn shared_task_state(&self, task_id: Uuid) -> CoreResult<SharedTaskState> {
+        let (owner_id, task_key, accepted_at, revoked_at): (Option<String>, Vec<u8>, Option<i64>, Option<i64>) = self.connection.query_row(
+            "SELECT owner_id, task_key, accepted_at, revoked_at FROM shared_task_state WHERE task_id = ?1",
+            params![task_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).optional()?.ok_or_else(|| DbError::TaskNotFound(task_id))?;
+        let mut statement = self.connection.prepare(
+            "SELECT recipient_id, wrapped_task_key, nonce, created_at, revoked_at FROM shared_task_recipients WHERE task_id = ?1 ORDER BY created_at ASC, recipient_id ASC",
+        )?;
+        let recipients = statement
+            .query_map(params![task_id.to_string()], |row| {
+                let recipient_id: String = row.get(0)?;
+                let nonce: Vec<u8> = row.get(2)?;
+                let nonce: [u8; 12] = nonce
+                    .try_into()
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?;
+                Ok(SharedTaskRecipient {
+                    task_id,
+                    recipient_id: parse_uuid(&recipient_id, "recipient_id")?,
+                    wrapped_task_key: Blob {
+                        ciphertext: row.get(1)?,
+                        nonce,
+                    },
+                    created_at: row.get(3)?,
+                    revoked_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SharedTaskState {
+            task_id,
+            owner_id: owner_id
+                .map(|id| Uuid::parse_str(&id))
+                .transpose()
+                .map_err(|error| DbError::InvalidRowData(error.to_string()))?,
+            task_key,
+            recipients,
+            accepted_at,
+            revoked_at,
+        })
+    }
+
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         let search = SearchQuery::parse(&query);
         if search.is_empty() {
@@ -365,6 +502,24 @@ impl LocalDatabase {
                 queued_at   INTEGER NOT NULL,
                 attempt     INTEGER NOT NULL DEFAULT 0,
                 next_retry  INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS shared_task_state (
+                task_id     TEXT PRIMARY KEY,
+                owner_id    TEXT,
+                task_key    BLOB NOT NULL,
+                accepted_at INTEGER,
+                revoked_at  INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS shared_task_recipients (
+                task_id          TEXT NOT NULL,
+                recipient_id     TEXT NOT NULL,
+                wrapped_task_key BLOB NOT NULL,
+                nonce            BLOB NOT NULL,
+                created_at       INTEGER NOT NULL,
+                revoked_at       INTEGER,
+                PRIMARY KEY (task_id, recipient_id)
             );
 
             DELETE FROM sync_queue

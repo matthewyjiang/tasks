@@ -15,7 +15,8 @@ use crate::settings::{
     AuthMethod, DefaultSort, DisplayDensity, Keybindings, PlaintextSettings, Theme, VaultSettings,
 };
 use crate::types::{
-    Blob, RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus,
+    Blob, RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncStatus,
+    Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,6 +155,54 @@ pub struct FfiVaultSettings {
     pub first_day_of_week: i32,
     pub notification_sound: String,
     pub keybindings: FfiKeybindings,
+    pub show_share_revocation_warning: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiSharedTaskRecipient {
+    pub task_id: String,
+    pub recipient_id: String,
+    pub wrapped_task_key: FfiBlob,
+    pub created_at: i64,
+    pub revoked_at: Option<i64>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct FfiSharedTaskState {
+    pub task_id: String,
+    pub owner_id: Option<String>,
+    pub task_key: Vec<u8>,
+    pub recipients: Vec<FfiSharedTaskRecipient>,
+    pub accepted_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+}
+
+impl fmt::Debug for FfiSharedTaskState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FfiSharedTaskState")
+            .field("task_id", &self.task_id)
+            .field("owner_id", &self.owner_id)
+            .field("task_key", &"<redacted>")
+            .field("recipients", &self.recipients)
+            .field("accepted_at", &self.accepted_at)
+            .field("revoked_at", &self.revoked_at)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiSharedTaskInvite {
+    pub task_id: String,
+    pub owner_id: String,
+    pub recipient_id: String,
+    pub wrapped_task_key: FfiBlob,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiSharedTaskRecipientKey {
+    pub recipient_id: String,
+    pub public_key: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -385,6 +434,73 @@ impl FfiTaskManagerCore {
             .search_tasks(query)
             .map(|tasks| tasks.into_iter().map(FfiTask::from).collect())
             .map_err(FfiCoreError::from)
+    }
+
+    pub fn share_task_with_recipient(
+        &self,
+        task_id: String,
+        recipient_id: String,
+        recipient_public_key: Vec<u8>,
+        owner_private_key: Vec<u8>,
+    ) -> Result<FfiSharedTaskRecipient, FfiCoreError> {
+        self.inner()?
+            .share_task_with_recipient(
+                parse_uuid(&task_id)?,
+                parse_uuid(&recipient_id)?,
+                &recipient_public_key,
+                &owner_private_key,
+            )
+            .map(FfiSharedTaskRecipient::from)
+            .map_err(FfiCoreError::from)
+    }
+
+    pub fn accept_shared_task_invite(
+        &self,
+        invite: FfiSharedTaskInvite,
+        owner_public_key: Vec<u8>,
+        recipient_private_key: Vec<u8>,
+    ) -> Result<FfiSharedTaskState, FfiCoreError> {
+        self.inner()?
+            .accept_shared_task_invite(
+                invite.try_into()?,
+                &owner_public_key,
+                &recipient_private_key,
+            )
+            .map(FfiSharedTaskState::from)
+            .map_err(FfiCoreError::from)
+    }
+
+    pub fn revoke_shared_task_recipient(
+        &self,
+        task_id: String,
+        recipient_id: String,
+        remaining_recipient_public_keys: Vec<FfiSharedTaskRecipientKey>,
+        owner_private_key: Vec<u8>,
+    ) -> Result<FfiSharedTaskState, FfiCoreError> {
+        let remaining_recipient_public_keys = remaining_recipient_public_keys
+            .into_iter()
+            .map(|key| Ok((parse_uuid(&key.recipient_id)?, key.public_key)))
+            .collect::<Result<Vec<_>, FfiCoreError>>()?;
+        self.inner()?
+            .revoke_shared_task_recipient(
+                parse_uuid(&task_id)?,
+                parse_uuid(&recipient_id)?,
+                remaining_recipient_public_keys,
+                &owner_private_key,
+            )
+            .map(FfiSharedTaskState::from)
+            .map_err(FfiCoreError::from)
+    }
+
+    pub fn shared_task_state(&self, task_id: String) -> Result<FfiSharedTaskState, FfiCoreError> {
+        self.inner()?
+            .shared_task_state(parse_uuid(&task_id)?)
+            .map(FfiSharedTaskState::from)
+            .map_err(FfiCoreError::from)
+    }
+
+    pub fn shared_task_revocation_notice(&self) -> String {
+        SharedTaskState::revocation_notice().to_owned()
     }
 
     pub fn vault_settings(&self) -> Result<FfiVaultSettings, FfiCoreError> {
@@ -723,6 +839,48 @@ impl TryFrom<FfiBlob> for Blob {
     }
 }
 
+impl From<SharedTaskRecipient> for FfiSharedTaskRecipient {
+    fn from(recipient: SharedTaskRecipient) -> Self {
+        Self {
+            task_id: recipient.task_id.to_string(),
+            recipient_id: recipient.recipient_id.to_string(),
+            wrapped_task_key: recipient.wrapped_task_key.into(),
+            created_at: recipient.created_at,
+            revoked_at: recipient.revoked_at,
+        }
+    }
+}
+
+impl From<SharedTaskState> for FfiSharedTaskState {
+    fn from(state: SharedTaskState) -> Self {
+        Self {
+            task_id: state.task_id.to_string(),
+            owner_id: state.owner_id.map(|id| id.to_string()),
+            task_key: state.task_key,
+            recipients: state
+                .recipients
+                .into_iter()
+                .map(FfiSharedTaskRecipient::from)
+                .collect(),
+            accepted_at: state.accepted_at,
+            revoked_at: state.revoked_at,
+        }
+    }
+}
+
+impl TryFrom<FfiSharedTaskInvite> for SharedTaskInvite {
+    type Error = FfiCoreError;
+
+    fn try_from(invite: FfiSharedTaskInvite) -> Result<Self, Self::Error> {
+        Ok(Self {
+            task_id: parse_uuid(&invite.task_id)?,
+            owner_id: parse_uuid(&invite.owner_id)?,
+            recipient_id: parse_uuid(&invite.recipient_id)?,
+            wrapped_task_key: invite.wrapped_task_key.try_into()?,
+        })
+    }
+}
+
 impl From<AuthMethod> for FfiAuthMethod {
     fn from(method: AuthMethod) -> Self {
         match method {
@@ -870,6 +1028,7 @@ impl From<VaultSettings> for FfiVaultSettings {
             first_day_of_week: settings.first_day_of_week,
             notification_sound: settings.notification_sound,
             keybindings: settings.keybindings.into(),
+            show_share_revocation_warning: settings.show_share_revocation_warning,
         }
     }
 }
@@ -893,6 +1052,7 @@ impl TryFrom<FfiVaultSettings> for VaultSettings {
             first_day_of_week: settings.first_day_of_week,
             notification_sound: settings.notification_sound,
             keybindings: settings.keybindings.into(),
+            show_share_revocation_warning: settings.show_share_revocation_warning,
         })
     }
 }
