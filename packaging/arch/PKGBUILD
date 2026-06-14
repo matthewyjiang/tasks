@@ -1,7 +1,7 @@
 # Maintainer: Matthew Jiang <matthewyjiang@users.noreply.github.com>
 pkgname=tsk-linux
-pkgver=0.3.1
-pkgrel=1
+pkgver=0.3.3
+pkgrel=2
 pkgdesc="GTK/libadwaita desktop client for the local-first encrypted task manager"
 arch=("x86_64")
 url="https://github.com/matthewyjiang/tasks"
@@ -43,13 +43,13 @@ _prepare_rust_build_env() {
 build() {
   cd "$(_repo_root)"
   _prepare_rust_build_env
-  cargo build --release --locked -p tsk-linux --no-default-features
+  cargo build --release --locked -p tsk-linux
 }
 
 check() {
   cd "$(_repo_root)"
   _prepare_rust_build_env
-  cargo test --locked -p tsk-linux --no-default-features
+  cargo test --locked -p tsk-linux
 }
 
 package() {
