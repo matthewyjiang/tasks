@@ -6,6 +6,7 @@ use taskmanager_core::{Task, TaskStatus};
 use uuid::Uuid;
 
 use crate::task_format::format_task_row_summary;
+use crate::ui::layout::TASK_ACTION_POPOVER_WIDTH;
 use crate::ui::widgets::font_awesome_label;
 
 pub(crate) struct TaskRowActions {
@@ -13,7 +14,9 @@ pub(crate) struct TaskRowActions {
     pub(crate) update_due_date: Rc<dyn Fn(Uuid, Option<i64>)>,
     pub(crate) update_reminder_offset: Rc<dyn Fn(Uuid, Option<i64>)>,
     pub(crate) toggle_status: Rc<dyn Fn(Uuid, TaskStatus)>,
-    pub(crate) move_task: Rc<dyn Fn(Uuid)>,
+    pub(crate) move_task: Rc<dyn Fn(Uuid, gtk::Button)>,
+    pub(crate) shared_state_summary: Rc<dyn Fn(Uuid) -> Option<String>>,
+    pub(crate) manage_sharing: Rc<dyn Fn(Uuid, gtk::Button)>,
     pub(crate) delete_task: Rc<dyn Fn(Uuid)>,
     pub(crate) finish_expand: Rc<dyn Fn(Uuid)>,
     pub(crate) finish_collapse: Rc<dyn Fn(Uuid)>,
@@ -117,6 +120,13 @@ fn build_row_header(
     header.append(&status_button(task, actions));
     header.append(&title_stack(task, editing, title_entry));
 
+    if let Some(summary) = (actions.shared_state_summary)(task.id) {
+        let shared_status = font_awesome_label("\u{f1e0}");
+        shared_status.add_css_class("sync-status");
+        shared_status.set_tooltip_text(Some(&summary));
+        header.append(&shared_status);
+    }
+
     let sync_status = font_awesome_label("\u{f071}");
     sync_status.add_css_class("sync-status");
     sync_status.set_tooltip_text(Some("Out of date"));
@@ -201,6 +211,7 @@ fn build_inline_editor(
     inline_actions.add_css_class("task-inline-actions");
     inline_actions.append(&due_date_button(task, actions));
     inline_actions.append(&list_button(task, actions));
+    inline_actions.append(&share_button(task, actions));
     inline_actions.append(&delete_button(task, actions));
     expanded.append(&inline_actions);
 
@@ -345,7 +356,8 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     clear.set_tooltip_text(Some("Clear due date"));
 
     let popover_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    popover_content.add_css_class("task-date-popover");
+    popover_content.add_css_class("task-action-popover");
+    popover_content.set_size_request(TASK_ACTION_POPOVER_WIDTH, -1);
     popover_content.append(&today);
     popover_content.append(&calendar);
 
@@ -370,6 +382,8 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
 
     let popover = gtk::Popover::new();
     popover.set_has_arrow(false);
+    popover.set_position(gtk::PositionType::Bottom);
+    popover.set_offset(0, 8);
     popover.set_child(Some(&popover_content));
 
     let button = gtk::MenuButton::new();
@@ -518,9 +532,21 @@ fn list_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {
     list.connect_clicked({
         let move_task = Rc::clone(&actions.move_task);
         let task_id = task.id;
-        move |_| move_task(task_id)
+        move |button| move_task(task_id, button.clone())
     });
     list
+}
+
+fn share_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {
+    let share = gtk::Button::with_label("");
+    share.add_css_class("flat");
+    share.set_tooltip_text(Some("Manage sharing"));
+    share.connect_clicked({
+        let manage_sharing = Rc::clone(&actions.manage_sharing);
+        let task_id = task.id;
+        move |button| manage_sharing(task_id, button.clone())
+    });
+    share
 }
 
 fn delete_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {

@@ -119,6 +119,36 @@ dictionary FfiVaultSettings {
   i32 first_day_of_week;
   string notification_sound;
   FfiKeybindings keybindings;
+  boolean show_share_revocation_warning;
+};
+
+dictionary FfiSharedTaskRecipient {
+  string task_id;
+  string recipient_id;
+  FfiBlob wrapped_task_key;
+  i64 created_at;
+  i64? revoked_at;
+};
+
+dictionary FfiSharedTaskState {
+  string task_id;
+  string? owner_id;
+  sequence<u8> task_key;
+  sequence<FfiSharedTaskRecipient> recipients;
+  i64? accepted_at;
+  i64? revoked_at;
+};
+
+dictionary FfiSharedTaskInvite {
+  string task_id;
+  string owner_id;
+  string recipient_id;
+  FfiBlob wrapped_task_key;
+};
+
+dictionary FfiSharedTaskRecipientKey {
+  string recipient_id;
+  sequence<u8> public_key;
 };
 
 dictionary FfiSyncStatus {
@@ -184,6 +214,16 @@ interface FfiTaskManagerCore {
   sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
   [Throws=FfiCoreError]
   sequence<FfiTask> search_tasks(string query);
+
+  [Throws=FfiCoreError]
+  FfiSharedTaskRecipient share_task_with_recipient(string task_id, string recipient_id, sequence<u8> recipient_public_key, sequence<u8> owner_private_key);
+  [Throws=FfiCoreError]
+  FfiSharedTaskState accept_shared_task_invite(FfiSharedTaskInvite invite, sequence<u8> owner_public_key, sequence<u8> recipient_private_key);
+  [Throws=FfiCoreError]
+  FfiSharedTaskState revoke_shared_task_recipient(string task_id, string recipient_id, sequence<FfiSharedTaskRecipientKey> remaining_recipient_public_keys, sequence<u8> owner_private_key);
+  [Throws=FfiCoreError]
+  FfiSharedTaskState shared_task_state(string task_id);
+  string shared_task_revocation_notice();
 
   [Throws=FfiCoreError]
   FfiVaultSettings vault_settings();

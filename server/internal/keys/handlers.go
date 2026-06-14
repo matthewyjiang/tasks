@@ -27,12 +27,26 @@ type keysResponse struct {
 	Keys   []keyResponse `json:"keys"`
 }
 
+func (h Handler) GetKeysByEmail(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	userID, err := h.Repo.UserIDByEmail(r.Context(), email)
+	if err != nil {
+		respond.Error(w, http.StatusNotFound, "user not found")
+		return
+	}
+	h.respondUserKeys(w, r, userID)
+}
+
 func (h Handler) GetUserKeys(w http.ResponseWriter, r *http.Request) {
 	userID, err := uuid.Parse(chi.URLParam(r, "user_id"))
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid user_id")
 		return
 	}
+	h.respondUserKeys(w, r, userID)
+}
+
+func (h Handler) respondUserKeys(w http.ResponseWriter, r *http.Request, userID uuid.UUID) {
 	keys, err := h.Repo.ListUserKeys(r.Context(), userID)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "internal error")

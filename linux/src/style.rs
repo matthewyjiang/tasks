@@ -123,15 +123,6 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             box-shadow: 0 12px 36px color-mix(in srgb, black 24%, transparent);
             transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
         }
-        .move-list-panel {
-            padding: 20px;
-            border-radius: 20px;
-            background: color-mix(in srgb, @popover_bg_color 94%, @accent_color 6%);
-            color: @popover_fg_color;
-            border: 1px solid color-mix(in srgb, @accent_color 14%, @borders);
-            box-shadow: 0 18px 48px color-mix(in srgb, black 30%, transparent);
-            transition: opacity __FLOATING_PANEL_FADE_MS__ms ease-out;
-        }
         .settings-panel {
             padding: 0;
             border-radius: 20px;
@@ -161,15 +152,8 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
         .settings-content {
             padding: 22px;
         }
-        .move-list-title {
-            font-size: 20px;
-            font-weight: 750;
-        }
-        .move-list-search {
-            min-height: 38px;
-            border-radius: 10px;
-            font-size: 15px;
-        }
+        .task-action-popover scrolledwindow,
+        .task-action-popover viewport,
         .move-list-results {
             background: transparent;
         }
@@ -375,6 +359,7 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
             font-weight: 700;
             margin-top: 6px;
         }
+        .task-action-popover,
         .task-date-popover {
             padding: 10px;
             background: @card_bg_color;

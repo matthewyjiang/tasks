@@ -69,9 +69,10 @@ pub fn sync_push(
         if task.deleted {
             tombstones.push(task.id);
         } else {
+            let encryption_key = database.task_encryption_key(task.id, data_key)?;
             blob_pushes.push(BlobPush {
                 task_id: task.id,
-                blob: encrypt_blob(&task, data_key)?,
+                blob: encrypt_blob(&task, &encryption_key)?,
             });
         }
     }
@@ -130,7 +131,8 @@ pub fn sync_pull(
     let mut conflicts = 0;
 
     for remote in response.blobs {
-        let mut remote_task = decrypt_blob(&remote.blob, data_key)?;
+        let encryption_key = database.task_encryption_key(remote.task_id, data_key)?;
+        let mut remote_task = decrypt_blob(&remote.blob, &encryption_key)?;
         remote_task.dirty = false;
 
         let task_to_store = match database.get_task(remote.task_id) {
@@ -389,6 +391,75 @@ mod tests {
             crate::error::CoreError::Sync(SyncError::AuthExpired)
         ));
         assert!(db.get_task(task.id).unwrap().dirty);
+    }
+
+    #[test]
+    fn sync_push_uses_per_task_key_for_shared_tasks() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("shared".to_owned(), "body".to_owned(), None)
+            .unwrap();
+        let account_key = generate_data_key();
+        let task_key = generate_data_key();
+        let wrapped = Blob {
+            ciphertext: vec![1, 2, 3],
+            nonce: [7; 12],
+        };
+        db.share_task(task.id, Uuid::new_v4(), task_key.to_vec(), wrapped)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        let platform = MockPlatform::with_network_available(true);
+
+        sync_push(&db, &platform, &client, &account_key).unwrap();
+
+        let pushed = &client.pushed.borrow()[0].blob;
+        assert!(decrypt_blob(pushed, &account_key).is_err());
+        assert_eq!(decrypt_blob(pushed, &task_key).unwrap().id, task.id);
+    }
+
+    #[test]
+    fn sync_pull_uses_per_task_key_for_accepted_shared_tasks() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task_key = generate_data_key();
+        let account_key = generate_data_key();
+        let task = Task {
+            id: Uuid::new_v4(),
+            title: "shared remote".to_owned(),
+            body: "body".to_owned(),
+            due_at: None,
+            reminder_offset_ms: None,
+            status: crate::types::TaskStatus::Open,
+            project_id: None,
+            tags: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            deleted: false,
+            dirty: false,
+        };
+        let invite = crate::types::SharedTaskInvite {
+            task_id: task.id,
+            owner_id: Uuid::new_v4(),
+            recipient_id: Uuid::new_v4(),
+            wrapped_task_key: Blob {
+                ciphertext: vec![1],
+                nonce: [1; 12],
+            },
+        };
+        db.accept_shared_task(invite, task_key.to_vec()).unwrap();
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: vec![RemoteBlob {
+                task_id: task.id,
+                blob: encrypt_blob(&task, &task_key).unwrap(),
+                updated_at: task.updated_at,
+            }],
+            cursor: 3,
+        });
+
+        let result = sync_pull(&db, &client, &account_key).unwrap();
+
+        assert_eq!(result.pulled, 1);
+        assert_eq!(db.get_task(task.id).unwrap().title, "shared remote");
     }
 
     #[test]

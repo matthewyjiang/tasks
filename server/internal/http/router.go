@@ -57,6 +57,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		r.With(writeLimiter.Middleware).Put("/blobs/{task_id}", blobHandler.Put)
 		r.With(writeLimiter.Middleware).Delete("/blobs/{task_id}", blobHandler.Delete)
 		r.With(writeLimiter.Middleware).Post("/blobs/batch", blobHandler.Batch)
+		r.Get("/keys/by-email", keyHandler.GetKeysByEmail)
 		r.Get("/keys/{user_id}", keyHandler.GetUserKeys)
 		r.With(writeLimiter.Middleware).Put("/keys/me", keyHandler.PutMe)
 		r.With(writeLimiter.Middleware).Post("/share/{task_id}", shareHandler.Create)

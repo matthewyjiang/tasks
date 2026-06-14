@@ -18,6 +18,7 @@ use crate::notifications::emit_task_reminder;
 use crate::paths::{resolve_paths, APP_ID, APP_NAME};
 use crate::platform::LinuxPlatform;
 use crate::style::install_css;
+use crate::sync::{revoke_linux_share, share_linux_task};
 use crate::task_format::{
     markdown_to_pango_markup, parse_due_date_entry, parse_tags, sidebar_filter_icon,
     sidebar_filter_icon_class, sidebar_filter_order, sidebar_filter_title,
@@ -29,12 +30,11 @@ use crate::ui::floating_panel::{
 };
 use crate::ui::layout::{
     FLOATING_PANEL_FADE_MS, SETTINGS_PANEL_MIN_HEIGHT, SETTINGS_PANEL_MIN_WIDTH,
-    TASK_EDITOR_BODY_HEIGHT, TASK_EDITOR_INNER_PADDING,
+    TASK_ACTION_POPOVER_WIDTH, TASK_EDITOR_BODY_HEIGHT, TASK_EDITOR_INNER_PADDING,
 };
 use crate::ui::onboarding::needs_onboarding;
 use crate::ui::search::{
-    build_move_list_panel, move_list_result_row, normalize_query, regex_from_query,
-    task_search_result_row,
+    move_list_result_row, normalize_query, regex_from_query, task_search_result_row,
 };
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
 use crate::ui::settings_panel::{apply_theme_choice, show_settings_panel};
@@ -131,10 +131,6 @@ struct AppState {
     deleting_row_task_id: RefCell<Option<Uuid>>,
     rendering_list: Cell<bool>,
     pending_render_list: Cell<bool>,
-    move_list_panel: gtk::Box,
-    move_list_search: gtk::SearchEntry,
-    move_list_results: gtk::ListBox,
-    moving_task_id: RefCell<Option<Uuid>>,
     toast_overlay: adw::ToastOverlay,
     db_path: PathBuf,
     settings_path: PathBuf,
@@ -316,7 +312,15 @@ impl AppState {
             }),
             move_task: Rc::new({
                 let state = Rc::clone(self);
-                move |task_id| state.show_move_list_panel(task_id)
+                move |task_id, button| state.show_move_list_popover(task_id, &button)
+            }),
+            shared_state_summary: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id| state.shared_state_summary(task_id)
+            }),
+            manage_sharing: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id, button| state.show_share_management(task_id, &button)
             }),
             delete_task: Rc::new({
                 let state = Rc::clone(self);
@@ -372,6 +376,217 @@ impl AppState {
 
     fn select_task(self: &Rc<Self>, task_id: Uuid) {
         self.select_task_with_focus(task_id, false);
+    }
+
+    fn shared_state_summary(&self, task_id: Uuid) -> Option<String> {
+        let state = self.core.shared_task_state(task_id).ok()?;
+        if state.accepted_at.is_some() {
+            return Some("Shared with you".to_owned());
+        }
+        let active = state.active_recipients().count();
+        if active == 0 {
+            return None;
+        }
+        Some(format!(
+            "Shared with {active} recipient{}",
+            if active == 1 { "" } else { "s" }
+        ))
+    }
+
+    fn show_share_management(self: &Rc<Self>, task_id: Uuid, parent: &gtk::Button) {
+        let popover = gtk::Popover::new();
+        attach_one_shot_popover(&popover, parent);
+        popover.set_position(gtk::PositionType::Bottom);
+        popover.set_offset(0, 8);
+        popover.set_has_arrow(false);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        content.add_css_class("task-action-popover");
+        content.set_size_request(TASK_ACTION_POPOVER_WIDTH, -1);
+        content.set_hexpand(false);
+
+        let heading = gtk::Label::new(Some("Share task"));
+        heading.add_css_class("heading");
+        heading.set_xalign(0.0);
+        content.append(&heading);
+
+        let share_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        share_row.set_hexpand(false);
+        share_row.set_valign(gtk::Align::End);
+
+        let recipient_entry = gtk::Entry::new();
+        recipient_entry.set_placeholder_text(Some("Email"));
+        recipient_entry.set_hexpand(true);
+        share_row.append(&recipient_entry);
+
+        let share_button = gtk::Button::with_label("Share");
+        share_button.set_valign(gtk::Align::End);
+        share_button.add_css_class("task-date-quick-button");
+        share_button.add_css_class("suggested-action");
+        share_row.append(&share_button);
+        content.append(&share_row);
+
+        let recipients_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        content.append(&recipients_box);
+        match self.core.shared_task_state(task_id) {
+            Ok(state) => {
+                for recipient in state.recipients {
+                    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+                    let label = gtk::Label::new(Some(&format!(
+                        "{}{}",
+                        recipient.recipient_id,
+                        if recipient.revoked_at.is_some() {
+                            " (revoked)"
+                        } else {
+                            ""
+                        }
+                    )));
+                    label.set_xalign(0.0);
+                    label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+                    label.set_max_width_chars(18);
+                    label.set_hexpand(true);
+                    row.append(&label);
+                    if recipient.revoked_at.is_none() {
+                        let revoke = gtk::Button::with_label("Revoke");
+                        revoke.add_css_class("task-date-quick-button");
+                        revoke.add_css_class("destructive-action");
+                        revoke.connect_clicked({
+                            let state = Rc::clone(self);
+                            let share_popover = popover.clone();
+                            move |button| {
+                                state.confirm_revoke_share(
+                                    task_id,
+                                    recipient.recipient_id,
+                                    button,
+                                    &share_popover,
+                                )
+                            }
+                        });
+                        row.append(&revoke);
+                    }
+                    recipients_box.append(&row);
+                }
+            }
+            Err(_) => {}
+        }
+
+        share_button.connect_clicked({
+            let state = Rc::clone(self);
+            let recipient_entry = recipient_entry.clone();
+            let popover = popover.clone();
+            move |_| {
+                let email = recipient_entry.text().trim().to_owned();
+                if email.is_empty() || !email.contains('@') {
+                    state.toast("Enter a recipient email address".to_owned());
+                    return;
+                }
+                match share_linux_task(&state.core, &state.settings_path, task_id, &email) {
+                    Ok(()) => {
+                        state.toast(format!("Task shared with {email}"));
+                        state.request_sync();
+                        state.load_tasks();
+                        popover.popdown();
+                    }
+                    Err(error) => state.toast(format!("Failed to share task: {error}")),
+                }
+            }
+        });
+
+        popover.set_child(Some(&content));
+        popover.popup();
+    }
+
+    fn confirm_revoke_share(
+        self: &Rc<Self>,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        button: &gtk::Button,
+        share_popover: &gtk::Popover,
+    ) {
+        let show_warning = self
+            .core
+            .vault_settings()
+            .map(|settings| settings.show_share_revocation_warning)
+            .unwrap_or(true);
+        if !show_warning {
+            self.revoke_share(task_id, recipient_id, share_popover);
+            return;
+        }
+
+        let popover = gtk::Popover::new();
+        attach_one_shot_popover(&popover, button);
+        popover.set_position(gtk::PositionType::Bottom);
+        popover.set_offset(0, 8);
+        popover.set_has_arrow(false);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        content.add_css_class("task-action-popover");
+        content.set_size_request(TASK_ACTION_POPOVER_WIDTH, -1);
+
+        let message = gtk::Label::new(Some(self.core.shared_task_revocation_notice()));
+        message.set_wrap(true);
+        message.set_width_chars(28);
+        message.set_max_width_chars(28);
+        message.set_xalign(0.0);
+        content.append(&message);
+
+        let hide_again = gtk::CheckButton::with_label("Don't show again");
+        content.append(&hide_again);
+
+        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let cancel = gtk::Button::with_label("Cancel");
+        cancel.add_css_class("task-date-quick-button");
+        let revoke = gtk::Button::with_label("Revoke");
+        revoke.add_css_class("task-date-quick-button");
+        revoke.add_css_class("destructive-action");
+        actions.append(&cancel);
+        actions.append(&revoke);
+        content.append(&actions);
+
+        cancel.connect_clicked({
+            let popover = popover.clone();
+            move |_| popover.popdown()
+        });
+        revoke.connect_clicked({
+            let state = Rc::clone(self);
+            let popover = popover.clone();
+            let share_popover = share_popover.clone();
+            move |_| {
+                if hide_again.is_active() {
+                    match state.core.vault_settings() {
+                        Ok(mut settings) => {
+                            settings.show_share_revocation_warning = false;
+                            if let Err(error) = state.core.update_vault_settings(settings) {
+                                state.toast(format!("Failed to update setting: {error}"));
+                            }
+                        }
+                        Err(error) => state.toast(format!("Failed to read settings: {error}")),
+                    }
+                }
+                popover.popdown();
+                state.revoke_share(task_id, recipient_id, &share_popover);
+            }
+        });
+
+        popover.set_child(Some(&content));
+        popover.popup();
+    }
+
+    fn revoke_share(
+        self: &Rc<Self>,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        share_popover: &gtk::Popover,
+    ) {
+        match revoke_linux_share(&self.core, &self.settings_path, task_id, recipient_id) {
+            Ok(()) => {
+                self.toast("Recipient revoked; future sync uses a rotated task key".to_owned());
+                self.request_sync();
+                self.load_tasks();
+                share_popover.popdown();
+            }
+            Err(error) => self.toast(format!("Failed to revoke recipient: {error}")),
+        }
     }
 
     fn select_task_with_focus(self: &Rc<Self>, task_id: Uuid, _focus_title: bool) {
@@ -479,17 +694,74 @@ impl AppState {
         hide_floating_panel(&self.editor_panel);
     }
 
-    fn show_move_list_panel(self: &Rc<Self>, task_id: Uuid) {
-        self.moving_task_id.replace(Some(task_id));
-        self.move_list_search.set_text("");
-        render_move_list_results(self, "");
-        show_floating_panel(&self.move_list_panel);
-        self.move_list_search.grab_focus();
-    }
+    fn show_move_list_popover(self: &Rc<Self>, task_id: Uuid, parent: &gtk::Button) {
+        let popover = gtk::Popover::new();
+        attach_one_shot_popover(&popover, parent);
+        popover.set_position(gtk::PositionType::Bottom);
+        popover.set_offset(0, 8);
+        popover.set_has_arrow(false);
 
-    fn hide_move_list_panel(&self) {
-        self.moving_task_id.replace(None);
-        hide_floating_panel(&self.move_list_panel);
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        content.add_css_class("task-action-popover");
+        content.set_size_request(TASK_ACTION_POPOVER_WIDTH, -1);
+
+        let search = gtk::SearchEntry::new();
+        search.set_placeholder_text(Some("Search lists"));
+        search.set_width_chars(18);
+        search.set_max_width_chars(18);
+        search.set_hexpand(false);
+        content.append(&search);
+
+        let results = gtk::ListBox::new();
+        results.add_css_class("move-list-results");
+        results.set_selection_mode(gtk::SelectionMode::None);
+        let scroll = gtk::ScrolledWindow::builder()
+            .min_content_height(160)
+            .max_content_height(220)
+            .child(&results)
+            .build();
+        content.append(&scroll);
+
+        render_move_list_popover_results(self, &results, "");
+        search.connect_search_changed({
+            let state = Rc::clone(self);
+            let results = results.clone();
+            move |entry| {
+                render_move_list_popover_results(&state, &results, &normalize_query(&entry.text()))
+            }
+        });
+        results.connect_row_activated({
+            let state = Rc::clone(self);
+            let popover = popover.clone();
+            move |_, row| {
+                let project_id = if row.widget_name() == "inbox" {
+                    None
+                } else {
+                    match Uuid::parse_str(&row.widget_name()) {
+                        Ok(id) => Some(id),
+                        Err(error) => {
+                            state.toast(format!("Invalid list id: {error}"));
+                            return;
+                        }
+                    }
+                };
+                let patch = TaskPatch {
+                    project_id: Some(project_id),
+                    ..TaskPatch::default()
+                };
+                if let Err(error) = state.core.update_task(task_id, patch) {
+                    state.toast(format!("Failed to move task: {error}"));
+                } else {
+                    state.request_sync();
+                }
+                popover.popdown();
+                state.load_tasks();
+            }
+        });
+
+        popover.set_child(Some(&content));
+        popover.popup();
+        search.grab_focus();
     }
 
     fn save_task_editor(self: &Rc<Self>) {
@@ -742,11 +1014,15 @@ fn build_ui(app: &adw::Application) {
     list_actions_button.add_css_class("flat");
     list_actions_button.set_visible(false);
     let list_actions_popover = gtk::Popover::new();
-    let list_actions_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    list_actions_popover.set_has_arrow(false);
+    list_actions_popover.set_position(gtk::PositionType::Bottom);
+    list_actions_popover.set_offset(0, 8);
+    let list_actions_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    list_actions_box.add_css_class("task-action-popover");
     let list_edit_button = gtk::Button::with_label("Rename List");
-    list_edit_button.add_css_class("flat");
+    list_edit_button.add_css_class("task-date-quick-button");
     let list_delete_button = gtk::Button::with_label("Delete List");
-    list_delete_button.add_css_class("flat");
+    list_delete_button.add_css_class("task-date-quick-button");
     list_actions_box.append(&list_edit_button);
     list_actions_box.append(&list_delete_button);
     list_actions_popover.set_child(Some(&list_actions_box));
@@ -908,11 +1184,6 @@ fn build_ui(app: &adw::Application) {
     let today_due_button = editor_widgets.today_due_button;
     let clear_due_button = editor_widgets.clear_due_button;
 
-    let move_list_widgets = build_move_list_panel();
-    let move_list_panel = move_list_widgets.panel;
-    let move_list_search = move_list_widgets.search_entry;
-    let move_list_results = move_list_widgets.results;
-
     let setup_widgets = build_sync_setup_panel(
         sync_auth_configured(&platform, &settings),
         &settings.server_url,
@@ -939,7 +1210,6 @@ fn build_ui(app: &adw::Application) {
     let root_overlay = gtk::Overlay::new();
     root_overlay.set_child(Some(&page));
     root_overlay.add_overlay(&editor_panel);
-    root_overlay.add_overlay(&move_list_panel);
     root_overlay.add_overlay(&search_panel);
     root_overlay.add_overlay(&settings_panel);
     root_overlay.add_overlay(&setup_panel);
@@ -1007,10 +1277,6 @@ fn build_ui(app: &adw::Application) {
         deleting_row_task_id: RefCell::new(None),
         rendering_list: Cell::new(false),
         pending_render_list: Cell::new(false),
-        move_list_panel,
-        move_list_search,
-        move_list_results,
-        moving_task_id: RefCell::new(None),
         toast_overlay,
         db_path: paths.database_path.clone(),
         settings_path: paths.settings_path.clone(),
@@ -1064,41 +1330,6 @@ fn build_ui(app: &adw::Application) {
         let due_entry = state.due_entry.clone();
         move |_| due_entry.set_text("")
     });
-    state.move_list_search.connect_search_changed({
-        let state = Rc::clone(&state);
-        move |entry| render_move_list_results(&state, &normalize_query(&entry.text()))
-    });
-    state.move_list_results.connect_row_activated({
-        let state = Rc::clone(&state);
-        move |_, row| {
-            let Some(task_id) = *state.moving_task_id.borrow() else {
-                return;
-            };
-            let project_id = if row.widget_name() == "inbox" {
-                None
-            } else {
-                match Uuid::parse_str(&row.widget_name()) {
-                    Ok(id) => Some(id),
-                    Err(error) => {
-                        state.toast(format!("Invalid list id: {error}"));
-                        return;
-                    }
-                }
-            };
-            let patch = TaskPatch {
-                project_id: Some(project_id),
-                ..TaskPatch::default()
-            };
-            if let Err(error) = state.core.update_task(task_id, patch) {
-                state.toast(format!("Failed to move task: {error}"));
-            } else {
-                state.request_sync();
-            }
-            state.hide_move_list_panel();
-            state.load_tasks();
-        }
-    });
-
     state.body_view.buffer().connect_changed({
         let markdown_preview = state.markdown_preview.clone();
         move |buffer| {
@@ -1152,9 +1383,6 @@ fn build_ui(app: &adw::Application) {
         move |_, _, x, y| {
             if state.editor_panel.is_visible() {
                 state.save_task_editor();
-            }
-            if state.move_list_panel.is_visible() {
-                state.hide_move_list_panel();
             }
             let Some(widget) = page.pick(x, y, gtk::PickFlags::DEFAULT) else {
                 return;
@@ -1411,9 +1639,6 @@ fn build_ui(app: &adw::Application) {
                     if state.editor_panel.is_visible() {
                         state.save_task_editor();
                     }
-                    if state.move_list_panel.is_visible() {
-                        state.hide_move_list_panel();
-                    }
                 }
             }),
             delete_task: Rc::new({
@@ -1486,6 +1711,11 @@ fn selected_task_id(state: &AppState) -> Option<Uuid> {
         .and_then(|row| Uuid::parse_str(&row.widget_name()).ok())
 }
 
+fn attach_one_shot_popover(popover: &gtk::Popover, parent: &gtk::Button) {
+    popover.set_parent(parent);
+    popover.connect_closed(|popover| popover.unparent());
+}
+
 fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &str) {
     while let Some(row) = results.first_child() {
         results.remove(&row);
@@ -1508,32 +1738,26 @@ fn render_search_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &s
     }
 }
 
-fn render_move_list_results(state: &Rc<AppState>, results_query: &str) {
-    while let Some(row) = state.move_list_results.first_child() {
-        state.move_list_results.remove(&row);
+fn render_move_list_popover_results(state: &Rc<AppState>, results: &gtk::ListBox, query: &str) {
+    while let Some(row) = results.first_child() {
+        results.remove(&row);
     }
-    let regex = match regex_from_query(results_query) {
+    let regex = match regex_from_query(query) {
         Ok(regex) => regex,
         Err(error) => {
             state.toast(format!("Invalid regex: {error}"));
             return;
         }
     };
-    append_move_list_row(state, "inbox", "Inbox");
+    results.append(&move_list_result_row("inbox", "Inbox"));
     for list in state
         .user_lists
         .borrow()
         .iter()
         .filter(|list| regex.is_match(&list.name))
     {
-        append_move_list_row(state, &list.id.to_string(), &list.name);
+        results.append(&move_list_result_row(&list.id.to_string(), &list.name));
     }
-}
-
-fn append_move_list_row(state: &Rc<AppState>, id: &str, name: &str) {
-    state
-        .move_list_results
-        .append(&move_list_result_row(id, name));
 }
 
 fn open_task_from_search(state: &Rc<AppState>, task: &Task) {

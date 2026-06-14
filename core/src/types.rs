@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -114,6 +116,63 @@ pub struct RetryQueueEntry {
     pub task_id: Uuid,
     pub attempt: i64,
     pub next_retry: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharedTaskRecipient {
+    pub task_id: Uuid,
+    pub recipient_id: Uuid,
+    pub wrapped_task_key: Blob,
+    pub created_at: i64,
+    pub revoked_at: Option<i64>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharedTaskState {
+    pub task_id: Uuid,
+    pub owner_id: Option<Uuid>,
+    pub task_key: Vec<u8>,
+    pub recipients: Vec<SharedTaskRecipient>,
+    pub accepted_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+}
+
+impl fmt::Debug for SharedTaskState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SharedTaskState")
+            .field("task_id", &self.task_id)
+            .field("owner_id", &self.owner_id)
+            .field("task_key", &"<redacted>")
+            .field("recipients", &self.recipients)
+            .field("accepted_at", &self.accepted_at)
+            .field("revoked_at", &self.revoked_at)
+            .finish()
+    }
+}
+
+impl SharedTaskState {
+    pub fn active_recipients(&self) -> impl Iterator<Item = &SharedTaskRecipient> {
+        self.recipients
+            .iter()
+            .filter(|recipient| recipient.revoked_at.is_none())
+    }
+
+    pub fn is_shared(&self) -> bool {
+        self.accepted_at.is_some() || self.active_recipients().next().is_some()
+    }
+
+    pub fn revocation_notice() -> &'static str {
+        "Revocation stops future shared sync by rotating the task key, but cannot erase plaintext or keys already synced to a recipient device."
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SharedTaskInvite {
+    pub task_id: Uuid,
+    pub owner_id: Uuid,
+    pub recipient_id: Uuid,
+    pub wrapped_task_key: Blob,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
