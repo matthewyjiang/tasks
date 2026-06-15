@@ -1,5 +1,9 @@
 # Changelog
 
+## cli-v1.3.1 - 2026-06-15
+
+- fix(cli): enable native key store backends per platform (#122) (634fd10)
+
 ## linux-app-v0.5.1 - 2026-06-15
 
 - fix: address reminder review follow-ups (#119) (b06df7b)
