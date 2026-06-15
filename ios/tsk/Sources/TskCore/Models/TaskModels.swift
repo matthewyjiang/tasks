@@ -74,6 +74,7 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
     public var body: String
     public var dueAt: Date?
     public var status: TaskStatus
+    public var reminderOffsetMs: Int64?
     public var listID: UUID?
     public var tags: [String]
     public var createdAt: Date
@@ -87,6 +88,7 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         body: String = "",
         dueAt: Date? = nil,
         status: TaskStatus = .open,
+        reminderOffsetMs: Int64? = nil,
         listID: UUID? = nil,
         tags: [String] = [],
         createdAt: Date = Date(),
@@ -99,12 +101,36 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         self.body = body
         self.dueAt = dueAt
         self.status = status
+        self.reminderOffsetMs = reminderOffsetMs
         self.listID = listID
         self.tags = tags
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.deleted = deleted
         self.dirty = dirty
+    }
+
+    public func notificationFireDate(now: Date = Date()) -> Date? {
+        let nowMs = Int64((now.timeIntervalSince1970 * 1_000).rounded())
+        guard let fireAt = try? schedulableNotificationAt(task: ffi, nowMs: nowMs) else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(fireAt) / 1_000)
+    }
+
+    private var ffi: FfiTask {
+        FfiTask(
+            id: id.uuidString,
+            title: title,
+            body: body,
+            dueAt: dueAt.map { Int64(($0.timeIntervalSince1970 * 1_000).rounded()) },
+            reminderOffsetMs: reminderOffsetMs,
+            status: status.ffi,
+            projectId: listID?.uuidString,
+            tags: tags,
+            createdAt: Int64((createdAt.timeIntervalSince1970 * 1_000).rounded()),
+            updatedAt: Int64((updatedAt.timeIntervalSince1970 * 1_000).rounded()),
+            deleted: deleted,
+            dirty: dirty
+        )
     }
 }
 

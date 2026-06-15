@@ -242,6 +242,8 @@ namespace taskmanager_core {
   FfiBlob encrypt_task_blob(FfiTask task, sequence<u8> key);
   [Throws=FfiCoreError]
   FfiTask decrypt_task_blob(FfiBlob blob, sequence<u8> key);
+  [Throws=FfiCoreError]
+  i64? schedulable_notification_at(FfiTask task, i64 now_ms);
   sequence<u8> generate_account_data_key();
 
   FfiDeviceKeypair generate_ffi_device_keypair();

@@ -7,7 +7,7 @@ public struct StartupFailedRepository: TaskRepository {
         self.error = error
     }
 
-    public func loadTasks() async throws -> [TaskItem] { throw error }
+    public func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] { throw error }
     public func loadLists() async throws -> [TaskListItem] { throw error }
     public func createTask(title: String, body: String, dueAt: Date?, listID: UUID?, tags: [String]) async throws -> TaskItem { throw error }
     public func updateTask(_ task: TaskItem) async throws -> TaskItem { throw error }

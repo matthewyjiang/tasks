@@ -15,15 +15,18 @@ public final class AppModel: ObservableObject {
 
     private let repository: any TaskRepository
     private let filterEngine: TaskFilterEngine
+    private let notificationScheduler: (any LocalNotificationScheduling)?
 
     public init(
         repository: any TaskRepository = PreviewTaskRepository(),
         filterEngine: TaskFilterEngine = TaskFilterEngine(),
-        localAccount: LocalAccountBootstrapState? = nil
+        localAccount: LocalAccountBootstrapState? = nil,
+        notificationScheduler: (any LocalNotificationScheduling)? = nil
     ) {
         self.repository = repository
         self.filterEngine = filterEngine
         self.localAccount = localAccount
+        self.notificationScheduler = notificationScheduler
     }
 
     public var selectedTask: TaskItem? {
@@ -72,7 +75,7 @@ public final class AppModel: ObservableObject {
 
     public func load() async {
         do {
-            async let loadedTasks = repository.loadTasks()
+            async let loadedTasks = repository.loadTasks(includeDeleted: true)
             async let loadedLists = repository.loadLists()
             async let loadedSync = repository.syncSummary()
             let allTasks = try await loadedTasks
@@ -80,9 +83,10 @@ public final class AppModel: ObservableObject {
             let wasOnline = syncSummary.isOnline
             tasks = allTasks.filter { !$0.deleted }
             lists = allLists.filter { !$0.deleted }
+            let notificationError = await reconcileNotifications(for: allTasks)
             syncSummary = try await loadedSync
             syncSummary.isOnline = wasOnline
-            errorMessage = nil
+            errorMessage = notificationError
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -113,8 +117,9 @@ public final class AppModel: ObservableObject {
             }
             tasks.append(task)
             selectedTaskID = task.id
+            let notificationError = await reconcileNotification(for: task)
             syncSummary = try await repository.syncSummary()
-            errorMessage = nil
+            errorMessage = notificationError
             return task
         } catch {
             errorMessage = error.localizedDescription
@@ -148,8 +153,9 @@ public final class AppModel: ObservableObject {
             } else {
                 tasks.append(saved)
             }
+            let notificationError = await reconcileNotification(for: saved)
             syncSummary = try await repository.syncSummary()
-            errorMessage = nil
+            errorMessage = notificationError
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -160,6 +166,7 @@ public final class AppModel: ObservableObject {
             try await repository.deleteTask(id: id)
             tasks.removeAll { $0.id == id }
             if selectedTaskID == id { selectedTaskID = nil }
+            notificationScheduler?.cancelTaskNotification(taskID: id)
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
@@ -215,6 +222,36 @@ public final class AppModel: ObservableObject {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func reconcileNotifications(for tasks: [TaskItem]) async -> String? {
+        var notificationError: String?
+        for task in tasks {
+            notificationError = await reconcileNotification(for: task) ?? notificationError
+        }
+        return notificationError
+    }
+
+    private func reconcileNotification(for task: TaskItem) async -> String? {
+        guard let notificationScheduler else { return nil }
+        guard !task.deleted, let fireDate = task.notificationFireDate() else {
+            notificationScheduler.cancelTaskNotification(taskID: task.id)
+            return nil
+        }
+        do {
+            guard try await notificationScheduler.requestAuthorizationIfNeeded() else { return nil }
+            try await notificationScheduler.schedule(
+                LocalNotificationRequest(
+                    taskID: task.id,
+                    title: task.title,
+                    body: task.body,
+                    fireDate: fireDate
+                )
+            )
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
