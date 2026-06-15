@@ -1,20 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use base64::Engine;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use serde::{Deserialize, Serialize};
 use taskmanager_core::{
-    init_account, init_device_keypair, public_key_from_private_key, Platform, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    configure_sync_auth as core_configure_sync_auth, device_public_key_base64_from_platform,
+    init_device_keypair, logout_sync_auth as core_logout_sync_auth, normalize_sync_server_url,
+    sync_auth_configured as core_sync_auth_configured, AuthCredentials, Platform,
 };
 
 use crate::platform::LinuxPlatform;
-use crate::sync::{
-    normalize_sync_server_url, sync_server_origin, AUTH_ACCESS_TOKEN_ID, AUTH_REFRESH_TOKEN_ID,
-    AUTH_SYNC_ORIGIN_ID,
-};
+use crate::sync::LinuxAuthClient;
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings};
 
 pub(crate) struct SyncSetupPanelWidgets {
@@ -92,34 +88,7 @@ pub(crate) fn build_sync_setup_panel(configured: bool, server_url: &str) -> Sync
 }
 
 pub(crate) fn sync_auth_configured(platform: &LinuxPlatform, settings: &LinuxSettings) -> bool {
-    let Ok(settings_origin) = sync_server_origin(&settings.server_url) else {
-        return false;
-    };
-    let Ok(stored_origin_bytes) = platform.load_key(AUTH_SYNC_ORIGIN_ID) else {
-        return false;
-    };
-    let Ok(stored_origin) = String::from_utf8(stored_origin_bytes) else {
-        return false;
-    };
-    settings_origin == stored_origin
-        && platform.load_key(AUTH_ACCESS_TOKEN_ID).is_ok()
-        && platform.load_key(AUTH_REFRESH_TOKEN_ID).is_ok()
-        && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
-        && platform.load_key(DEVICE_PRIVATE_KEY_ID).is_ok()
-}
-
-#[derive(Serialize)]
-struct AuthRequest {
-    email: String,
-    password: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub_key: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    jwt: String,
-    refresh_token: String,
+    core_sync_auth_configured(platform, &settings.server_url)
 }
 
 pub(crate) fn show_sync_setup_window(
@@ -265,60 +234,28 @@ pub(crate) fn configure_sync_auth(
     email: &str,
     password: &str,
 ) -> Result<(), String> {
-    let server_url = normalize_sync_server_url(server_url)?;
-    let sync_origin = sync_server_origin(&server_url)?;
+    let server_url = normalize_sync_server_url(server_url).map_err(|error| error.to_string())?;
     let email = email.trim().to_owned();
     let password = password.to_string();
-    if email.is_empty() || password.is_empty() {
-        return Err("email and password are required".to_owned());
+    if platform
+        .load_key(taskmanager_core::DEVICE_PRIVATE_KEY_ID)
+        .is_err()
+    {
+        init_device_keypair(platform).map_err(|error| error.to_string())?;
     }
-
-    let public_key = match platform.load_key(DEVICE_PRIVATE_KEY_ID) {
-        Ok(private_key) => {
-            public_key_from_private_key(&private_key).map_err(|error| error.to_string())?
-        }
-        Err(_) => init_device_keypair(platform).map_err(|error| error.to_string())?,
-    };
-    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_err() {
-        init_account(platform).map_err(|error| error.to_string())?;
-    }
-
-    let client = reqwest::blocking::Client::new();
-    let register = AuthRequest {
-        email: email.clone(),
-        password: password.clone(),
-        pub_key: Some(base64::engine::general_purpose::STANDARD.encode(public_key)),
-    };
-    let login = AuthRequest {
-        email: email.clone(),
-        password,
-        pub_key: None,
-    };
-    let tokens = client
-        .post(format!("{server_url}/auth/register"))
-        .json(&register)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .and_then(|response| response.json::<TokenResponse>())
-        .or_else(|_| {
-            client
-                .post(format!("{server_url}/auth/login"))
-                .json(&login)
-                .send()
-                .and_then(|response| response.error_for_status())
-                .and_then(|response| response.json::<TokenResponse>())
-        })
-        .map_err(|error| error.to_string())?;
-
-    platform
-        .store_key(AUTH_ACCESS_TOKEN_ID, tokens.jwt.as_bytes())
-        .map_err(|error| error.to_string())?;
-    platform
-        .store_key(AUTH_REFRESH_TOKEN_ID, tokens.refresh_token.as_bytes())
-        .map_err(|error| error.to_string())?;
-    platform
-        .store_key(AUTH_SYNC_ORIGIN_ID, sync_origin.as_bytes())
-        .map_err(|error| error.to_string())?;
+    let public_key =
+        device_public_key_base64_from_platform(platform).map_err(|error| error.to_string())?;
+    core_configure_sync_auth(
+        platform,
+        &LinuxAuthClient::new(),
+        &server_url,
+        AuthCredentials {
+            email: email.clone(),
+            password,
+        },
+        public_key,
+    )
+    .map_err(|error| error.to_string())?;
 
     let mut settings = read_settings(settings_path).unwrap_or_default();
     settings.server_url = server_url;
@@ -331,16 +268,9 @@ pub(crate) fn logout_sync_auth(
     platform: &LinuxPlatform,
     settings_path: &Path,
 ) -> Result<(), String> {
-    platform
-        .delete_key(AUTH_ACCESS_TOKEN_ID)
-        .map_err(|error| error.to_string())?;
-    platform
-        .delete_key(AUTH_REFRESH_TOKEN_ID)
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = platform.delete_key(AUTH_SYNC_ORIGIN_ID) {
-        eprintln!("Failed to clear sync origin: {error}");
-    }
     let mut settings = read_settings(settings_path).unwrap_or_default();
+    core_logout_sync_auth(platform, &LinuxAuthClient::new(), &settings.server_url)
+        .map_err(|error| error.to_string())?;
     settings.sync_email.clear();
     write_settings(settings_path, &settings).map_err(|error| error.to_string())?;
     Ok(())
