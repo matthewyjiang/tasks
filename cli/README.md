@@ -103,7 +103,11 @@ tsk --db /tmp/tasks.db task delete <task_id>
 
 `tsk configure` is the normal user path for creating local account keys, saving the server URL, and registering/logging in with email and password. Lower-level account, auth, and device commands operate locally through the CLI platform key store for diagnostics, headless tests, and advanced recovery workflows.
 
-By default, the CLI stores secrets in the platform key store. On Linux this uses the Freedesktop Secret Service/libsecret-compatible backend when available.
+By default, the CLI stores secrets in the native platform key store:
+
+- Linux: Freedesktop Secret Service/libsecret-compatible storage when available.
+- macOS: Keychain.
+- Windows: Credential Manager.
 
 For headless/dev/test usage, explicitly opt into the file-backed key store:
 

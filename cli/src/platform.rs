@@ -247,6 +247,26 @@ mod tests {
     use taskmanager_core::CoreError;
 
     #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "touches the user's native key store; run explicitly when validating macOS Keychain integration"]
+    fn native_key_store_round_trips_key_bytes() {
+        let key_id = format!("test/native/{}", Uuid::new_v4());
+        let platform = CliPlatform {
+            offline: false,
+            key_store: KeyStore::Native,
+            reminder_store: ReminderStore::Disabled,
+        };
+
+        platform.store_key(&key_id, b"secret").unwrap();
+        assert_eq!(platform.load_key(&key_id).unwrap(), b"secret");
+        platform.delete_key(&key_id).unwrap();
+        assert!(matches!(
+            platform.load_key(&key_id).unwrap_err(),
+            CoreError::Platform(PlatformError::KeyNotFound(id)) if id == key_id
+        ));
+    }
+
+    #[test]
     fn file_backed_test_key_store_round_trips_key_bytes() {
         let temp = tempfile::tempdir().unwrap();
         let platform = CliPlatform::with_insecure_stores(
