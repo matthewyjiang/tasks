@@ -52,9 +52,10 @@ import Testing
     )
 
     var withReminder = task
-    withReminder.reminderOffsetMs = 15 * 60 * 1_000
+    let reminderOffsetMs: Int64 = 15 * 60 * 1_000
+    withReminder.reminderOffsetMs = reminderOffsetMs
     let savedWithReminder = try await repository.updateTask(withReminder)
-    #expect(savedWithReminder.reminderOffsetMs == 15 * 60 * 1_000)
+    #expect(savedWithReminder.reminderOffsetMs == reminderOffsetMs)
 
     var withoutReminder = savedWithReminder
     withoutReminder.reminderOffsetMs = nil

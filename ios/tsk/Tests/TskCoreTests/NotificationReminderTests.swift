@@ -74,7 +74,7 @@ private final class RecordingNotificationScheduler: LocalNotificationScheduling,
     let repository = PreviewTaskRepository(tasks: [], lists: [], sync: SyncSummary())
     let model = AppModel(repository: repository, notificationScheduler: scheduler)
 
-    let task = await model.createTask(
+    var task = await model.createTask(
         title: "Future",
         body: "Body",
         dueAt: dueAt,
@@ -83,10 +83,15 @@ private final class RecordingNotificationScheduler: LocalNotificationScheduling,
     )
 
     #expect(task != nil)
+
+    if var task {
+        task.reminderOffsetMs = 15 * 60 * 1_000
+        await model.save(task: task)
+    }
     #expect(model.errorMessage == "Notification scheduling failed")
 
     scheduler.scheduleError = nil
-    if var task {
+    if var task = model.tasks.first {
         task.body = "Updated"
         await model.save(task: task)
     }
