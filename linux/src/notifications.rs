@@ -97,7 +97,8 @@ impl NotificationScheduler for SystemdUserNotificationScheduler {
         self.remove_units(task_id)?;
         self.write_units(task_id, &service, &timer)?;
         systemctl_user(&["daemon-reload"])?;
-        systemctl_user(&["enable", "--now", &timer_name])?;
+        systemctl_user(&["enable", &timer_name])?;
+        systemctl_user(&["restart", &timer_name])?;
         eprintln!("Scheduled reminder for task {task_id} at {calendar_time}");
         Ok(())
     }

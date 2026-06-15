@@ -110,13 +110,14 @@ impl LocalDatabase {
             }
         }
 
+        let reminder_offset_ms = self.default_reminder_offset_ms(due_at)?;
         let now = now_ms();
         let task = Task {
             id: Uuid::new_v4(),
             title,
             body,
             due_at,
-            reminder_offset_ms: None,
+            reminder_offset_ms,
             status: TaskStatus::Open,
             project_id,
             tags,
@@ -150,8 +151,17 @@ impl LocalDatabase {
         if let Some(body) = patch.body {
             task.body = body;
         }
+        let had_due_at = task.due_at.is_some();
+        let has_reminder_patch = patch.reminder_offset_ms.is_some();
         if let Some(due_at) = patch.due_at {
             task.due_at = due_at;
+            if due_at.is_some()
+                && !had_due_at
+                && !has_reminder_patch
+                && task.reminder_offset_ms.is_none()
+            {
+                task.reminder_offset_ms = self.default_reminder_offset_ms(due_at)?;
+            }
         }
         if let Some(reminder_offset_ms) = patch.reminder_offset_ms {
             if reminder_offset_ms.is_some_and(|offset| offset < 0) {
@@ -248,6 +258,17 @@ impl LocalDatabase {
         let task = settings.to_reserved_task(now_ms())?;
         self.upsert_task(&task)?;
         Ok(settings.clone())
+    }
+
+    fn default_reminder_offset_ms(&self, due_at: Option<i64>) -> CoreResult<Option<i64>> {
+        if due_at.is_none() {
+            return Ok(None);
+        }
+        let minutes = self.vault_settings()?.default_reminder_minutes;
+        if minutes <= 0 {
+            return Ok(None);
+        }
+        Ok(Some(i64::from(minutes) * 60_000))
     }
 
     pub fn share_task(
@@ -1035,6 +1056,95 @@ mod tests {
         assert_eq!(loaded.status, TaskStatus::Open);
         assert!(loaded.dirty);
         assert!(!loaded.deleted);
+    }
+
+    #[test]
+    fn create_task_applies_default_reminder_for_due_tasks() {
+        let database = db();
+        let due_task = create_named(&database, "due", "body", Some(10));
+        let undated_task = create_named(&database, "undated", "body", None);
+
+        assert_eq!(due_task.reminder_offset_ms, Some(30 * 60_000));
+        assert_eq!(undated_task.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn create_task_skips_default_reminder_when_disabled() {
+        let database = db();
+        let settings = VaultSettings {
+            default_reminder_minutes: 0,
+            ..VaultSettings::default()
+        };
+        database.update_vault_settings(&settings).unwrap();
+
+        let task = create_named(&database, "due", "body", Some(10));
+
+        assert_eq!(task.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn update_task_applies_default_reminder_when_due_date_is_added() {
+        let database = db();
+        let task = create_named(&database, "due", "body", None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(10)),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, Some(30 * 60_000));
+    }
+
+    #[test]
+    fn update_task_respects_explicit_reminder_patch_when_due_date_is_added() {
+        let database = db();
+        let task = create_named(&database, "due", "body", None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(10)),
+                    reminder_offset_ms: Some(None),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn update_task_keeps_disabled_reminder_when_due_date_changes() {
+        let database = db();
+        let task = create_named(&database, "due", "body", Some(10));
+        let disabled = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    reminder_offset_ms: Some(None),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(disabled.reminder_offset_ms, None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(20)),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, None);
     }
 
     #[test]

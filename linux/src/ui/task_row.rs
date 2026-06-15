@@ -370,8 +370,8 @@ fn due_date_button(task: &Task, actions: &TaskRowActions) -> gtk::MenuButton {
     }
     let active_reminder_id = reminder_offset_id(task.reminder_offset_ms);
     if let Some(offset) = task.reminder_offset_ms {
-        if active_reminder_id.is_none() {
-            let custom_id = reminder_custom_id(offset);
+        let custom_id = reminder_custom_id(offset);
+        if active_reminder_id.as_deref() == Some(custom_id.as_str()) {
             reminder_combo.append(Some(&custom_id), &format_reminder_offset(offset));
         }
     }
