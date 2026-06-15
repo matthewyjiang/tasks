@@ -2,10 +2,17 @@ import Foundation
 import Testing
 @testable import TskCore
 
+private enum NotificationTestError: LocalizedError {
+    case schedulingFailed
+
+    var errorDescription: String? { "Notification scheduling failed" }
+}
+
 private final class RecordingNotificationScheduler: LocalNotificationScheduling, @unchecked Sendable {
     var authorizationRequested = 0
     var scheduled: [LocalNotificationRequest] = []
     var canceled: [UUID] = []
+    var scheduleError: Error?
 
     func requestAuthorizationIfNeeded() async throws -> Bool {
         authorizationRequested += 1
@@ -13,6 +20,7 @@ private final class RecordingNotificationScheduler: LocalNotificationScheduling,
     }
 
     func schedule(_ request: LocalNotificationRequest) async throws {
+        if let scheduleError { throw scheduleError }
         scheduled.append(request)
     }
 
@@ -42,16 +50,46 @@ private final class RecordingNotificationScheduler: LocalNotificationScheduling,
     let dueAt = Date().addingTimeInterval(3_600)
     let future = TaskItem(title: "Future", body: "Body", dueAt: dueAt, reminderOffsetMs: 15 * 60 * 1_000)
     let noReminder = TaskItem(title: "No reminder", dueAt: dueAt)
+    var deleted = TaskItem(title: "Deleted reminder", dueAt: dueAt, reminderOffsetMs: 15 * 60 * 1_000)
+    deleted.deleted = true
     let scheduler = RecordingNotificationScheduler()
-    let repository = PreviewTaskRepository(tasks: [future, noReminder], lists: [], sync: SyncSummary())
+    let repository = PreviewTaskRepository(tasks: [future, noReminder, deleted], lists: [], sync: SyncSummary())
     let model = AppModel(repository: repository, notificationScheduler: scheduler)
 
     await model.load()
 
     #expect(scheduler.authorizationRequested == 1)
     #expect(scheduler.scheduled.map(\.identifier) == [LocalNotificationRequest.identifier(forTaskID: future.id)])
-    #expect(scheduler.canceled == [noReminder.id])
+    #expect(scheduler.canceled == [noReminder.id, deleted.id])
+    #expect(!model.tasks.contains { $0.id == deleted.id })
 
     await model.deleteTask(id: future.id)
     #expect(scheduler.canceled.contains(future.id))
+}
+
+@Test @MainActor func appModelPreservesNotificationSchedulingErrorAfterSuccessfulTaskOperations() async throws {
+    let dueAt = Date().addingTimeInterval(3_600)
+    let scheduler = RecordingNotificationScheduler()
+    scheduler.scheduleError = NotificationTestError.schedulingFailed
+    let repository = PreviewTaskRepository(tasks: [], lists: [], sync: SyncSummary())
+    let model = AppModel(repository: repository, notificationScheduler: scheduler)
+
+    let task = await model.createTask(
+        title: "Future",
+        body: "Body",
+        dueAt: dueAt,
+        listID: nil,
+        tags: []
+    )
+
+    #expect(task != nil)
+    #expect(model.errorMessage == "Notification scheduling failed")
+
+    scheduler.scheduleError = nil
+    if var task {
+        task.body = "Updated"
+        await model.save(task: task)
+    }
+
+    #expect(model.errorMessage == nil)
 }

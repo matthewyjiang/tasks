@@ -12,6 +12,8 @@ pub mod settings;
 pub mod sync;
 pub mod types;
 
+use crate::ffi::schedulable_notification_at;
+
 uniffi::include_scaffolding!("core");
 
 pub use core::TaskManagerCore;

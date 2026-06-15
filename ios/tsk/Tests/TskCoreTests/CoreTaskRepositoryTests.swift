@@ -36,6 +36,35 @@ import Testing
     #expect(sync.dirtyCount >= 1)
 }
 
+@Test func coreTaskRepositoryClearsReminderOffsetOnFullStateUpdate() async throws {
+    let databaseURL = FileManager.default.temporaryDirectory
+        .appending(path: "tsk-core-reminder-clear-\(UUID().uuidString).sqlite3")
+    defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+    let repository = try CoreTaskRepository(databaseURL: databaseURL)
+    let dueAt = Date(timeIntervalSince1970: 1_900_000_000)
+    let task = try await repository.createTask(
+        title: "Remind me",
+        body: "Clear later",
+        dueAt: dueAt,
+        listID: nil,
+        tags: []
+    )
+
+    var withReminder = task
+    withReminder.reminderOffsetMs = 15 * 60 * 1_000
+    let savedWithReminder = try await repository.updateTask(withReminder)
+    #expect(savedWithReminder.reminderOffsetMs == 15 * 60 * 1_000)
+
+    var withoutReminder = savedWithReminder
+    withoutReminder.reminderOffsetMs = nil
+    let savedWithoutReminder = try await repository.updateTask(withoutReminder)
+    #expect(savedWithoutReminder.reminderOffsetMs == nil)
+
+    let reloaded = try #require(try await repository.loadTasks().first { $0.id == task.id })
+    #expect(reloaded.reminderOffsetMs == nil)
+}
+
 @Test func coreTaskRepositoryPersistsPhase2OfflineCrudFlows() async throws {
     let databaseURL = FileManager.default.temporaryDirectory
         .appending(path: "tsk-core-phase2-\(UUID().uuidString).sqlite3")
@@ -73,6 +102,8 @@ import Testing
 
     try await repository.deleteTask(id: task.id)
     #expect(try await repository.loadTasks().isEmpty)
+    let tombstone = try #require(try await repository.loadTasks(includeDeleted: true).first { $0.id == task.id })
+    #expect(tombstone.deleted)
 
     let sync = try await repository.syncSummary()
     #expect(sync.dirtyCount >= 1)

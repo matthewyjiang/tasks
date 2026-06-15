@@ -564,6 +564,14 @@ pub fn decrypt_task_blob(blob: FfiBlob, key: Vec<u8>) -> Result<FfiTask, FfiCore
         .map_err(FfiCoreError::from)
 }
 
+pub fn schedulable_notification_at(
+    task: FfiTask,
+    now_ms: i64,
+) -> Result<Option<i64>, FfiCoreError> {
+    let task: Task = task.try_into()?;
+    Ok(task.schedulable_notification_at(now_ms))
+}
+
 pub fn generate_account_data_key() -> Vec<u8> {
     generate_data_key().to_vec()
 }
@@ -1159,6 +1167,41 @@ mod tests {
         core.delete_task(created.id.clone()).unwrap();
         assert!(core.get_task(created.id).unwrap().deleted);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ffi_schedulable_notification_at_uses_core_reminder_semantics() {
+        let task = FfiTask {
+            id: Uuid::new_v4().to_string(),
+            title: "Reminder".to_owned(),
+            body: String::new(),
+            due_at: Some(10_000),
+            reminder_offset_ms: Some(1_000),
+            status: FfiTaskStatus::Open,
+            project_id: None,
+            tags: vec![],
+            created_at: 0,
+            updated_at: 0,
+            deleted: false,
+            dirty: false,
+        };
+
+        assert_eq!(
+            schedulable_notification_at(task.clone(), 8_999).unwrap(),
+            Some(9_000)
+        );
+        assert_eq!(
+            schedulable_notification_at(task.clone(), 9_000).unwrap(),
+            None
+        );
+
+        let mut done = task.clone();
+        done.status = FfiTaskStatus::Done;
+        assert_eq!(schedulable_notification_at(done, 8_999).unwrap(), None);
+
+        let mut deleted = task;
+        deleted.deleted = true;
+        assert_eq!(schedulable_notification_at(deleted, 8_999).unwrap(), None);
     }
 
     #[test]

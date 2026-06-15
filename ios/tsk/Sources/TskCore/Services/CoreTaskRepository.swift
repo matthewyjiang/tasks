@@ -11,8 +11,8 @@ public actor CoreTaskRepository: TaskRepository {
         self.core = try FfiTaskManagerCore(databasePath: databasePath)
     }
 
-    public func loadTasks() async throws -> [TaskItem] {
-        let filter = FfiTaskFilter(status: nil, projectId: nil, tags: [], dueAfter: nil, dueBefore: nil, includeDeleted: false)
+    public func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] {
+        let filter = FfiTaskFilter(status: nil, projectId: nil, tags: [], dueAfter: nil, dueBefore: nil, includeDeleted: includeDeleted)
         return try core.listTasks(filter: filter, sort: .updatedAtDesc).compactMap(TaskItem.init(ffi:))
     }
 
@@ -41,7 +41,7 @@ public actor CoreTaskRepository: TaskRepository {
                 dueAt: task.dueAt.map(Self.millisecondsSinceEpoch),
                 clearDueAt: task.dueAt == nil,
                 reminderOffsetMs: task.reminderOffsetMs,
-                clearReminderOffsetMs: false,
+                clearReminderOffsetMs: task.reminderOffsetMs == nil,
                 status: task.status.ffi,
                 projectId: task.listID?.uuidString,
                 clearProjectId: task.listID == nil,
@@ -125,7 +125,7 @@ private extension TaskListItem {
     }
 }
 
-private extension TaskStatus {
+extension TaskStatus {
     init(ffi status: FfiTaskStatus) {
         switch status {
         case .open: self = .open

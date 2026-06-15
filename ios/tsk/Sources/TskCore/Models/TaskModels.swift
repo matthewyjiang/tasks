@@ -111,10 +111,26 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
     }
 
     public func notificationFireDate(now: Date = Date()) -> Date? {
-        guard status == .open, let dueAt, let reminderOffsetMs else { return nil }
-        let fireDate = dueAt.addingTimeInterval(-TimeInterval(reminderOffsetMs) / 1_000)
-        guard fireDate > now else { return nil }
-        return fireDate
+        let nowMs = Int64((now.timeIntervalSince1970 * 1_000).rounded())
+        guard let fireAt = try? schedulableNotificationAt(task: ffi, nowMs: nowMs) else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(fireAt) / 1_000)
+    }
+
+    private var ffi: FfiTask {
+        FfiTask(
+            id: id.uuidString,
+            title: title,
+            body: body,
+            dueAt: dueAt.map { Int64(($0.timeIntervalSince1970 * 1_000).rounded()) },
+            reminderOffsetMs: reminderOffsetMs,
+            status: status.ffi,
+            projectId: listID?.uuidString,
+            tags: tags,
+            createdAt: Int64((createdAt.timeIntervalSince1970 * 1_000).rounded()),
+            updatedAt: Int64((updatedAt.timeIntervalSince1970 * 1_000).rounded()),
+            deleted: deleted,
+            dirty: dirty
+        )
     }
 }
 

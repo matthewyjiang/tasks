@@ -550,6 +550,8 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 public protocol FfiTaskManagerCoreProtocol: AnyObject, Sendable {
     
+    func acceptSharedTaskInvite(invite: FfiSharedTaskInvite, ownerPublicKey: [UInt8], recipientPrivateKey: [UInt8]) throws  -> FfiSharedTaskState
+    
     func createList(name: String) throws  -> FfiTaskList
     
     func createTask(title: String, body: String, dueAt: Int64?) throws  -> FfiTask
@@ -570,7 +572,15 @@ public protocol FfiTaskManagerCoreProtocol: AnyObject, Sendable {
     
     func retryQueueEntries() throws  -> [FfiRetryQueueEntry]
     
+    func revokeSharedTaskRecipient(taskId: String, recipientId: String, remainingRecipientPublicKeys: [FfiSharedTaskRecipientKey], ownerPrivateKey: [UInt8]) throws  -> FfiSharedTaskState
+    
     func searchTasks(query: String) throws  -> [FfiTask]
+    
+    func shareTaskWithRecipient(taskId: String, recipientId: String, recipientPublicKey: [UInt8], ownerPrivateKey: [UInt8]) throws  -> FfiSharedTaskRecipient
+    
+    func sharedTaskRevocationNotice()  -> String
+    
+    func sharedTaskState(taskId: String) throws  -> FfiSharedTaskState
     
     func syncStatus() throws  -> FfiSyncStatus
     
@@ -643,6 +653,17 @@ public convenience init(databasePath: String)throws  {
 
     
 
+    
+open func acceptSharedTaskInvite(invite: FfiSharedTaskInvite, ownerPublicKey: [UInt8], recipientPrivateKey: [UInt8])throws  -> FfiSharedTaskState  {
+    return try  FfiConverterTypeFfiSharedTaskState_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_accept_shared_task_invite(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFfiSharedTaskInvite_lower(invite),
+        FfiConverterSequenceUInt8.lower(ownerPublicKey),
+        FfiConverterSequenceUInt8.lower(recipientPrivateKey),$0
+    )
+})
+}
     
 open func createList(name: String)throws  -> FfiTaskList  {
     return try  FfiConverterTypeFfiTaskList_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
@@ -738,11 +759,52 @@ open func retryQueueEntries()throws  -> [FfiRetryQueueEntry]  {
 })
 }
     
+open func revokeSharedTaskRecipient(taskId: String, recipientId: String, remainingRecipientPublicKeys: [FfiSharedTaskRecipientKey], ownerPrivateKey: [UInt8])throws  -> FfiSharedTaskState  {
+    return try  FfiConverterTypeFfiSharedTaskState_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_revoke_shared_task_recipient(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(taskId),
+        FfiConverterString.lower(recipientId),
+        FfiConverterSequenceTypeFfiSharedTaskRecipientKey.lower(remainingRecipientPublicKeys),
+        FfiConverterSequenceUInt8.lower(ownerPrivateKey),$0
+    )
+})
+}
+    
 open func searchTasks(query: String)throws  -> [FfiTask]  {
     return try  FfiConverterSequenceTypeFfiTask.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
     uniffi_taskmanager_core_fn_method_ffitaskmanagercore_search_tasks(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(query),$0
+    )
+})
+}
+    
+open func shareTaskWithRecipient(taskId: String, recipientId: String, recipientPublicKey: [UInt8], ownerPrivateKey: [UInt8])throws  -> FfiSharedTaskRecipient  {
+    return try  FfiConverterTypeFfiSharedTaskRecipient_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_share_task_with_recipient(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(taskId),
+        FfiConverterString.lower(recipientId),
+        FfiConverterSequenceUInt8.lower(recipientPublicKey),
+        FfiConverterSequenceUInt8.lower(ownerPrivateKey),$0
+    )
+})
+}
+    
+open func sharedTaskRevocationNotice() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_shared_task_revocation_notice(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func sharedTaskState(taskId: String)throws  -> FfiSharedTaskState  {
+    return try  FfiConverterTypeFfiSharedTaskState_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_shared_task_state(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(taskId),$0
     )
 })
 }
@@ -1200,6 +1262,258 @@ public func FfiConverterTypeFfiRetryQueueEntry_lower(_ value: FfiRetryQueueEntry
 }
 
 
+public struct FfiSharedTaskInvite: Equatable, Hashable {
+    public var taskId: String
+    public var ownerId: String
+    public var recipientId: String
+    public var wrappedTaskKey: FfiBlob
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(taskId: String, ownerId: String, recipientId: String, wrappedTaskKey: FfiBlob) {
+        self.taskId = taskId
+        self.ownerId = ownerId
+        self.recipientId = recipientId
+        self.wrappedTaskKey = wrappedTaskKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSharedTaskInvite: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSharedTaskInvite: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSharedTaskInvite {
+        return
+            try FfiSharedTaskInvite(
+                taskId: FfiConverterString.read(from: &buf), 
+                ownerId: FfiConverterString.read(from: &buf), 
+                recipientId: FfiConverterString.read(from: &buf), 
+                wrappedTaskKey: FfiConverterTypeFfiBlob.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSharedTaskInvite, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.taskId, into: &buf)
+        FfiConverterString.write(value.ownerId, into: &buf)
+        FfiConverterString.write(value.recipientId, into: &buf)
+        FfiConverterTypeFfiBlob.write(value.wrappedTaskKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskInvite_lift(_ buf: RustBuffer) throws -> FfiSharedTaskInvite {
+    return try FfiConverterTypeFfiSharedTaskInvite.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskInvite_lower(_ value: FfiSharedTaskInvite) -> RustBuffer {
+    return FfiConverterTypeFfiSharedTaskInvite.lower(value)
+}
+
+
+public struct FfiSharedTaskRecipient: Equatable, Hashable {
+    public var taskId: String
+    public var recipientId: String
+    public var wrappedTaskKey: FfiBlob
+    public var createdAt: Int64
+    public var revokedAt: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(taskId: String, recipientId: String, wrappedTaskKey: FfiBlob, createdAt: Int64, revokedAt: Int64?) {
+        self.taskId = taskId
+        self.recipientId = recipientId
+        self.wrappedTaskKey = wrappedTaskKey
+        self.createdAt = createdAt
+        self.revokedAt = revokedAt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSharedTaskRecipient: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSharedTaskRecipient: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSharedTaskRecipient {
+        return
+            try FfiSharedTaskRecipient(
+                taskId: FfiConverterString.read(from: &buf), 
+                recipientId: FfiConverterString.read(from: &buf), 
+                wrappedTaskKey: FfiConverterTypeFfiBlob.read(from: &buf), 
+                createdAt: FfiConverterInt64.read(from: &buf), 
+                revokedAt: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSharedTaskRecipient, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.taskId, into: &buf)
+        FfiConverterString.write(value.recipientId, into: &buf)
+        FfiConverterTypeFfiBlob.write(value.wrappedTaskKey, into: &buf)
+        FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterOptionInt64.write(value.revokedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskRecipient_lift(_ buf: RustBuffer) throws -> FfiSharedTaskRecipient {
+    return try FfiConverterTypeFfiSharedTaskRecipient.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskRecipient_lower(_ value: FfiSharedTaskRecipient) -> RustBuffer {
+    return FfiConverterTypeFfiSharedTaskRecipient.lower(value)
+}
+
+
+public struct FfiSharedTaskRecipientKey: Equatable, Hashable {
+    public var recipientId: String
+    public var publicKey: [UInt8]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(recipientId: String, publicKey: [UInt8]) {
+        self.recipientId = recipientId
+        self.publicKey = publicKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSharedTaskRecipientKey: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSharedTaskRecipientKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSharedTaskRecipientKey {
+        return
+            try FfiSharedTaskRecipientKey(
+                recipientId: FfiConverterString.read(from: &buf), 
+                publicKey: FfiConverterSequenceUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSharedTaskRecipientKey, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.recipientId, into: &buf)
+        FfiConverterSequenceUInt8.write(value.publicKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskRecipientKey_lift(_ buf: RustBuffer) throws -> FfiSharedTaskRecipientKey {
+    return try FfiConverterTypeFfiSharedTaskRecipientKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskRecipientKey_lower(_ value: FfiSharedTaskRecipientKey) -> RustBuffer {
+    return FfiConverterTypeFfiSharedTaskRecipientKey.lower(value)
+}
+
+
+public struct FfiSharedTaskState: Equatable, Hashable {
+    public var taskId: String
+    public var ownerId: String?
+    public var taskKey: [UInt8]
+    public var recipients: [FfiSharedTaskRecipient]
+    public var acceptedAt: Int64?
+    public var revokedAt: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(taskId: String, ownerId: String?, taskKey: [UInt8], recipients: [FfiSharedTaskRecipient], acceptedAt: Int64?, revokedAt: Int64?) {
+        self.taskId = taskId
+        self.ownerId = ownerId
+        self.taskKey = taskKey
+        self.recipients = recipients
+        self.acceptedAt = acceptedAt
+        self.revokedAt = revokedAt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSharedTaskState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSharedTaskState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSharedTaskState {
+        return
+            try FfiSharedTaskState(
+                taskId: FfiConverterString.read(from: &buf), 
+                ownerId: FfiConverterOptionString.read(from: &buf), 
+                taskKey: FfiConverterSequenceUInt8.read(from: &buf), 
+                recipients: FfiConverterSequenceTypeFfiSharedTaskRecipient.read(from: &buf), 
+                acceptedAt: FfiConverterOptionInt64.read(from: &buf), 
+                revokedAt: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSharedTaskState, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.taskId, into: &buf)
+        FfiConverterOptionString.write(value.ownerId, into: &buf)
+        FfiConverterSequenceUInt8.write(value.taskKey, into: &buf)
+        FfiConverterSequenceTypeFfiSharedTaskRecipient.write(value.recipients, into: &buf)
+        FfiConverterOptionInt64.write(value.acceptedAt, into: &buf)
+        FfiConverterOptionInt64.write(value.revokedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskState_lift(_ buf: RustBuffer) throws -> FfiSharedTaskState {
+    return try FfiConverterTypeFfiSharedTaskState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSharedTaskState_lower(_ value: FfiSharedTaskState) -> RustBuffer {
+    return FfiConverterTypeFfiSharedTaskState.lower(value)
+}
+
+
 public struct FfiSyncStatus: Equatable, Hashable {
     public var dirtyCount: UInt64
     public var retryQueueDepth: UInt64
@@ -1643,10 +1957,11 @@ public struct FfiVaultSettings: Equatable, Hashable {
     public var firstDayOfWeek: Int32
     public var notificationSound: String
     public var keybindings: FfiKeybindings
+    public var showShareRevocationWarning: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(schemaVersion: Int32, theme: FfiTheme, defaultSort: FfiDefaultSort, showCompleted: Bool, defaultReminderMinutes: Int32, tagColors: [FfiTagColor], displayDensity: FfiDisplayDensity, firstDayOfWeek: Int32, notificationSound: String, keybindings: FfiKeybindings) {
+    public init(schemaVersion: Int32, theme: FfiTheme, defaultSort: FfiDefaultSort, showCompleted: Bool, defaultReminderMinutes: Int32, tagColors: [FfiTagColor], displayDensity: FfiDisplayDensity, firstDayOfWeek: Int32, notificationSound: String, keybindings: FfiKeybindings, showShareRevocationWarning: Bool) {
         self.schemaVersion = schemaVersion
         self.theme = theme
         self.defaultSort = defaultSort
@@ -1657,6 +1972,7 @@ public struct FfiVaultSettings: Equatable, Hashable {
         self.firstDayOfWeek = firstDayOfWeek
         self.notificationSound = notificationSound
         self.keybindings = keybindings
+        self.showShareRevocationWarning = showShareRevocationWarning
     }
 
     
@@ -1684,7 +2000,8 @@ public struct FfiConverterTypeFfiVaultSettings: FfiConverterRustBuffer {
                 displayDensity: FfiConverterTypeFfiDisplayDensity.read(from: &buf), 
                 firstDayOfWeek: FfiConverterInt32.read(from: &buf), 
                 notificationSound: FfiConverterString.read(from: &buf), 
-                keybindings: FfiConverterTypeFfiKeybindings.read(from: &buf)
+                keybindings: FfiConverterTypeFfiKeybindings.read(from: &buf), 
+                showShareRevocationWarning: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1699,6 +2016,7 @@ public struct FfiConverterTypeFfiVaultSettings: FfiConverterRustBuffer {
         FfiConverterInt32.write(value.firstDayOfWeek, into: &buf)
         FfiConverterString.write(value.notificationSound, into: &buf)
         FfiConverterTypeFfiKeybindings.write(value.keybindings, into: &buf)
+        FfiConverterBool.write(value.showShareRevocationWarning, into: &buf)
     }
 }
 
@@ -2496,6 +2814,56 @@ fileprivate struct FfiConverterSequenceTypeFfiRetryQueueEntry: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiSharedTaskRecipient: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSharedTaskRecipient]
+
+    public static func write(_ value: [FfiSharedTaskRecipient], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSharedTaskRecipient.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSharedTaskRecipient] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSharedTaskRecipient]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSharedTaskRecipient.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiSharedTaskRecipientKey: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSharedTaskRecipientKey]
+
+    public static func write(_ value: [FfiSharedTaskRecipientKey], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSharedTaskRecipientKey.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSharedTaskRecipientKey] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSharedTaskRecipientKey]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSharedTaskRecipientKey.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiTagColor: FfiConverterRustBuffer {
     typealias SwiftType = [FfiTagColor]
 
@@ -2627,6 +2995,14 @@ public func readPlaintextSettings(path: String)throws  -> FfiPlaintextSettings  
     )
 })
 }
+public func schedulableNotificationAt(task: FfiTask, nowMs: Int64)throws  -> Int64?  {
+    return try  FfiConverterOptionInt64.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_func_schedulable_notification_at(
+        FfiConverterTypeFfiTask_lower(task),
+        FfiConverterInt64.lower(nowMs),$0
+    )
+})
+}
 public func unwrapAccountDataKey(wrapped: FfiBlob, peerPublicKey: [UInt8], ownPrivateKey: [UInt8])throws  -> [UInt8]  {
     return try  FfiConverterSequenceUInt8.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
     uniffi_taskmanager_core_fn_func_unwrap_account_data_key(
@@ -2695,6 +3071,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_taskmanager_core_checksum_func_read_plaintext_settings() != 63430) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_taskmanager_core_checksum_func_schedulable_notification_at() != 51570) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_taskmanager_core_checksum_func_unwrap_account_data_key() != 42612) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2702,6 +3081,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_taskmanager_core_checksum_func_write_plaintext_settings() != 37891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_accept_shared_task_invite() != 28975) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_create_list() != 48858) {
@@ -2734,7 +3116,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_retry_queue_entries() != 29903) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_revoke_shared_task_recipient() != 61999) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_search_tasks() != 510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_share_task_with_recipient() != 26213) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_shared_task_revocation_notice() != 38288) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_shared_task_state() != 33370) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_sync_status() != 3790) {

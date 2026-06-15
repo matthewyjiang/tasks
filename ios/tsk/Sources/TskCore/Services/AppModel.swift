@@ -75,7 +75,7 @@ public final class AppModel: ObservableObject {
 
     public func load() async {
         do {
-            async let loadedTasks = repository.loadTasks()
+            async let loadedTasks = repository.loadTasks(includeDeleted: true)
             async let loadedLists = repository.loadLists()
             async let loadedSync = repository.syncSummary()
             let allTasks = try await loadedTasks
@@ -83,10 +83,10 @@ public final class AppModel: ObservableObject {
             let wasOnline = syncSummary.isOnline
             tasks = allTasks.filter { !$0.deleted }
             lists = allLists.filter { !$0.deleted }
-            await reconcileNotifications(for: allTasks)
+            let notificationError = await reconcileNotifications(for: allTasks)
             syncSummary = try await loadedSync
             syncSummary.isOnline = wasOnline
-            errorMessage = nil
+            errorMessage = notificationError
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -117,9 +117,9 @@ public final class AppModel: ObservableObject {
             }
             tasks.append(task)
             selectedTaskID = task.id
-            await reconcileNotification(for: task)
+            let notificationError = await reconcileNotification(for: task)
             syncSummary = try await repository.syncSummary()
-            errorMessage = nil
+            errorMessage = notificationError
             return task
         } catch {
             errorMessage = error.localizedDescription
@@ -153,9 +153,9 @@ public final class AppModel: ObservableObject {
             } else {
                 tasks.append(saved)
             }
-            await reconcileNotification(for: saved)
+            let notificationError = await reconcileNotification(for: saved)
             syncSummary = try await repository.syncSummary()
-            errorMessage = nil
+            errorMessage = notificationError
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -225,20 +225,22 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    private func reconcileNotifications(for tasks: [TaskItem]) async {
+    private func reconcileNotifications(for tasks: [TaskItem]) async -> String? {
+        var notificationError: String?
         for task in tasks {
-            await reconcileNotification(for: task)
+            notificationError = await reconcileNotification(for: task) ?? notificationError
         }
+        return notificationError
     }
 
-    private func reconcileNotification(for task: TaskItem) async {
-        guard let notificationScheduler else { return }
+    private func reconcileNotification(for task: TaskItem) async -> String? {
+        guard let notificationScheduler else { return nil }
         guard !task.deleted, let fireDate = task.notificationFireDate() else {
             notificationScheduler.cancelTaskNotification(taskID: task.id)
-            return
+            return nil
         }
         do {
-            guard try await notificationScheduler.requestAuthorizationIfNeeded() else { return }
+            guard try await notificationScheduler.requestAuthorizationIfNeeded() else { return nil }
             try await notificationScheduler.schedule(
                 LocalNotificationRequest(
                     taskID: task.id,
@@ -247,8 +249,9 @@ public final class AppModel: ObservableObject {
                     fireDate: fireDate
                 )
             )
+            return nil
         } catch {
-            errorMessage = error.localizedDescription
+            return error.localizedDescription
         }
     }
 

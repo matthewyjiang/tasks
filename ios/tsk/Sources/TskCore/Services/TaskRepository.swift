@@ -1,7 +1,7 @@
 import Foundation
 
 public protocol TaskRepository: Sendable {
-    func loadTasks() async throws -> [TaskItem]
+    func loadTasks(includeDeleted: Bool) async throws -> [TaskItem]
     func loadLists() async throws -> [TaskListItem]
     func createTask(title: String, body: String, dueAt: Date?, listID: UUID?, tags: [String]) async throws -> TaskItem
     func updateTask(_ task: TaskItem) async throws -> TaskItem
@@ -10,6 +10,12 @@ public protocol TaskRepository: Sendable {
     func updateList(_ list: TaskListItem) async throws -> TaskListItem
     func deleteList(id: UUID) async throws
     func syncSummary() async throws -> SyncSummary
+}
+
+public extension TaskRepository {
+    func loadTasks() async throws -> [TaskItem] {
+        try await loadTasks(includeDeleted: false)
+    }
 }
 
 public actor PreviewTaskRepository: TaskRepository {
@@ -23,7 +29,9 @@ public actor PreviewTaskRepository: TaskRepository {
         self.sync = sync
     }
 
-    public func loadTasks() async throws -> [TaskItem] { tasks }
+    public func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] {
+        includeDeleted ? tasks : tasks.filter { !$0.deleted }
+    }
     public func loadLists() async throws -> [TaskListItem] { lists }
     public func syncSummary() async throws -> SyncSummary { sync }
 
