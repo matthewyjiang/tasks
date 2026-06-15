@@ -22,7 +22,7 @@ public struct RootView: View {
                 secretStore: KeychainSecretStore(service: paths.bundleIdentifier)
             ).ensureBootstrapped()
             let repository = try CoreTaskRepository(databaseURL: paths.databaseURL)
-            return AppModel(repository: repository, localAccount: account)
+            return AppModel(repository: repository, localAccount: account, notificationScheduler: UserNotificationScheduler())
         } catch {
             return AppModel(repository: StartupFailedRepository(error: error))
         }

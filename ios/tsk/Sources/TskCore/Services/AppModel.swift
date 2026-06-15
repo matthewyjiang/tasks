@@ -15,15 +15,18 @@ public final class AppModel: ObservableObject {
 
     private let repository: any TaskRepository
     private let filterEngine: TaskFilterEngine
+    private let notificationScheduler: (any LocalNotificationScheduling)?
 
     public init(
         repository: any TaskRepository = PreviewTaskRepository(),
         filterEngine: TaskFilterEngine = TaskFilterEngine(),
-        localAccount: LocalAccountBootstrapState? = nil
+        localAccount: LocalAccountBootstrapState? = nil,
+        notificationScheduler: (any LocalNotificationScheduling)? = nil
     ) {
         self.repository = repository
         self.filterEngine = filterEngine
         self.localAccount = localAccount
+        self.notificationScheduler = notificationScheduler
     }
 
     public var selectedTask: TaskItem? {
@@ -80,6 +83,7 @@ public final class AppModel: ObservableObject {
             let wasOnline = syncSummary.isOnline
             tasks = allTasks.filter { !$0.deleted }
             lists = allLists.filter { !$0.deleted }
+            await reconcileNotifications(for: allTasks)
             syncSummary = try await loadedSync
             syncSummary.isOnline = wasOnline
             errorMessage = nil
@@ -113,6 +117,7 @@ public final class AppModel: ObservableObject {
             }
             tasks.append(task)
             selectedTaskID = task.id
+            await reconcileNotification(for: task)
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
             return task
@@ -148,6 +153,7 @@ public final class AppModel: ObservableObject {
             } else {
                 tasks.append(saved)
             }
+            await reconcileNotification(for: saved)
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
@@ -160,6 +166,7 @@ public final class AppModel: ObservableObject {
             try await repository.deleteTask(id: id)
             tasks.removeAll { $0.id == id }
             if selectedTaskID == id { selectedTaskID = nil }
+            notificationScheduler?.cancelTaskNotification(taskID: id)
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
@@ -213,6 +220,33 @@ public final class AppModel: ObservableObject {
             }
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func reconcileNotifications(for tasks: [TaskItem]) async {
+        for task in tasks {
+            await reconcileNotification(for: task)
+        }
+    }
+
+    private func reconcileNotification(for task: TaskItem) async {
+        guard let notificationScheduler else { return }
+        guard !task.deleted, let fireDate = task.notificationFireDate() else {
+            notificationScheduler.cancelTaskNotification(taskID: task.id)
+            return
+        }
+        do {
+            guard try await notificationScheduler.requestAuthorizationIfNeeded() else { return }
+            try await notificationScheduler.schedule(
+                LocalNotificationRequest(
+                    taskID: task.id,
+                    title: task.title,
+                    body: task.body,
+                    fireDate: fireDate
+                )
+            )
         } catch {
             errorMessage = error.localizedDescription
         }

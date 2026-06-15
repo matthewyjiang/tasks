@@ -74,6 +74,7 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
     public var body: String
     public var dueAt: Date?
     public var status: TaskStatus
+    public var reminderOffsetMs: Int64?
     public var listID: UUID?
     public var tags: [String]
     public var createdAt: Date
@@ -87,6 +88,7 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         body: String = "",
         dueAt: Date? = nil,
         status: TaskStatus = .open,
+        reminderOffsetMs: Int64? = nil,
         listID: UUID? = nil,
         tags: [String] = [],
         createdAt: Date = Date(),
@@ -99,12 +101,20 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
         self.body = body
         self.dueAt = dueAt
         self.status = status
+        self.reminderOffsetMs = reminderOffsetMs
         self.listID = listID
         self.tags = tags
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.deleted = deleted
         self.dirty = dirty
+    }
+
+    public func notificationFireDate(now: Date = Date()) -> Date? {
+        guard status == .open, let dueAt, let reminderOffsetMs else { return nil }
+        let fireDate = dueAt.addingTimeInterval(-TimeInterval(reminderOffsetMs) / 1_000)
+        guard fireDate > now else { return nil }
+        return fireDate
     }
 }
 
