@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
@@ -37,6 +37,27 @@ pub trait SyncClient {
     fn push_blobs(&self, blobs: Vec<BlobPush>) -> CoreResult<PushResponse>;
     fn delete_blobs(&self, task_ids: Vec<Uuid>) -> CoreResult<PushResponse>;
     fn pull_blobs(&self, since: i64) -> CoreResult<PullResponse>;
+}
+
+pub fn sync_session(
+    database: &LocalDatabase,
+    platform: &dyn Platform,
+    client: &dyn SyncClient,
+    data_key: &[u8],
+) -> CoreResult<SyncResult> {
+    if !platform.network_available() {
+        let _ = sync_push(database, platform, client, data_key);
+        return Err(SyncError::NetworkUnavailable.into());
+    }
+
+    let push = sync_push(database, platform, client, data_key)?;
+    let pull = sync_pull(database, client, data_key)?;
+    Ok(SyncResult {
+        pushed: push.pushed,
+        pulled: pull.pulled,
+        failed: push.failed + pull.failed,
+        cursor: pull.cursor,
+    })
 }
 
 pub fn sync_push(
@@ -83,6 +104,10 @@ pub fn sync_push(
         let attempted: Vec<Uuid> = blob_pushes.iter().map(|push| push.task_id).collect();
         match client.push_blobs(blob_pushes) {
             Ok(response) => {
+                if let Err(error) = validate_push_response(&attempted, &response) {
+                    queue_failed(database, attempted)?;
+                    return Err(error);
+                }
                 confirmed.extend(response.accepted_task_ids);
                 failed.extend(response.failed_task_ids);
             }
@@ -96,6 +121,10 @@ pub fn sync_push(
         let attempted = tombstones.clone();
         match client.delete_blobs(tombstones) {
             Ok(response) => {
+                if let Err(error) = validate_push_response(&attempted, &response) {
+                    queue_failed(database, attempted)?;
+                    return Err(error);
+                }
                 confirmed.extend(response.accepted_task_ids);
                 failed.extend(response.failed_task_ids);
             }
@@ -164,6 +193,55 @@ pub fn resolve_conflict(local: &Task, remote: &Task) -> Task {
     } else {
         local.clone()
     }
+}
+
+fn validate_push_response(attempted: &[Uuid], response: &PushResponse) -> CoreResult<()> {
+    let attempted: HashSet<Uuid> = attempted.iter().copied().collect();
+    let mut seen: HashMap<Uuid, &'static str> = HashMap::new();
+
+    for task_id in &response.accepted_task_ids {
+        if !attempted.contains(task_id) {
+            return Err(malformed_push_response(format!(
+                "accepted unknown task id {task_id}"
+            )));
+        }
+        if seen.insert(*task_id, "accepted").is_some() {
+            return Err(malformed_push_response(format!(
+                "duplicate task id {task_id} in push response"
+            )));
+        }
+    }
+
+    for task_id in &response.failed_task_ids {
+        if !attempted.contains(task_id) {
+            return Err(malformed_push_response(format!(
+                "failed unknown task id {task_id}"
+            )));
+        }
+        if let Some(previous) = seen.insert(*task_id, "failed") {
+            return Err(malformed_push_response(format!(
+                "task id {task_id} reported as both {previous} and failed"
+            )));
+        }
+    }
+
+    if seen.len() != attempted.len() {
+        return Err(malformed_push_response(format!(
+            "response accounted for {} of {} attempted task ids",
+            seen.len(),
+            attempted.len()
+        )));
+    }
+
+    Ok(())
+}
+
+fn malformed_push_response(body: String) -> crate::error::CoreError {
+    SyncError::ServerError {
+        status: 502,
+        body: format!("malformed push response: {body}"),
+    }
+    .into()
 }
 
 fn queue_failed(
@@ -391,6 +469,86 @@ mod tests {
             crate::error::CoreError::Sync(SyncError::AuthExpired)
         ));
         assert!(db.get_task(task.id).unwrap().dirty);
+    }
+
+    #[test]
+    fn malformed_push_response_with_unknown_id_keeps_dirty_and_queues_retry() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.push_response.borrow_mut() = Some(PushResponse {
+            accepted_task_ids: vec![Uuid::new_v4()],
+            failed_task_ids: Vec::new(),
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let error = sync_push(&db, &platform, &client, &generate_data_key()).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Sync(SyncError::ServerError { status: 502, .. })
+        ));
+        assert!(db.get_task(task.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, task.id);
+    }
+
+    #[test]
+    fn malformed_push_response_with_missing_id_keeps_dirty_and_queues_retry() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.push_response.borrow_mut() = Some(PushResponse {
+            accepted_task_ids: Vec::new(),
+            failed_task_ids: Vec::new(),
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let error = sync_push(&db, &platform, &client, &generate_data_key()).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Sync(SyncError::ServerError { status: 502, .. })
+        ));
+        assert!(db.get_task(task.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, task.id);
+    }
+
+    #[test]
+    fn malformed_push_response_with_overlapping_ids_keeps_dirty_and_queues_retry() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.push_response.borrow_mut() = Some(PushResponse {
+            accepted_task_ids: vec![task.id],
+            failed_task_ids: vec![task.id],
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let error = sync_push(&db, &platform, &client, &generate_data_key()).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Sync(SyncError::ServerError { status: 502, .. })
+        ));
+        assert!(db.get_task(task.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, task.id);
+    }
+
+    #[test]
+    fn sync_session_combines_push_and_pull_results() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        db.create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: Vec::new(),
+            cursor: 9,
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let result = sync_session(&db, &platform, &client, &generate_data_key()).unwrap();
+        assert_eq!(result.pushed, 1);
+        assert_eq!(result.pulled, 0);
+        assert_eq!(result.cursor, Some(9));
     }
 
     #[test]
