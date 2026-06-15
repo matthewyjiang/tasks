@@ -7,7 +7,7 @@ use crate::db::LocalDatabase;
 use crate::error::CoreResult;
 use crate::platform::Platform;
 use crate::settings::VaultSettings;
-use crate::sync::{sync_pull, sync_push, SyncClient};
+use crate::sync::{sync_session, SyncClient};
 use crate::types::{
     RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncStatus, Task,
     TaskFilter, TaskList, TaskPatch, TaskSort,
@@ -183,19 +183,7 @@ impl TaskManagerCore {
         client: &dyn SyncClient,
         data_key: &[u8],
     ) -> CoreResult<crate::types::SyncResult> {
-        if !platform.network_available() {
-            let _ = sync_push(&self.database, platform, client, data_key);
-            return Err(crate::error::SyncError::NetworkUnavailable.into());
-        }
-
-        let push = sync_push(&self.database, platform, client, data_key)?;
-        let pull = sync_pull(&self.database, client, data_key)?;
-        Ok(crate::types::SyncResult {
-            pushed: push.pushed,
-            pulled: pull.pulled,
-            failed: push.failed + pull.failed,
-            cursor: pull.cursor,
-        })
+        sync_session(&self.database, platform, client, data_key)
     }
 
     pub fn sync_status(&self) -> CoreResult<SyncStatus> {
