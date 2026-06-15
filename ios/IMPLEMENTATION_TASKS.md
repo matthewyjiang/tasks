@@ -2,7 +2,7 @@
 
 Branch: `issue-92-ios-phase2-offline-ui`
 
-Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 2**.
+Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 3**.
 
 SwiftUI rule: keep the iOS app on intended native SwiftUI containers/modifiers first (`NavigationStack`, `NavigationSplitView`, `List`, `Form`, `.searchable`, toolbars, selection bindings). Avoid custom geometry, fixed-width panes, safe-area compensations, or gesture/state workarounds unless a native approach has been ruled out and the reason is documented.
 
@@ -42,13 +42,13 @@ Implemented on `issue-92-ios-phase2-offline-ui`.
 
 ## Phase 3: iOS platform adapter
 
-Not started. Do not begin until Phase 2 is complete.
+Implemented on `issue-92-ios-phase2-offline-ui` after Phase 2 completion.
 
-- [ ] Add production device-only, after-first-unlock Keychain storage integration.
-- [ ] Add notification scheduling/cancellation hooks.
-- [ ] Add reachability monitoring.
-- [ ] Add iOS app path integration.
-- [ ] Add local-first onboarding/account bootstrap.
+- [x] Add production device-only, after-first-unlock Keychain storage integration.
+- [x] Add notification scheduling/cancellation hooks.
+- [x] Add reachability monitoring.
+- [x] Add iOS app path integration.
+- [x] Add local-first onboarding/account bootstrap.
 
 ## Phase 4: Sync/auth parity
 
