@@ -11,6 +11,9 @@ public struct SettingsView: View {
         Form {
             Section("Sync Status") {
                 SyncStatusView(summary: model.syncSummary)
+                LabeledContent("Cursor", value: String(model.syncSummary.cursor))
+                LabeledContent("Conflicts this sync", value: String(model.syncSummary.conflictCount))
+                LabeledContent("Foreground sync", value: "HTTP adapter pending")
             }
 
             Section("Local Account") {

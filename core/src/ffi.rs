@@ -10,13 +10,14 @@ use crate::crypto::{
     public_key_from_private_key, unwrap_data_key, wrap_data_key, DeviceKeypair,
 };
 use crate::error::CoreError;
-use crate::platform::{ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID};
+use crate::platform::{Platform, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID};
 use crate::settings::{
     AuthMethod, DefaultSort, DisplayDensity, Keybindings, PlaintextSettings, Theme, VaultSettings,
 };
+use crate::sync::{BlobPush, PullResponse, PushResponse, RemoteBlob, SyncClient};
 use crate::types::{
-    Blob, RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncStatus,
-    Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus,
+    Blob, RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncResult,
+    SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -217,6 +218,45 @@ pub struct FfiRetryQueueEntry {
     pub task_id: String,
     pub attempt: i64,
     pub next_retry: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiBlobPush {
+    pub task_id: String,
+    pub blob: FfiBlob,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiRemoteBlob {
+    pub task_id: String,
+    pub blob: FfiBlob,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiPushResponse {
+    pub accepted_task_ids: Vec<String>,
+    pub failed_task_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiPullResponse {
+    pub blobs: Vec<FfiRemoteBlob>,
+    pub cursor: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiSyncResult {
+    pub pushed: u64,
+    pub pulled: u64,
+    pub failed: u64,
+    pub cursor: Option<i64>,
+}
+
+pub trait FfiSyncClient: Send + Sync {
+    fn push_blobs(&self, blobs: Vec<FfiBlobPush>) -> Result<FfiPushResponse, FfiCoreError>;
+    fn delete_blobs(&self, task_ids: Vec<String>) -> Result<FfiPushResponse, FfiCoreError>;
+    fn pull_blobs(&self, since: i64) -> Result<FfiPullResponse, FfiCoreError>;
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -545,6 +585,22 @@ impl FfiTaskManagerCore {
             .map_err(FfiCoreError::from)
     }
 
+    pub fn sync_run(
+        &self,
+        network_available: bool,
+        client: Box<dyn FfiSyncClient>,
+        data_key: Vec<u8>,
+    ) -> Result<FfiSyncResult, FfiCoreError> {
+        let platform = FfiSyncPlatform {
+            online: network_available,
+        };
+        let adapter = FfiSyncClientAdapter { client };
+        self.inner()?
+            .sync_run(&platform, &adapter, &data_key)
+            .map(FfiSyncResult::from)
+            .map_err(FfiCoreError::from)
+    }
+
     fn inner(&self) -> Result<MutexGuard<'_, TaskManagerCore>, FfiCoreError> {
         self.inner.lock().map_err(|_| FfiCoreError::DatabaseError {
             error_message: "task manager core lock poisoned".to_owned(),
@@ -818,6 +874,81 @@ impl TryFrom<FfiTaskFilter> for TaskFilter {
     }
 }
 
+struct FfiSyncPlatform {
+    online: bool,
+}
+
+impl Platform for FfiSyncPlatform {
+    fn store_key(&self, _id: &str, _bytes: &[u8]) -> crate::error::CoreResult<()> {
+        Err(crate::error::PlatformError::OperationFailed(
+            "sync platform does not store keys".to_owned(),
+        )
+        .into())
+    }
+
+    fn load_key(&self, _id: &str) -> crate::error::CoreResult<Vec<u8>> {
+        Err(crate::error::PlatformError::OperationFailed(
+            "sync platform does not load keys".to_owned(),
+        )
+        .into())
+    }
+
+    fn delete_key(&self, _id: &str) -> crate::error::CoreResult<()> {
+        Err(crate::error::PlatformError::OperationFailed(
+            "sync platform does not delete keys".to_owned(),
+        )
+        .into())
+    }
+
+    fn schedule_notification(
+        &self,
+        _task_id: Uuid,
+        _fire_at: i64,
+        _title: &str,
+    ) -> crate::error::CoreResult<()> {
+        Ok(())
+    }
+
+    fn cancel_notification(&self, _task_id: Uuid) -> crate::error::CoreResult<()> {
+        Ok(())
+    }
+
+    fn network_available(&self) -> bool {
+        self.online
+    }
+}
+
+struct FfiSyncClientAdapter {
+    client: Box<dyn FfiSyncClient>,
+}
+
+impl SyncClient for FfiSyncClientAdapter {
+    fn push_blobs(&self, blobs: Vec<BlobPush>) -> crate::error::CoreResult<PushResponse> {
+        self.client
+            .push_blobs(blobs.into_iter().map(FfiBlobPush::from).collect())
+            .and_then(PushResponse::try_from)
+            .map_err(ffi_error_to_core)
+    }
+
+    fn delete_blobs(&self, task_ids: Vec<Uuid>) -> crate::error::CoreResult<PushResponse> {
+        self.client
+            .delete_blobs(task_ids.into_iter().map(|id| id.to_string()).collect())
+            .and_then(PushResponse::try_from)
+            .map_err(ffi_error_to_core)
+    }
+
+    fn pull_blobs(&self, since: i64) -> crate::error::CoreResult<PullResponse> {
+        self.client
+            .pull_blobs(since)
+            .and_then(PullResponse::try_from)
+            .map_err(ffi_error_to_core)
+    }
+}
+
+fn ffi_error_to_core(error: FfiCoreError) -> CoreError {
+    crate::error::PlatformError::OperationFailed(error.to_string()).into()
+}
+
 impl From<Blob> for FfiBlob {
     fn from(blob: Blob) -> Self {
         Self {
@@ -1065,6 +1196,72 @@ impl TryFrom<FfiVaultSettings> for VaultSettings {
     }
 }
 
+impl From<BlobPush> for FfiBlobPush {
+    fn from(push: BlobPush) -> Self {
+        Self {
+            task_id: push.task_id.to_string(),
+            blob: push.blob.into(),
+        }
+    }
+}
+
+impl TryFrom<FfiRemoteBlob> for RemoteBlob {
+    type Error = FfiCoreError;
+
+    fn try_from(blob: FfiRemoteBlob) -> Result<Self, Self::Error> {
+        Ok(Self {
+            task_id: parse_uuid(&blob.task_id)?,
+            blob: blob.blob.try_into()?,
+            updated_at: blob.updated_at,
+        })
+    }
+}
+
+impl TryFrom<FfiPushResponse> for PushResponse {
+    type Error = FfiCoreError;
+
+    fn try_from(response: FfiPushResponse) -> Result<Self, Self::Error> {
+        Ok(Self {
+            accepted_task_ids: response
+                .accepted_task_ids
+                .iter()
+                .map(|id| parse_uuid(id))
+                .collect::<Result<Vec<_>, _>>()?,
+            failed_task_ids: response
+                .failed_task_ids
+                .iter()
+                .map(|id| parse_uuid(id))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+impl TryFrom<FfiPullResponse> for PullResponse {
+    type Error = FfiCoreError;
+
+    fn try_from(response: FfiPullResponse) -> Result<Self, Self::Error> {
+        Ok(Self {
+            blobs: response
+                .blobs
+                .into_iter()
+                .map(RemoteBlob::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
+            cursor: response.cursor,
+        })
+    }
+}
+
+impl From<SyncResult> for FfiSyncResult {
+    fn from(result: SyncResult) -> Self {
+        Self {
+            pushed: result.pushed as u64,
+            pulled: result.pulled as u64,
+            failed: result.failed as u64,
+            cursor: result.cursor,
+        }
+    }
+}
+
 impl From<SyncStatus> for FfiSyncStatus {
     fn from(status: SyncStatus) -> Self {
         Self {
@@ -1202,6 +1399,54 @@ mod tests {
         let mut deleted = task;
         deleted.deleted = true;
         assert_eq!(schedulable_notification_at(deleted, 8_999).unwrap(), None);
+    }
+
+    #[derive(Default)]
+    struct FfiFakeSyncClient;
+
+    impl FfiSyncClient for FfiFakeSyncClient {
+        fn push_blobs(&self, blobs: Vec<FfiBlobPush>) -> Result<FfiPushResponse, FfiCoreError> {
+            Ok(FfiPushResponse {
+                accepted_task_ids: blobs.into_iter().map(|blob| blob.task_id).collect(),
+                failed_task_ids: Vec::new(),
+            })
+        }
+
+        fn delete_blobs(&self, task_ids: Vec<String>) -> Result<FfiPushResponse, FfiCoreError> {
+            Ok(FfiPushResponse {
+                accepted_task_ids: task_ids,
+                failed_task_ids: Vec::new(),
+            })
+        }
+
+        fn pull_blobs(&self, _since: i64) -> Result<FfiPullResponse, FfiCoreError> {
+            Ok(FfiPullResponse {
+                blobs: Vec::new(),
+                cursor: 7,
+            })
+        }
+    }
+
+    #[test]
+    fn ffi_sync_run_delegates_to_core_sync_and_clears_dirty() {
+        let database_path =
+            temporary_database_path("ffi_sync_run_delegates_to_core_sync_and_clears_dirty");
+        let core = FfiTaskManagerCore::new(database_path.to_string_lossy().into_owned()).unwrap();
+        let task = core
+            .create_task("sync me".to_owned(), String::new(), None)
+            .unwrap();
+
+        let result = core
+            .sync_run(
+                true,
+                Box::new(FfiFakeSyncClient),
+                generate_data_key().to_vec(),
+            )
+            .unwrap();
+
+        assert_eq!(result.pushed, 1);
+        assert_eq!(result.cursor, Some(7));
+        assert!(!core.get_task(task.id).unwrap().dirty);
     }
 
     #[test]
@@ -1414,6 +1659,9 @@ mod tests {
             "vault_settings",
             "update_vault_settings",
             "FfiSyncStatus",
+            "FfiSyncClient",
+            "FfiSyncResult",
+            "sync_run",
             "retry_queue_entries",
             "generate_local_account_bootstrap",
             "wrap_account_data_key",
@@ -1427,7 +1675,8 @@ mod tests {
         }
         for internal in [
             "LocalDatabase",
-            "SyncClient",
+            "interface SyncClient",
+            "callback interface SyncClient",
             "MockPlatform",
             "interface DeviceKeypair",
             "dictionary DeviceKeypair",

@@ -10,11 +10,27 @@ public protocol TaskRepository: Sendable {
     func updateList(_ list: TaskListItem) async throws -> TaskListItem
     func deleteList(id: UUID) async throws
     func syncSummary() async throws -> SyncSummary
+    func syncNow(isOnline: Bool) async throws -> SyncSummary
+}
+
+public enum TaskRepositoryError: Error, Equatable, LocalizedError, Sendable {
+    case syncAdapterUnavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .syncAdapterUnavailable:
+            "Foreground sync is not available yet."
+        }
+    }
 }
 
 public extension TaskRepository {
     func loadTasks() async throws -> [TaskItem] {
         try await loadTasks(includeDeleted: false)
+    }
+
+    func syncNow(isOnline: Bool) async throws -> SyncSummary {
+        throw TaskRepositoryError.syncAdapterUnavailable
     }
 }
 
@@ -27,6 +43,10 @@ public actor PreviewTaskRepository: TaskRepository {
         self.tasks = tasks
         self.lists = lists
         self.sync = sync
+    }
+
+    public func syncNow(isOnline: Bool) async throws -> SyncSummary {
+        throw TaskRepositoryError.syncAdapterUnavailable
     }
 
     public func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] {

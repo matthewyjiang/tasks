@@ -414,7 +414,13 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 
 
 // Public interface members begin here.
-
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -581,6 +587,8 @@ public protocol FfiTaskManagerCoreProtocol: AnyObject, Sendable {
     func sharedTaskRevocationNotice()  -> String
     
     func sharedTaskState(taskId: String) throws  -> FfiSharedTaskState
+    
+    func syncRun(networkAvailable: Bool, client: FfiSyncClient, dataKey: [UInt8]) throws  -> FfiSyncResult
     
     func syncStatus() throws  -> FfiSyncStatus
     
@@ -809,6 +817,17 @@ open func sharedTaskState(taskId: String)throws  -> FfiSharedTaskState  {
 })
 }
     
+open func syncRun(networkAvailable: Bool, client: FfiSyncClient, dataKey: [UInt8])throws  -> FfiSyncResult  {
+    return try  FfiConverterTypeFfiSyncResult_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_sync_run(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(networkAvailable),
+        FfiConverterCallbackInterfaceFfiSyncClient_lower(client),
+        FfiConverterSequenceUInt8.lower(dataKey),$0
+    )
+})
+}
+    
 open func syncStatus()throws  -> FfiSyncStatus  {
     return try  FfiConverterTypeFfiSyncStatus_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
     uniffi_taskmanager_core_fn_method_ffitaskmanagercore_sync_status(
@@ -953,6 +972,60 @@ public func FfiConverterTypeFfiBlob_lift(_ buf: RustBuffer) throws -> FfiBlob {
 #endif
 public func FfiConverterTypeFfiBlob_lower(_ value: FfiBlob) -> RustBuffer {
     return FfiConverterTypeFfiBlob.lower(value)
+}
+
+
+public struct FfiBlobPush: Equatable, Hashable {
+    public var taskId: String
+    public var blob: FfiBlob
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(taskId: String, blob: FfiBlob) {
+        self.taskId = taskId
+        self.blob = blob
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiBlobPush: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiBlobPush: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiBlobPush {
+        return
+            try FfiBlobPush(
+                taskId: FfiConverterString.read(from: &buf), 
+                blob: FfiConverterTypeFfiBlob.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiBlobPush, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.taskId, into: &buf)
+        FfiConverterTypeFfiBlob.write(value.blob, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBlobPush_lift(_ buf: RustBuffer) throws -> FfiBlobPush {
+    return try FfiConverterTypeFfiBlobPush.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBlobPush_lower(_ value: FfiBlobPush) -> RustBuffer {
+    return FfiConverterTypeFfiBlobPush.lower(value)
 }
 
 
@@ -1201,6 +1274,172 @@ public func FfiConverterTypeFfiPlaintextSettings_lift(_ buf: RustBuffer) throws 
 #endif
 public func FfiConverterTypeFfiPlaintextSettings_lower(_ value: FfiPlaintextSettings) -> RustBuffer {
     return FfiConverterTypeFfiPlaintextSettings.lower(value)
+}
+
+
+public struct FfiPullResponse: Equatable, Hashable {
+    public var blobs: [FfiRemoteBlob]
+    public var cursor: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(blobs: [FfiRemoteBlob], cursor: Int64) {
+        self.blobs = blobs
+        self.cursor = cursor
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiPullResponse: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPullResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPullResponse {
+        return
+            try FfiPullResponse(
+                blobs: FfiConverterSequenceTypeFfiRemoteBlob.read(from: &buf), 
+                cursor: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPullResponse, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFfiRemoteBlob.write(value.blobs, into: &buf)
+        FfiConverterInt64.write(value.cursor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPullResponse_lift(_ buf: RustBuffer) throws -> FfiPullResponse {
+    return try FfiConverterTypeFfiPullResponse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPullResponse_lower(_ value: FfiPullResponse) -> RustBuffer {
+    return FfiConverterTypeFfiPullResponse.lower(value)
+}
+
+
+public struct FfiPushResponse: Equatable, Hashable {
+    public var acceptedTaskIds: [String]
+    public var failedTaskIds: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(acceptedTaskIds: [String], failedTaskIds: [String]) {
+        self.acceptedTaskIds = acceptedTaskIds
+        self.failedTaskIds = failedTaskIds
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiPushResponse: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPushResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPushResponse {
+        return
+            try FfiPushResponse(
+                acceptedTaskIds: FfiConverterSequenceString.read(from: &buf), 
+                failedTaskIds: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPushResponse, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.acceptedTaskIds, into: &buf)
+        FfiConverterSequenceString.write(value.failedTaskIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPushResponse_lift(_ buf: RustBuffer) throws -> FfiPushResponse {
+    return try FfiConverterTypeFfiPushResponse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPushResponse_lower(_ value: FfiPushResponse) -> RustBuffer {
+    return FfiConverterTypeFfiPushResponse.lower(value)
+}
+
+
+public struct FfiRemoteBlob: Equatable, Hashable {
+    public var taskId: String
+    public var blob: FfiBlob
+    public var updatedAt: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(taskId: String, blob: FfiBlob, updatedAt: Int64) {
+        self.taskId = taskId
+        self.blob = blob
+        self.updatedAt = updatedAt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiRemoteBlob: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRemoteBlob: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRemoteBlob {
+        return
+            try FfiRemoteBlob(
+                taskId: FfiConverterString.read(from: &buf), 
+                blob: FfiConverterTypeFfiBlob.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRemoteBlob, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.taskId, into: &buf)
+        FfiConverterTypeFfiBlob.write(value.blob, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRemoteBlob_lift(_ buf: RustBuffer) throws -> FfiRemoteBlob {
+    return try FfiConverterTypeFfiRemoteBlob.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRemoteBlob_lower(_ value: FfiRemoteBlob) -> RustBuffer {
+    return FfiConverterTypeFfiRemoteBlob.lower(value)
 }
 
 
@@ -1511,6 +1750,68 @@ public func FfiConverterTypeFfiSharedTaskState_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeFfiSharedTaskState_lower(_ value: FfiSharedTaskState) -> RustBuffer {
     return FfiConverterTypeFfiSharedTaskState.lower(value)
+}
+
+
+public struct FfiSyncResult: Equatable, Hashable {
+    public var pushed: UInt64
+    public var pulled: UInt64
+    public var failed: UInt64
+    public var cursor: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pushed: UInt64, pulled: UInt64, failed: UInt64, cursor: Int64?) {
+        self.pushed = pushed
+        self.pulled = pulled
+        self.failed = failed
+        self.cursor = cursor
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSyncResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSyncResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSyncResult {
+        return
+            try FfiSyncResult(
+                pushed: FfiConverterUInt64.read(from: &buf), 
+                pulled: FfiConverterUInt64.read(from: &buf), 
+                failed: FfiConverterUInt64.read(from: &buf), 
+                cursor: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSyncResult, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.pushed, into: &buf)
+        FfiConverterUInt64.write(value.pulled, into: &buf)
+        FfiConverterUInt64.write(value.failed, into: &buf)
+        FfiConverterOptionInt64.write(value.cursor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSyncResult_lift(_ buf: RustBuffer) throws -> FfiSyncResult {
+    return try FfiConverterTypeFfiSyncResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSyncResult_lower(_ value: FfiSyncResult) -> RustBuffer {
+    return FfiConverterTypeFfiSyncResult.lower(value)
 }
 
 
@@ -2640,6 +2941,192 @@ public func FfiConverterTypeFfiTheme_lower(_ value: FfiTheme) -> RustBuffer {
 }
 
 
+
+
+
+public protocol FfiSyncClient: AnyObject, Sendable {
+    
+    func pushBlobs(blobs: [FfiBlobPush]) throws  -> FfiPushResponse
+    
+    func deleteBlobs(taskIds: [String]) throws  -> FfiPushResponse
+    
+    func pullBlobs(since: Int64) throws  -> FfiPullResponse
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiSyncClient {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiSyncClient = UniffiVTableCallbackInterfaceFfiSyncClient(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceFfiSyncClient.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiSyncClient: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceFfiSyncClient.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiSyncClient: handle missing in uniffiClone")
+            }
+        },
+        pushBlobs: { (
+            uniffiHandle: UInt64,
+            blobs: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> FfiPushResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiSyncClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.pushBlobs(
+                     blobs: try FfiConverterSequenceTypeFfiBlobPush.lift(blobs)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeFfiPushResponse_lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        },
+        deleteBlobs: { (
+            uniffiHandle: UInt64,
+            taskIds: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> FfiPushResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiSyncClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.deleteBlobs(
+                     taskIds: try FfiConverterSequenceString.lift(taskIds)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeFfiPushResponse_lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        },
+        pullBlobs: { (
+            uniffiHandle: UInt64,
+            since: Int64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> FfiPullResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiSyncClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.pullBlobs(
+                     since: try FfiConverterInt64.lift(since)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeFfiPullResponse_lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiSyncClient> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiSyncClient>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitFfiSyncClient() {
+    uniffi_taskmanager_core_fn_init_callback_vtable_ffisyncclient(UniffiCallbackInterfaceFfiSyncClient.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFfiSyncClient {
+    fileprivate static let handleMap = UniffiHandleMap<FfiSyncClient>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFfiSyncClient : FfiConverter {
+    typealias SwiftType = FfiSyncClient
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiSyncClient_lift(_ handle: UInt64) throws -> FfiSyncClient {
+    return try FfiConverterCallbackInterfaceFfiSyncClient.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiSyncClient_lower(_ v: FfiSyncClient) -> UInt64 {
+    return FfiConverterCallbackInterfaceFfiSyncClient.lower(v)
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -2781,6 +3268,56 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiBlobPush: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiBlobPush]
+
+    public static func write(_ value: [FfiBlobPush], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiBlobPush.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiBlobPush] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiBlobPush]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiBlobPush.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiRemoteBlob: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiRemoteBlob]
+
+    public static func write(_ value: [FfiRemoteBlob], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiRemoteBlob.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiRemoteBlob] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiRemoteBlob]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiRemoteBlob.read(from: &buf))
         }
         return seq
     }
@@ -3131,6 +3668,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_shared_task_state() != 33370) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_sync_run() != 3537) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_sync_status() != 3790) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3149,7 +3689,17 @@ private let initializationResult: InitializationResult = {
     if (uniffi_taskmanager_core_checksum_constructor_ffitaskmanagercore_new() != 23565) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_taskmanager_core_checksum_method_ffisyncclient_push_blobs() != 28334) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffisyncclient_delete_blobs() != 15678) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffisyncclient_pull_blobs() != 64109) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitFfiSyncClient()
     return InitializationResult.ok
 }()
 

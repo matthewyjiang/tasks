@@ -62,6 +62,25 @@ public final class AppModel: ObservableObject {
         syncSummary.isOnline = status.isOnline
     }
 
+    public func syncNow() async {
+        do {
+            syncSummary = try await repository.syncNow(isOnline: syncSummary.isOnline)
+            async let loadedTasks = repository.loadTasks(includeDeleted: true)
+            async let loadedLists = repository.loadLists()
+            let allTasks = try await loadedTasks
+            let allLists = try await loadedLists
+            tasks = allTasks.filter { !$0.deleted }
+            lists = allLists.filter { !$0.deleted }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            if var summary = try? await repository.syncSummary() {
+                summary.isOnline = syncSummary.isOnline
+                syncSummary = summary
+            }
+        }
+    }
+
     public func select(_ destination: AppDestination) {
         self.destination = destination
         switch destination {

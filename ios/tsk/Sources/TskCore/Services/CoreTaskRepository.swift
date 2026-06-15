@@ -74,7 +74,11 @@ public actor CoreTaskRepository: TaskRepository {
 
     public func syncSummary() async throws -> SyncSummary {
         let status = try core.syncStatus()
-        return SyncSummary(dirtyCount: status.dirtyCount, retryQueueDepth: status.retryQueueDepth, conflictCount: 0, isOnline: true)
+        return SyncSummary(dirtyCount: status.dirtyCount, retryQueueDepth: status.retryQueueDepth, conflictCount: 0, cursor: status.cursor, isOnline: true)
+    }
+
+    public func syncNow(isOnline: Bool) async throws -> SyncSummary {
+        throw TaskRepositoryError.syncAdapterUnavailable
     }
 
     fileprivate static func date(millisecondsSinceEpoch milliseconds: Int64) -> Date {

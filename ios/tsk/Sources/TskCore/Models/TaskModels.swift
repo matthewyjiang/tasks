@@ -163,12 +163,14 @@ public struct SyncSummary: Equatable, Sendable {
     public var dirtyCount: UInt64
     public var retryQueueDepth: UInt64
     public var conflictCount: UInt64
+    public var cursor: Int64
     public var isOnline: Bool
 
-    public init(dirtyCount: UInt64 = 0, retryQueueDepth: UInt64 = 0, conflictCount: UInt64 = 0, isOnline: Bool = true) {
+    public init(dirtyCount: UInt64 = 0, retryQueueDepth: UInt64 = 0, conflictCount: UInt64 = 0, cursor: Int64 = 0, isOnline: Bool = true) {
         self.dirtyCount = dirtyCount
         self.retryQueueDepth = retryQueueDepth
         self.conflictCount = conflictCount
+        self.cursor = cursor
         self.isOnline = isOnline
     }
 }

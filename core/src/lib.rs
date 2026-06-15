@@ -30,11 +30,12 @@ pub use ffi::{
     device_public_key_from_private_key, encrypt_task_blob, generate_account_data_key,
     generate_ffi_device_keypair, generate_local_account_bootstrap, read_plaintext_settings,
     unwrap_account_data_key, wrap_account_data_key, write_plaintext_settings, FfiAuthMethod,
-    FfiBlob, FfiCoreError, FfiCoreErrorKind, FfiDefaultSort, FfiDeviceKeypair, FfiDisplayDensity,
-    FfiKeybindings, FfiLocalAccountBootstrap, FfiPlaintextSettings, FfiRetryQueueEntry,
-    FfiSharedTaskInvite, FfiSharedTaskRecipient, FfiSharedTaskRecipientKey, FfiSharedTaskState,
-    FfiSyncStatus, FfiTagColor, FfiTask, FfiTaskFilter, FfiTaskList, FfiTaskManagerCore,
-    FfiTaskPatch, FfiTaskSort, FfiTaskStatus, FfiTheme, FfiVaultSettings,
+    FfiBlob, FfiBlobPush, FfiCoreError, FfiCoreErrorKind, FfiDefaultSort, FfiDeviceKeypair,
+    FfiDisplayDensity, FfiKeybindings, FfiLocalAccountBootstrap, FfiPlaintextSettings,
+    FfiPullResponse, FfiPushResponse, FfiRemoteBlob, FfiRetryQueueEntry, FfiSharedTaskInvite,
+    FfiSharedTaskRecipient, FfiSharedTaskRecipientKey, FfiSharedTaskState, FfiSyncClient,
+    FfiSyncResult, FfiSyncStatus, FfiTagColor, FfiTask, FfiTaskFilter, FfiTaskList,
+    FfiTaskManagerCore, FfiTaskPatch, FfiTaskSort, FfiTaskStatus, FfiTheme, FfiVaultSettings,
 };
 pub use platform::{
     init_account, init_device_keypair, MockPlatform, Platform, ScheduledNotification,

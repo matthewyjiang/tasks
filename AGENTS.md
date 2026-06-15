@@ -10,6 +10,10 @@ Key reminder: this monorepo uses artifact-prefixed tags only (`server-vX.Y.Z`, `
 
 When adding app-facing behavior, implement it in native `core` first. UniFFI/FFI should expose or adapt native core functionality, not contain standalone business logic or FFI-only convenience workflows. Linux should call native `TaskManagerCore` APIs directly; iOS should use generated bindings for the same core APIs.
 
+Core APIs must be platform-agnostic and useful to all client platforms unless a platform-specific abstraction is explicitly unavoidable. Do not add iOS-only, Linux-only, or FFI-only business logic to `core/src/core.rs`, `core/src/ffi.rs`, or `core/uniffi/core.udl`. Put shared task, sync, auth, crypto, conflict, enrollment, and server-protocol semantics in native Rust core, then expose them through UniFFI as needed. Platform apps should provide only thin adapters for platform concerns such as Keychain/secret storage, URLSession or HTTP transport, SwiftUI/GTK UI, reachability, notifications, sandbox paths, and background execution.
+
+Generated bindings under paths such as `ios/tsk/Sources/TskCore/Generated/` are generated artifacts only. Do not hand-edit generated Swift bindings; update the Rust/UDL source and regenerate them.
+
 ## CLI validation
 
 When changing files under `cli/`, run the normal CLI checks before committing:

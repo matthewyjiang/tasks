@@ -163,6 +163,43 @@ dictionary FfiRetryQueueEntry {
   i64 next_retry;
 };
 
+dictionary FfiBlobPush {
+  string task_id;
+  FfiBlob blob;
+};
+
+dictionary FfiRemoteBlob {
+  string task_id;
+  FfiBlob blob;
+  i64 updated_at;
+};
+
+dictionary FfiPushResponse {
+  sequence<string> accepted_task_ids;
+  sequence<string> failed_task_ids;
+};
+
+dictionary FfiPullResponse {
+  sequence<FfiRemoteBlob> blobs;
+  i64 cursor;
+};
+
+dictionary FfiSyncResult {
+  u64 pushed;
+  u64 pulled;
+  u64 failed;
+  i64? cursor;
+};
+
+callback interface FfiSyncClient {
+  [Throws=FfiCoreError]
+  FfiPushResponse push_blobs(sequence<FfiBlobPush> blobs);
+  [Throws=FfiCoreError]
+  FfiPushResponse delete_blobs(sequence<string> task_ids);
+  [Throws=FfiCoreError]
+  FfiPullResponse pull_blobs(i64 since);
+};
+
 dictionary FfiDeviceKeypair {
   sequence<u8> private_key;
   sequence<u8> public_key;
@@ -235,6 +272,8 @@ interface FfiTaskManagerCore {
   sequence<FfiRetryQueueEntry> retry_queue_entries();
   [Throws=FfiCoreError]
   FfiRetryQueueEntry queue_sync_retry(string task_id, i64 now);
+  [Throws=FfiCoreError]
+  FfiSyncResult sync_run(boolean network_available, FfiSyncClient client, sequence<u8> data_key);
 };
 
 namespace taskmanager_core {
