@@ -1,5 +1,5 @@
 use crate::crypto::{public_key_from_private_key, unwrap_data_key, wrap_data_key};
-use crate::error::{CoreResult, PlatformError};
+use crate::error::{CoreError, CoreResult, PlatformError};
 use crate::platform::{Platform, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID};
 use crate::types::Blob;
 
@@ -58,6 +58,16 @@ pub fn accept_wrapped_account_data_key_payload(
     platform: &dyn Platform,
     payload: &WrappedAccountDataKeyPayload,
 ) -> CoreResult<EnrollmentState> {
+    match platform.load_key(ACCOUNT_DATA_KEY_ID) {
+        Ok(_) => {
+            return Err(PlatformError::OperationFailed(
+                "account data key already exists; refusing to replace it".to_owned(),
+            )
+            .into());
+        }
+        Err(CoreError::Platform(PlatformError::KeyNotFound(_))) => {}
+        Err(error) => return Err(error),
+    }
     let recipient_private_key = platform.load_key(DEVICE_PRIVATE_KEY_ID)?;
     let recipient_public_key = public_key_from_private_key(&recipient_private_key)?;
     if recipient_public_key != payload.recipient_public_key {
@@ -115,6 +125,33 @@ mod tests {
         assert_eq!(
             platform.load_key(ACCOUNT_DATA_KEY_ID).unwrap(),
             account_data_key.to_vec()
+        );
+    }
+
+    #[test]
+    fn accepting_wrapped_payload_fails_without_replacing_existing_account_data_key() {
+        let sender = generate_device_keypair();
+        let recipient = generate_device_keypair();
+        let existing_account_data_key = generate_data_key();
+        let replacement_account_data_key = generate_data_key();
+        let payload = create_wrapped_account_data_key_payload(
+            &replacement_account_data_key,
+            &recipient.public_key,
+            &sender.private_key,
+        )
+        .unwrap();
+        let platform = MockPlatform::new();
+        platform
+            .store_key(DEVICE_PRIVATE_KEY_ID, &recipient.private_key)
+            .unwrap();
+        platform
+            .store_key(ACCOUNT_DATA_KEY_ID, &existing_account_data_key)
+            .unwrap();
+
+        assert!(accept_wrapped_account_data_key_payload(&platform, &payload).is_err());
+        assert_eq!(
+            platform.load_key(ACCOUNT_DATA_KEY_ID).unwrap(),
+            existing_account_data_key.to_vec()
         );
     }
 

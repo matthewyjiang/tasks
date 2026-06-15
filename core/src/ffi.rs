@@ -1089,6 +1089,11 @@ impl SyncClient for FfiSyncClientAdapter {
 }
 
 fn ffi_error_to_core(error: FfiCoreError) -> CoreError {
+    if let FfiCoreError::PlatformError { error_message } = &error {
+        if let Some(key_id) = error_message.strip_prefix("missing key ") {
+            return crate::error::PlatformError::KeyNotFound(key_id.to_owned()).into();
+        }
+    }
     crate::error::PlatformError::OperationFailed(error.to_string()).into()
 }
 
@@ -1942,6 +1947,21 @@ mod tests {
             "generate_local_account_bootstrap",
             "wrap_account_data_key",
             "unwrap_account_data_key",
+            "FfiPlatform",
+            "FfiSyncAuthState",
+            "FfiEnrollmentState",
+            "FfiWrappedAccountDataKeyPayload",
+            "normalize_ffi_sync_server_url",
+            "ffi_sync_server_origin",
+            "ffi_sync_auth_state",
+            "ffi_existing_account_enrollment_state",
+            "ffi_begin_existing_account_enrollment",
+            "create_ffi_wrapped_account_data_key_payload",
+            "accept_ffi_wrapped_account_data_key_payload",
+            "auth_access_token_id",
+            "auth_refresh_token_id",
+            "auth_sync_origin_id",
+            "auth_account_id_id",
             "encrypt_task_blob",
             "decrypt_task_blob",
             "generate_account_data_key",
