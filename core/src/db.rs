@@ -151,10 +151,15 @@ impl LocalDatabase {
         if let Some(body) = patch.body {
             task.body = body;
         }
+        let had_due_at = task.due_at.is_some();
         let has_reminder_patch = patch.reminder_offset_ms.is_some();
         if let Some(due_at) = patch.due_at {
             task.due_at = due_at;
-            if due_at.is_some() && !has_reminder_patch && task.reminder_offset_ms.is_none() {
+            if due_at.is_some()
+                && !had_due_at
+                && !has_reminder_patch
+                && task.reminder_offset_ms.is_none()
+            {
                 task.reminder_offset_ms = self.default_reminder_offset_ms(due_at)?;
             }
         }
@@ -1106,6 +1111,34 @@ mod tests {
                 TaskPatch {
                     due_at: Some(Some(10)),
                     reminder_offset_ms: Some(None),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn update_task_keeps_disabled_reminder_when_due_date_changes() {
+        let database = db();
+        let task = create_named(&database, "due", "body", Some(10));
+        let disabled = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    reminder_offset_ms: Some(None),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(disabled.reminder_offset_ms, None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(20)),
                     ..TaskPatch::default()
                 },
             )
