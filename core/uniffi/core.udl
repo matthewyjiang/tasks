@@ -18,6 +18,20 @@ enum FfiAuthMethod {
   "Password"
 };
 
+enum FfiSyncAuthState {
+  "LocalOnlyReady",
+  "AuthenticatedEnrollmentPending",
+  "SyncReady",
+  "AuthRequired",
+  "MisconfiguredOrigin"
+};
+
+enum FfiEnrollmentState {
+  "LocalOnlyReady",
+  "ExistingAccountPending",
+  "SyncReady"
+};
+
 enum FfiTheme {
   "Light",
   "Dark",
@@ -211,6 +225,22 @@ dictionary FfiLocalAccountBootstrap {
   sequence<u8> account_data_key;
 };
 
+dictionary FfiWrappedAccountDataKeyPayload {
+  sequence<u8> sender_public_key;
+  sequence<u8> recipient_public_key;
+  FfiBlob wrapped_account_data_key;
+};
+
+callback interface FfiPlatform {
+  [Throws=FfiCoreError]
+  void store_key(string id, sequence<u8> bytes);
+  [Throws=FfiCoreError]
+  sequence<u8> load_key(string id);
+  [Throws=FfiCoreError]
+  void delete_key(string id);
+  boolean network_available();
+};
+
 [Error]
 interface FfiCoreError {
   CryptoError(string error_message);
@@ -295,6 +325,23 @@ namespace taskmanager_core {
   sequence<u8> unwrap_account_data_key(FfiBlob wrapped, sequence<u8> peer_public_key, sequence<u8> own_private_key);
   string device_private_key_id();
   string account_data_key_id();
+  string auth_access_token_id();
+  string auth_refresh_token_id();
+  string auth_sync_origin_id();
+  string auth_account_id_id();
+
+  [Throws=FfiCoreError]
+  string normalize_ffi_sync_server_url(string server_url);
+  [Throws=FfiCoreError]
+  string ffi_sync_server_origin(string server_url);
+  FfiSyncAuthState ffi_sync_auth_state(FfiPlatform platform, string server_url);
+  FfiEnrollmentState ffi_existing_account_enrollment_state(FfiPlatform platform);
+  [Throws=FfiCoreError]
+  FfiEnrollmentState ffi_begin_existing_account_enrollment(FfiPlatform platform);
+  [Throws=FfiCoreError]
+  FfiWrappedAccountDataKeyPayload create_ffi_wrapped_account_data_key_payload(sequence<u8> account_data_key, sequence<u8> recipient_public_key, sequence<u8> sender_private_key);
+  [Throws=FfiCoreError]
+  FfiEnrollmentState accept_ffi_wrapped_account_data_key_payload(FfiPlatform platform, FfiWrappedAccountDataKeyPayload payload);
 
   [Throws=FfiCoreError]
   FfiPlaintextSettings read_plaintext_settings(string path);

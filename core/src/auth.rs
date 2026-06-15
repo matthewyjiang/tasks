@@ -221,9 +221,11 @@ pub fn logout_sync_auth(
     auth_client: &dyn AuthClient,
     server_url: &str,
 ) -> CoreResult<()> {
-    let server_url = normalize_sync_server_url(server_url)?;
-    if let Ok(refresh_token) = load_utf8_key(platform, AUTH_REFRESH_TOKEN_ID) {
-        auth_client.delete_session(&server_url, DeleteSessionRequest { refresh_token })?;
+    if let (Ok(server_url), Ok(refresh_token)) = (
+        normalize_sync_server_url(server_url),
+        load_utf8_key(platform, AUTH_REFRESH_TOKEN_ID),
+    ) {
+        let _ = auth_client.delete_session(&server_url, DeleteSessionRequest { refresh_token });
     }
     clear_sync_auth(platform)
 }
@@ -563,6 +565,19 @@ mod tests {
             .unwrap();
         platform.store_key(AUTH_SYNC_ORIGIN_ID, b"origin").unwrap();
         logout_sync_auth(&platform, &FakeAuthClient::default(), "https://example.com").unwrap();
+        assert!(platform.load_key(AUTH_ACCESS_TOKEN_ID).is_err());
+        assert!(platform.load_key(AUTH_REFRESH_TOKEN_ID).is_err());
+    }
+
+    #[test]
+    fn logout_clears_local_auth_even_when_remote_logout_cannot_run() {
+        let platform = MockPlatform::new();
+        platform.store_key(AUTH_ACCESS_TOKEN_ID, b"jwt").unwrap();
+        platform
+            .store_key(AUTH_REFRESH_TOKEN_ID, b"refresh")
+            .unwrap();
+        platform.store_key(AUTH_SYNC_ORIGIN_ID, b"origin").unwrap();
+        logout_sync_auth(&platform, &FakeAuthClient::default(), "").unwrap();
         assert!(platform.load_key(AUTH_ACCESS_TOKEN_ID).is_err());
         assert!(platform.load_key(AUTH_REFRESH_TOKEN_ID).is_err());
     }

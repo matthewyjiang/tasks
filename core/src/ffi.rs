@@ -4,12 +4,21 @@ use std::sync::{Mutex, MutexGuard};
 
 use uuid::Uuid;
 
+use crate::auth::{
+    normalize_sync_server_url, sync_auth_state, sync_server_origin, SyncAuthState,
+    AUTH_ACCESS_TOKEN_ID, AUTH_ACCOUNT_ID_ID, AUTH_REFRESH_TOKEN_ID, AUTH_SYNC_ORIGIN_ID,
+};
 use crate::core::TaskManagerCore;
 use crate::crypto::{
     decrypt_blob, encrypt_blob, generate_data_key, generate_device_keypair,
     public_key_from_private_key, unwrap_data_key, wrap_data_key, DeviceKeypair,
 };
-use crate::error::CoreError;
+use crate::enrollment::{
+    accept_wrapped_account_data_key_payload, begin_existing_account_enrollment,
+    create_wrapped_account_data_key_payload, existing_account_enrollment_state, EnrollmentState,
+    WrappedAccountDataKeyPayload,
+};
+use crate::error::{CoreError, CoreResult};
 use crate::platform::{Platform, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID};
 use crate::settings::{
     AuthMethod, DefaultSort, DisplayDensity, Keybindings, PlaintextSettings, Theme, VaultSettings,
@@ -97,6 +106,22 @@ pub enum FfiAuthMethod {
     Biometric,
     Pin,
     Password,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FfiSyncAuthState {
+    LocalOnlyReady,
+    AuthenticatedEnrollmentPending,
+    SyncReady,
+    AuthRequired,
+    MisconfiguredOrigin,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FfiEnrollmentState {
+    LocalOnlyReady,
+    ExistingAccountPending,
+    SyncReady,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -291,6 +316,20 @@ impl fmt::Debug for FfiLocalAccountBootstrap {
             .field("account_data_key", &"<redacted>")
             .finish()
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiWrappedAccountDataKeyPayload {
+    pub sender_public_key: Vec<u8>,
+    pub recipient_public_key: Vec<u8>,
+    pub wrapped_account_data_key: FfiBlob,
+}
+
+pub trait FfiPlatform: Send + Sync {
+    fn store_key(&self, id: String, bytes: Vec<u8>) -> Result<(), FfiCoreError>;
+    fn load_key(&self, id: String) -> Result<Vec<u8>, FfiCoreError>;
+    fn delete_key(&self, id: String) -> Result<(), FfiCoreError>;
+    fn network_available(&self) -> bool;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -677,6 +716,74 @@ pub fn account_data_key_id() -> String {
     ACCOUNT_DATA_KEY_ID.to_owned()
 }
 
+pub fn auth_access_token_id() -> String {
+    AUTH_ACCESS_TOKEN_ID.to_owned()
+}
+
+pub fn auth_refresh_token_id() -> String {
+    AUTH_REFRESH_TOKEN_ID.to_owned()
+}
+
+pub fn auth_sync_origin_id() -> String {
+    AUTH_SYNC_ORIGIN_ID.to_owned()
+}
+
+pub fn auth_account_id_id() -> String {
+    AUTH_ACCOUNT_ID_ID.to_owned()
+}
+
+pub fn normalize_ffi_sync_server_url(server_url: String) -> Result<String, FfiCoreError> {
+    normalize_sync_server_url(&server_url).map_err(FfiCoreError::from)
+}
+
+pub fn ffi_sync_server_origin(server_url: String) -> Result<String, FfiCoreError> {
+    sync_server_origin(&server_url).map_err(FfiCoreError::from)
+}
+
+pub fn ffi_sync_auth_state(platform: Box<dyn FfiPlatform>, server_url: String) -> FfiSyncAuthState {
+    let adapter = FfiPlatformAdapter { platform };
+    sync_auth_state(&adapter, &server_url).into()
+}
+
+pub fn ffi_existing_account_enrollment_state(platform: Box<dyn FfiPlatform>) -> FfiEnrollmentState {
+    let adapter = FfiPlatformAdapter { platform };
+    existing_account_enrollment_state(&adapter).into()
+}
+
+pub fn ffi_begin_existing_account_enrollment(
+    platform: Box<dyn FfiPlatform>,
+) -> Result<FfiEnrollmentState, FfiCoreError> {
+    let adapter = FfiPlatformAdapter { platform };
+    begin_existing_account_enrollment(&adapter)
+        .map(FfiEnrollmentState::from)
+        .map_err(FfiCoreError::from)
+}
+
+pub fn create_ffi_wrapped_account_data_key_payload(
+    account_data_key: Vec<u8>,
+    recipient_public_key: Vec<u8>,
+    sender_private_key: Vec<u8>,
+) -> Result<FfiWrappedAccountDataKeyPayload, FfiCoreError> {
+    create_wrapped_account_data_key_payload(
+        &account_data_key,
+        &recipient_public_key,
+        &sender_private_key,
+    )
+    .map(FfiWrappedAccountDataKeyPayload::from)
+    .map_err(FfiCoreError::from)
+}
+
+pub fn accept_ffi_wrapped_account_data_key_payload(
+    platform: Box<dyn FfiPlatform>,
+    payload: FfiWrappedAccountDataKeyPayload,
+) -> Result<FfiEnrollmentState, FfiCoreError> {
+    let adapter = FfiPlatformAdapter { platform };
+    let payload = WrappedAccountDataKeyPayload::try_from(payload)?;
+    accept_wrapped_account_data_key_payload(&adapter, &payload)
+        .map(FfiEnrollmentState::from)
+        .map_err(FfiCoreError::from)
+}
+
 pub fn read_plaintext_settings(path: String) -> Result<FfiPlaintextSettings, FfiCoreError> {
     PlaintextSettings::read_from_file(Path::new(&path))
         .map(FfiPlaintextSettings::from)
@@ -918,6 +1025,42 @@ impl Platform for FfiSyncPlatform {
     }
 }
 
+struct FfiPlatformAdapter {
+    platform: Box<dyn FfiPlatform>,
+}
+
+impl Platform for FfiPlatformAdapter {
+    fn store_key(&self, id: &str, bytes: &[u8]) -> CoreResult<()> {
+        self.platform
+            .store_key(id.to_owned(), bytes.to_vec())
+            .map_err(ffi_error_to_core)
+    }
+
+    fn load_key(&self, id: &str) -> CoreResult<Vec<u8>> {
+        self.platform
+            .load_key(id.to_owned())
+            .map_err(ffi_error_to_core)
+    }
+
+    fn delete_key(&self, id: &str) -> CoreResult<()> {
+        self.platform
+            .delete_key(id.to_owned())
+            .map_err(ffi_error_to_core)
+    }
+
+    fn schedule_notification(&self, _task_id: Uuid, _fire_at: i64, _title: &str) -> CoreResult<()> {
+        Ok(())
+    }
+
+    fn cancel_notification(&self, _task_id: Uuid) -> CoreResult<()> {
+        Ok(())
+    }
+
+    fn network_available(&self) -> bool {
+        self.platform.network_available()
+    }
+}
+
 struct FfiSyncClientAdapter {
     client: Box<dyn FfiSyncClient>,
 }
@@ -947,6 +1090,50 @@ impl SyncClient for FfiSyncClientAdapter {
 
 fn ffi_error_to_core(error: FfiCoreError) -> CoreError {
     crate::error::PlatformError::OperationFailed(error.to_string()).into()
+}
+
+impl From<SyncAuthState> for FfiSyncAuthState {
+    fn from(state: SyncAuthState) -> Self {
+        match state {
+            SyncAuthState::LocalOnlyReady => Self::LocalOnlyReady,
+            SyncAuthState::AuthenticatedEnrollmentPending => Self::AuthenticatedEnrollmentPending,
+            SyncAuthState::SyncReady => Self::SyncReady,
+            SyncAuthState::AuthRequired => Self::AuthRequired,
+            SyncAuthState::MisconfiguredOrigin => Self::MisconfiguredOrigin,
+        }
+    }
+}
+
+impl From<EnrollmentState> for FfiEnrollmentState {
+    fn from(state: EnrollmentState) -> Self {
+        match state {
+            EnrollmentState::LocalOnlyReady => Self::LocalOnlyReady,
+            EnrollmentState::ExistingAccountPending => Self::ExistingAccountPending,
+            EnrollmentState::SyncReady => Self::SyncReady,
+        }
+    }
+}
+
+impl From<WrappedAccountDataKeyPayload> for FfiWrappedAccountDataKeyPayload {
+    fn from(payload: WrappedAccountDataKeyPayload) -> Self {
+        Self {
+            sender_public_key: payload.sender_public_key,
+            recipient_public_key: payload.recipient_public_key,
+            wrapped_account_data_key: payload.wrapped_account_data_key.into(),
+        }
+    }
+}
+
+impl TryFrom<FfiWrappedAccountDataKeyPayload> for WrappedAccountDataKeyPayload {
+    type Error = FfiCoreError;
+
+    fn try_from(payload: FfiWrappedAccountDataKeyPayload) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sender_public_key: payload.sender_public_key,
+            recipient_public_key: payload.recipient_public_key,
+            wrapped_account_data_key: payload.wrapped_account_data_key.try_into()?,
+        })
+    }
 }
 
 impl From<Blob> for FfiBlob {
@@ -1522,6 +1709,95 @@ mod tests {
             settings
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ffi_auth_and_enrollment_helpers_map_shared_core_types() {
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+
+        struct TestFfiPlatform {
+            keys: Mutex<HashMap<String, Vec<u8>>>,
+        }
+
+        impl TestFfiPlatform {
+            fn new() -> Self {
+                Self {
+                    keys: Mutex::new(HashMap::new()),
+                }
+            }
+        }
+
+        impl FfiPlatform for TestFfiPlatform {
+            fn store_key(&self, id: String, bytes: Vec<u8>) -> Result<(), FfiCoreError> {
+                self.keys.lock().unwrap().insert(id, bytes);
+                Ok(())
+            }
+
+            fn load_key(&self, id: String) -> Result<Vec<u8>, FfiCoreError> {
+                self.keys
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .cloned()
+                    .ok_or(FfiCoreError::PlatformError {
+                        error_message: format!("missing key {id}"),
+                    })
+            }
+
+            fn delete_key(&self, id: String) -> Result<(), FfiCoreError> {
+                self.keys.lock().unwrap().remove(&id);
+                Ok(())
+            }
+
+            fn network_available(&self) -> bool {
+                true
+            }
+        }
+
+        assert_eq!(auth_access_token_id(), AUTH_ACCESS_TOKEN_ID);
+        assert_eq!(auth_refresh_token_id(), AUTH_REFRESH_TOKEN_ID);
+        assert_eq!(auth_sync_origin_id(), AUTH_SYNC_ORIGIN_ID);
+        assert_eq!(auth_account_id_id(), AUTH_ACCOUNT_ID_ID);
+        assert_eq!(
+            normalize_ffi_sync_server_url(" https://example.com/ ".to_owned()).unwrap(),
+            "https://example.com"
+        );
+        assert_eq!(
+            ffi_sync_server_origin("https://example.com/tasks".to_owned()).unwrap(),
+            "https://example.com:443"
+        );
+        assert!(normalize_ffi_sync_server_url("http://example.com".to_owned()).is_err());
+
+        let bootstrap = generate_local_account_bootstrap();
+        let platform = TestFfiPlatform::new();
+        platform
+            .store_key(
+                device_private_key_id(),
+                bootstrap.device_private_key.clone(),
+            )
+            .unwrap();
+        assert_eq!(
+            ffi_begin_existing_account_enrollment(Box::new(platform)).unwrap(),
+            FfiEnrollmentState::ExistingAccountPending
+        );
+
+        let recipient = generate_ffi_device_keypair();
+        let sender = generate_ffi_device_keypair();
+        let payload = create_ffi_wrapped_account_data_key_payload(
+            bootstrap.account_data_key.clone(),
+            recipient.public_key.clone(),
+            sender.private_key,
+        )
+        .unwrap();
+        let platform = TestFfiPlatform::new();
+        platform
+            .store_key(device_private_key_id(), recipient.private_key)
+            .unwrap();
+        assert_eq!(
+            accept_ffi_wrapped_account_data_key_payload(Box::new(platform), payload).unwrap(),
+            FfiEnrollmentState::SyncReady
+        );
     }
 
     #[test]
