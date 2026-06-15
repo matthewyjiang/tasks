@@ -1,5 +1,9 @@
 # Changelog
 
+## linux-app-v0.5.1 - 2026-06-15
+
+- fix: address reminder review follow-ups (#119) (b06df7b)
+
 ## linux-app-v0.5.0 - 2026-06-14
 
 - feat(core): add shared task state APIs (#111) (915bb7c)
