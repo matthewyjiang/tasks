@@ -55,6 +55,7 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Switched sidebar and bottom-bar action glyphs to Font Awesome icons.
 - [x] Task list layout expands to fill the available vertical space.
 - [x] Linux platform adapter skeleton added with libsecret keyring and notifications.
+- [x] Added core-backed reminder offsets and Linux persistent reminder scheduling through systemd user timers.
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
 - [x] Onboarding detection and local account initialization wired into startup.

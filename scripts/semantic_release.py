@@ -8,10 +8,12 @@ Conventional Commits that touched the artifact path since that artifact's latest
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 import shlex
 from pathlib import Path
@@ -20,6 +22,12 @@ from typing import Iterable
 
 VERSION_RE = re.compile(r"^(?P<prefix>.+)-v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
 HEADER_RE = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?: .+")
+ARTIFACT_PATHS = {
+    "server": ["server"],
+    "core": ["core"],
+    "cli": ["cli"],
+    "linux-app": ["linux"],
+}
 
 
 @dataclass(frozen=True, order=True)
@@ -64,18 +72,23 @@ def dispatch_linux_arch_package(tag: str) -> None:
     print(f"Dispatched publish-arch-package.yml for {tag}.")
 
 
-def latest_tag(prefix: str) -> tuple[str | None, Version]:
+def tags_for_artifact(prefix: str) -> list[tuple[str, Version]]:
     tags = run(["git", "tag", "--list", f"{prefix}-v*"], check=True).splitlines()
-    best_tag: str | None = None
-    best = Version(0, 0, 0)
+    parsed: list[tuple[str, Version]] = []
     for tag in tags:
         match = VERSION_RE.match(tag)
         if not match or match.group("prefix") != prefix:
             continue
         version = Version(int(match.group("major")), int(match.group("minor")), int(match.group("patch")))
-        if best_tag is None or version > best:
-            best_tag, best = tag, version
-    return best_tag, best
+        parsed.append((tag, version))
+    return sorted(parsed, key=lambda item: item[1])
+
+
+def latest_tag(prefix: str) -> tuple[str | None, Version]:
+    tags = tags_for_artifact(prefix)
+    if not tags:
+        return None, Version(0, 0, 0)
+    return tags[-1]
 
 
 def normalize_paths(paths: Iterable[str]) -> list[str]:
@@ -131,11 +144,68 @@ def highest_bump(commits: Iterable[str]) -> str | None:
     return best
 
 
-def release_notes(tag: str, previous_tag: str | None, paths: Iterable[str]) -> str:
-    rev = f"{previous_tag}..HEAD" if previous_tag else "HEAD"
+def release_notes_for_range(tag: str, previous_tag: str | None, end_ref: str, paths: Iterable[str]) -> str:
+    rev = f"{previous_tag}..{end_ref}" if previous_tag else end_ref
     pathspecs = normalize_paths(paths)
-    log = run(["git", "log", rev, "--pretty=format:- %s (%h)", "--", *pathspecs], check=True)
-    return f"## {tag}\n\n" + (log or "No user-facing changes.") + "\n"
+    artifact = tag.rsplit("-v", 1)[0]
+    output = run(["git", "log", rev, "--pretty=format:%s%x1f%h%x1e", "--", *pathspecs], check=True)
+    lines: list[str] = []
+    for entry in output.split("\x1e"):
+        if not entry.strip():
+            continue
+        subject, short_hash = entry.strip().split("\x1f", 1)
+        if subject.startswith(f"chore({artifact}): release {tag}"):
+            continue
+        lines.append(f"- {subject} ({short_hash})")
+    return f"## {tag}\n\n" + ("\n".join(lines) or "No user-facing changes.") + "\n"
+
+
+def release_notes(tag: str, previous_tag: str | None, paths: Iterable[str]) -> str:
+    return release_notes_for_range(tag, previous_tag, "HEAD", paths)
+
+
+def tag_created(tag: str) -> tuple[int, str]:
+    output = run(
+        ["git", "for-each-ref", f"refs/tags/{tag}", "--format=%(creatordate:unix)%09%(creatordate:short)"],
+        check=True,
+    )
+    timestamp, date = output.split("\t", 1)
+    return int(timestamp), date
+
+
+def dated_release_notes(tag: str, previous_tag: str | None, end_ref: str, paths: Iterable[str], date: str) -> str:
+    notes = release_notes_for_range(tag, previous_tag, end_ref, paths).rstrip()
+    return notes.replace(f"## {tag}", f"## {tag} - {date}", 1)
+
+
+def update_changelog(changelog: Path, tag: str, previous_tag: str | None, paths: Iterable[str]) -> bool:
+    """Prepend this artifact release's generated notes to a repository changelog."""
+    existing = changelog.read_text() if changelog.exists() else "# Changelog\n"
+    if re.search(rf"^## {re.escape(tag)}(?:\s|$)", existing, re.MULTILINE):
+        return False
+
+    dated_notes = dated_release_notes(tag, previous_tag, "HEAD", paths, dt.date.today().isoformat())
+    if existing.startswith("# Changelog\n"):
+        updated = existing.replace("# Changelog\n", f"# Changelog\n\n{dated_notes}\n", 1)
+    else:
+        updated = f"# Changelog\n\n{dated_notes}\n\n{existing}"
+    changelog.write_text(updated if updated.endswith("\n") else f"{updated}\n")
+    return True
+
+
+def backfill_changelog(changelog: Path, artifacts: Iterable[str]) -> None:
+    entries: list[tuple[int, str]] = []
+    for artifact in artifacts:
+        paths = ARTIFACT_PATHS[artifact]
+        previous_tag: str | None = None
+        for tag, _version in tags_for_artifact(artifact):
+            timestamp, date = tag_created(tag)
+            entries.append((timestamp, dated_release_notes(tag, previous_tag, tag, paths, date)))
+            previous_tag = tag
+
+    entries.sort(key=lambda item: item[0], reverse=True)
+    content = "# Changelog\n\n" + "\n\n".join(notes for _timestamp, notes in entries) + "\n"
+    changelog.write_text(content)
 
 
 def replace_package_version(manifest: Path, version: Version) -> None:
@@ -155,6 +225,18 @@ def replace_package_version(manifest: Path, version: Version) -> None:
             manifest.write_text("".join(lines))
             return
     raise RuntimeError(f"did not find [package] version in {manifest}")
+
+
+def replace_arch_pkgbuild_version(pkgbuild: Path, version: Version) -> None:
+    text = pkgbuild.read_text()
+    lines = text.splitlines(keepends=True)
+    for idx, line in enumerate(lines):
+        if line.startswith("pkgver="):
+            newline = "\n" if line.endswith("\n") else ""
+            lines[idx] = f"pkgver={version}{newline}"
+            pkgbuild.write_text("".join(lines))
+            return
+    raise RuntimeError(f"did not find pkgver in {pkgbuild}")
 
 
 def update_cargo_lock_package(lockfile: Path, package: str, version: Version) -> None:
@@ -192,7 +274,8 @@ def update_artifact_version(artifact: str, version: Version) -> list[str]:
     if artifact == "linux-app":
         replace_package_version(Path("linux/Cargo.toml"), version)
         update_cargo_lock_package(Path("Cargo.lock"), "tsk-linux", version)
-        return ["linux/Cargo.toml", "Cargo.lock"]
+        replace_arch_pkgbuild_version(Path("packaging/arch/PKGBUILD"), version)
+        return ["linux/Cargo.toml", "Cargo.lock", "packaging/arch/PKGBUILD"]
     return []
 
 
@@ -232,29 +315,58 @@ def create_version_pr(artifact: str, tag: str, base_branch: str) -> None:
         print(f"Version bump PR already exists: #{existing}")
         return
 
-    run(
-        [
-            "gh",
-            "pr",
-            "create",
-            "--base",
-            base_branch,
-            "--head",
-            branch,
-            "--title",
-            f"chore({artifact}): release {tag}",
-            "--body",
-            f"Update package metadata for `{tag}`. The release workflow will create the tag after this PR merges.",
-        ]
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as body_file:
+        body_file.write(
+            f"Update package metadata and changelog for `{tag}`. "
+            "The release workflow will create the tag after this PR merges.\n"
+        )
+        body_path = body_file.name
+    try:
+        run(
+            [
+                "gh",
+                "pr",
+                "create",
+                "--base",
+                base_branch,
+                "--head",
+                branch,
+                "--title",
+                f"chore({artifact}): release {tag}",
+                "--body-file",
+                body_path,
+            ]
+        )
+    finally:
+        Path(body_path).unlink(missing_ok=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--artifact", required=True, help="Artifact name used as tag prefix, e.g. server")
-    parser.add_argument("--path", required=True, nargs="+", help="Path(s) to inspect for changes, e.g. server or android ios")
+    parser.add_argument("--artifact", help="Artifact name used as tag prefix, e.g. server")
+    parser.add_argument("--path", nargs="+", help="Path(s) to inspect for changes, e.g. server or android ios")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--backfill-changelog",
+        action="store_true",
+        help="Regenerate CHANGELOG.md from all existing artifact tags and exit.",
+    )
     args = parser.parse_args()
+
+    if args.backfill_changelog:
+        artifacts = [args.artifact] if args.artifact else ARTIFACT_PATHS.keys()
+        unknown = [artifact for artifact in artifacts if artifact not in ARTIFACT_PATHS]
+        if unknown:
+            parser.error(f"unknown artifact(s) for changelog backfill: {', '.join(unknown)}")
+        if args.dry_run:
+            print("Would regenerate CHANGELOG.md for: " + ", ".join(artifacts))
+            return 0
+        backfill_changelog(Path("CHANGELOG.md"), artifacts)
+        print("Regenerated CHANGELOG.md.")
+        return 0
+
+    if not args.artifact or not args.path:
+        parser.error("--artifact and --path are required unless --backfill-changelog is used")
 
     previous_tag, current = latest_tag(args.artifact)
     commits = commits_since(previous_tag, args.path)
@@ -273,6 +385,9 @@ def main() -> int:
         return 0
 
     updated_files = update_artifact_version(args.artifact, next_version)
+    if os.environ.get("RELEASE_UPDATE_CHANGELOG") == "1":
+        if update_changelog(Path("CHANGELOG.md"), tag, previous_tag, args.path):
+            updated_files.append("CHANGELOG.md")
     if updated_files:
         run(["git", "add", *updated_files])
         if has_staged_changes():

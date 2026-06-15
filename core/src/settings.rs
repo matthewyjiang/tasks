@@ -49,6 +49,12 @@ pub struct VaultSettings {
     pub notification_sound: String,
     #[serde(default)]
     pub keybindings: Keybindings,
+    #[serde(default = "default_show_share_revocation_warning")]
+    pub show_share_revocation_warning: bool,
+}
+
+fn default_show_share_revocation_warning() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +167,7 @@ impl Default for VaultSettings {
             first_day_of_week: 1,
             notification_sound: "default".to_owned(),
             keybindings: Keybindings::default(),
+            show_share_revocation_warning: true,
         }
     }
 }
@@ -201,6 +208,7 @@ impl VaultSettings {
             title: VAULT_SETTINGS_ID.to_owned(),
             body: serde_json::to_string(self)?,
             due_at: None,
+            reminder_offset_ms: None,
             status: TaskStatus::Open,
             project_id: None,
             tags: Vec::new(),

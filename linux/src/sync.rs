@@ -4,8 +4,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{
     sync_pull, sync_push, Blob, BlobPush, CoreError, CoreResult, LocalDatabase, Platform,
-    PlatformError, PullResponse, PushResponse, RemoteBlob, SyncClient, SyncError,
-    ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
+    PlatformError, PullResponse, PushResponse, RemoteBlob, SharedTaskInvite, SyncClient, SyncError,
+    TaskManagerCore, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -36,6 +36,101 @@ impl LinuxHttpSyncClient {
         request: reqwest::blocking::RequestBuilder,
     ) -> reqwest::blocking::RequestBuilder {
         request.bearer_auth(&self.token)
+    }
+
+    pub(crate) fn create_share(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        wrapped_task_key: Blob,
+    ) -> CoreResult<()> {
+        self.auth(
+            self.client
+                .post(format!("{}/share/{}", self.base_url, task_id)),
+        )
+        .json(&LinuxShareCreateRequest {
+            recipient_id,
+            wrapped_dek: wrapped_task_key.ciphertext,
+            nonce: wrapped_task_key.nonce,
+        })
+        .send()
+        .map_err(|_| SyncError::NetworkUnavailable)?
+        .error_for_status()
+        .map_err(linux_http_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn revoke_share(&self, task_id: Uuid, recipient_id: Uuid) -> CoreResult<()> {
+        self.auth(self.client.delete(format!(
+            "{}/share/{}/{}",
+            self.base_url, task_id, recipient_id
+        )))
+        .send()
+        .map_err(|_| SyncError::NetworkUnavailable)?
+        .error_for_status()
+        .map_err(linux_http_error)?;
+        Ok(())
+    }
+
+    pub(crate) fn share_inbox(&self) -> CoreResult<Vec<LinuxSharedTaskWire>> {
+        Ok(self
+            .auth(self.client.get(format!("{}/share/inbox", self.base_url)))
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json::<LinuxShareInboxResponse>()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?
+            .shared)
+    }
+
+    pub(crate) fn user_public_keys(&self, user_id: Uuid) -> CoreResult<Vec<Vec<u8>>> {
+        Ok(self
+            .auth(
+                self.client
+                    .get(format!("{}/keys/{}", self.base_url, user_id)),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json::<LinuxKeysResponse>()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?
+            .keys
+            .into_iter()
+            .map(|key| key.pub_key)
+            .collect())
+    }
+
+    pub(crate) fn user_public_keys_by_email(
+        &self,
+        email: &str,
+    ) -> CoreResult<(Uuid, Vec<Vec<u8>>)> {
+        let response = self
+            .auth(
+                self.client
+                    .get(format!("{}/keys/by-email", self.base_url))
+                    .query(&[("email", email)]),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json::<LinuxKeysResponse>()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok((
+            response.user_id,
+            response.keys.into_iter().map(|key| key.pub_key).collect(),
+        ))
     }
 }
 
@@ -124,6 +219,60 @@ pub(crate) fn linux_http_error(error: reqwest::Error) -> SyncError {
 }
 
 #[derive(Serialize)]
+struct LinuxShareCreateRequest {
+    recipient_id: Uuid,
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    wrapped_dek: Vec<u8>,
+    #[serde(serialize_with = "serialize_base64_nonce")]
+    nonce: [u8; 12],
+}
+
+#[derive(Deserialize)]
+pub(crate) struct LinuxShareInboxResponse {
+    shared: Vec<LinuxSharedTaskWire>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct LinuxSharedTaskWire {
+    task_id: Uuid,
+    owner_id: Uuid,
+    recipient_id: Uuid,
+    wrapped_dek: String,
+    nonce: String,
+}
+
+impl LinuxSharedTaskWire {
+    fn into_invite(self) -> Option<SharedTaskInvite> {
+        let ciphertext = base64::engine::general_purpose::STANDARD
+            .decode(self.wrapped_dek)
+            .ok()?;
+        let nonce = base64::engine::general_purpose::STANDARD
+            .decode(self.nonce)
+            .ok()?
+            .try_into()
+            .ok()?;
+        Some(SharedTaskInvite {
+            task_id: self.task_id,
+            owner_id: self.owner_id,
+            recipient_id: self.recipient_id,
+            wrapped_task_key: Blob { ciphertext, nonce },
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct LinuxKeysResponse {
+    user_id: Uuid,
+    keys: Vec<LinuxKeyResponse>,
+}
+
+#[derive(Deserialize)]
+struct LinuxKeyResponse {
+    #[serde(deserialize_with = "deserialize_base64_bytes")]
+    pub_key: Vec<u8>,
+}
+
+#[derive(Serialize)]
 struct LinuxBatchRequest {
     blobs: Vec<LinuxBlobRequest>,
 }
@@ -206,6 +355,16 @@ where
     serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+fn deserialize_base64_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let encoded = String::deserialize(deserializer)?;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(serde::de::Error::custom)
+}
+
 #[derive(Default)]
 pub(crate) struct LinuxSyncSummary {
     pub(crate) pushed: usize,
@@ -258,6 +417,79 @@ pub(crate) fn linux_sync_configured(settings_path: &Path) -> bool {
     sync_auth_configured(&LinuxPlatform::new(), &settings)
 }
 
+pub(crate) fn share_linux_task(
+    core: &TaskManagerCore,
+    settings_path: &Path,
+    task_id: Uuid,
+    recipient_email: &str,
+) -> CoreResult<()> {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    let platform = LinuxPlatform::new();
+    let server_url = normalize_sync_server_url(&settings.server_url).map_err(sync_config_error)?;
+    let token = load_utf8_key(&platform, AUTH_ACCESS_TOKEN_ID, "access token")?;
+    let client = LinuxHttpSyncClient::new(&server_url, token)?;
+    let (recipient_id, recipient_keys) = client.user_public_keys_by_email(recipient_email)?;
+    let recipient_public_key = recipient_keys.into_iter().next().ok_or_else(|| {
+        PlatformError::OperationFailed("recipient has no registered public key".to_owned())
+    })?;
+    let owner_private_key = platform.load_key(DEVICE_PRIVATE_KEY_ID)?;
+    let recipient = core.share_task_with_recipient(
+        task_id,
+        recipient_id,
+        &recipient_public_key,
+        &owner_private_key,
+    )?;
+    client.create_share(task_id, recipient_id, recipient.wrapped_task_key)?;
+    Ok(())
+}
+
+pub(crate) fn revoke_linux_share(
+    core: &TaskManagerCore,
+    settings_path: &Path,
+    task_id: Uuid,
+    recipient_id: Uuid,
+) -> CoreResult<()> {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    let platform = LinuxPlatform::new();
+    let server_url = normalize_sync_server_url(&settings.server_url).map_err(sync_config_error)?;
+    let token = load_utf8_key(&platform, AUTH_ACCESS_TOKEN_ID, "access token")?;
+    let client = LinuxHttpSyncClient::new(&server_url, token)?;
+    let current_state = core.shared_task_state(task_id)?;
+    let mut remaining_public_keys = Vec::new();
+    for recipient in current_state
+        .active_recipients()
+        .filter(|recipient| recipient.recipient_id != recipient_id)
+    {
+        let public_key = client
+            .user_public_keys(recipient.recipient_id)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                PlatformError::OperationFailed(format!(
+                    "recipient {} has no registered public key",
+                    recipient.recipient_id
+                ))
+            })?;
+        remaining_public_keys.push((recipient.recipient_id, public_key));
+    }
+    let owner_private_key = platform.load_key(DEVICE_PRIVATE_KEY_ID)?;
+    let updated_state = core.revoke_shared_task_recipient(
+        task_id,
+        recipient_id,
+        remaining_public_keys,
+        &owner_private_key,
+    )?;
+    for recipient in updated_state.active_recipients() {
+        client.create_share(
+            task_id,
+            recipient.recipient_id,
+            recipient.wrapped_task_key.clone(),
+        )?;
+    }
+    client.revoke_share(task_id, recipient_id)?;
+    Ok(())
+}
+
 pub(crate) fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult<LinuxSyncSummary> {
     let settings = read_settings(settings_path).unwrap_or_default();
     if !sync_auth_configured(&LinuxPlatform::new(), &settings) {
@@ -268,13 +500,17 @@ pub(crate) fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult
     let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
     let database = LocalDatabase::open(db_path)?;
 
-    match run_linux_sync_once(&database, &platform, &server_url, &data_key) {
+    let mut summary = match run_linux_sync_once(&database, &platform, &server_url, &data_key) {
         Err(CoreError::Sync(SyncError::AuthExpired)) => {
             refresh_linux_auth(&platform, &server_url)?;
-            run_linux_sync_once(&database, &platform, &server_url, &data_key)
+            run_linux_sync_once(&database, &platform, &server_url, &data_key)?
         }
-        result => result,
-    }
+        result => result?,
+    };
+    summary.pending_retries = TaskManagerCore::open(db_path)?
+        .sync_status()?
+        .retry_queue_depth;
+    Ok(summary)
 }
 
 pub(crate) fn run_linux_sync_once(
@@ -285,15 +521,43 @@ pub(crate) fn run_linux_sync_once(
 ) -> CoreResult<LinuxSyncSummary> {
     let token = load_utf8_key(platform, AUTH_ACCESS_TOKEN_ID, "access token")?;
     let client = LinuxHttpSyncClient::new(server_url, token)?;
+    accept_share_inbox(database, platform, &client)?;
     let pull = sync_pull(database, &client, data_key)?;
     let push = sync_push(database, platform, &client, data_key)?;
     Ok(LinuxSyncSummary {
         pushed: push.pushed,
         pulled: pull.pulled,
         failed: push.failed,
-        pending_retries: database.retry_queue_entries()?.len(),
+        pending_retries: 0,
         conflicts: pull.failed,
     })
+}
+
+fn accept_share_inbox(
+    database: &LocalDatabase,
+    platform: &LinuxPlatform,
+    client: &LinuxHttpSyncClient,
+) -> CoreResult<()> {
+    let recipient_private_key = platform.load_key(DEVICE_PRIVATE_KEY_ID)?;
+    for item in client.share_inbox()? {
+        let Some(invite) = item.into_invite() else {
+            continue;
+        };
+        if database.shared_task_state(invite.task_id).is_ok() {
+            continue;
+        }
+        let Some(owner_public_key) = client.user_public_keys(invite.owner_id)?.into_iter().next()
+        else {
+            continue;
+        };
+        let task_key = taskmanager_core::unwrap_data_key(
+            &invite.wrapped_task_key,
+            &owner_public_key,
+            &recipient_private_key,
+        )?;
+        database.accept_shared_task(invite, task_key.to_vec())?;
+    }
+    Ok(())
 }
 
 fn refresh_linux_auth(platform: &LinuxPlatform, server_url: &str) -> CoreResult<()> {

@@ -106,6 +106,8 @@ A user's own tasks all use the single account `data_key`. That key cannot be han
 
 **Revoking access:** the sharer calls `DELETE /share/:task_id/:recipient_id`, which deletes the `wrapped_dek` row, and then **rotates the task** — generates a new `task_key`, re-encrypts the blob under it, and re-wraps it only for the remaining collaborators. Deleting the `wrapped_dek` row alone is not sufficient: a revoked recipient may have cached the old `task_key`, so the task must be re-keyed for revocation to be meaningful. Note that the revoked recipient can still read any copy of the task content they captured before revocation — forward secrecy is not retroactive.
 
+Core tracks shared-task state locally (`task_key`, owner, recipients, accepted/revoked timestamps) and exposes native APIs for share, accept, list state, and revoke. Platform UIs must display the revocation limitation above whenever presenting revoke/manage-recipient flows.
+
 ### 2.7 Security constraints
 
 - Nonces must never be reused with the same key — always generate fresh via `OsRng`
@@ -127,6 +129,7 @@ pub struct Task {
     pub title:      String,
     pub body:       String,
     pub due_at:     Option<i64>,    // Unix timestamp (ms)
+    pub reminder_offset_ms: Option<i64>, // notify this many ms before due_at
     pub status:     TaskStatus,
     pub project_id: Option<Uuid>,
     pub tags:       Vec<String>,

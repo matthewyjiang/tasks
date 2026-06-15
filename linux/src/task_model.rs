@@ -96,6 +96,7 @@ mod tests {
             title: "Done task".to_owned(),
             body: String::new(),
             due_at: None,
+            reminder_offset_ms: None,
             status: TaskStatus::Done,
             project_id: None,
             tags: Vec::new(),

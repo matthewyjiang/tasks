@@ -40,6 +40,8 @@ public actor CoreTaskRepository: TaskRepository {
                 body: task.body,
                 dueAt: task.dueAt.map(Self.millisecondsSinceEpoch),
                 clearDueAt: task.dueAt == nil,
+                reminderOffsetMs: nil,
+                clearReminderOffsetMs: false,
                 status: task.status.ffi,
                 projectId: task.listID?.uuidString,
                 clearProjectId: task.listID == nil,

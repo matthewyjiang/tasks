@@ -32,6 +32,12 @@ func (r Repository) AddDevice(ctx context.Context, userID uuid.UUID, pubKey []by
 	return deviceID, err
 }
 
+func (r Repository) UserIDByEmail(ctx context.Context, email string) (uuid.UUID, error) {
+	var userID uuid.UUID
+	err := r.DB.QueryRow(ctx, `SELECT id FROM users WHERE email=lower(trim($1))`, email).Scan(&userID)
+	return userID, err
+}
+
 func (r Repository) ListUserKeys(ctx context.Context, userID uuid.UUID) ([]DeviceKey, error) {
 	rows, err := r.DB.Query(ctx, `SELECT id, user_id, pub_key FROM devices WHERE user_id=$1 ORDER BY created_at ASC`, userID)
 	if err != nil {

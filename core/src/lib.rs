@@ -30,6 +30,7 @@ pub use ffi::{
     unwrap_account_data_key, wrap_account_data_key, write_plaintext_settings, FfiAuthMethod,
     FfiBlob, FfiCoreError, FfiCoreErrorKind, FfiDefaultSort, FfiDeviceKeypair, FfiDisplayDensity,
     FfiKeybindings, FfiLocalAccountBootstrap, FfiPlaintextSettings, FfiRetryQueueEntry,
+    FfiSharedTaskInvite, FfiSharedTaskRecipient, FfiSharedTaskRecipientKey, FfiSharedTaskState,
     FfiSyncStatus, FfiTagColor, FfiTask, FfiTaskFilter, FfiTaskList, FfiTaskManagerCore,
     FfiTaskPatch, FfiTaskSort, FfiTaskStatus, FfiTheme, FfiVaultSettings,
 };
@@ -47,6 +48,6 @@ pub use sync::{
     SyncClient,
 };
 pub use types::{
-    Blob, RetryQueueEntry, SyncResult, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort,
-    TaskStatus,
+    Blob, RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncResult,
+    SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus,
 };

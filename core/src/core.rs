@@ -2,10 +2,14 @@ use std::path::Path;
 
 use uuid::Uuid;
 
+use crate::crypto::{generate_data_key, unwrap_data_key, wrap_data_key};
 use crate::db::LocalDatabase;
 use crate::error::CoreResult;
 use crate::settings::VaultSettings;
-use crate::types::{RetryQueueEntry, SyncStatus, Task, TaskFilter, TaskList, TaskPatch, TaskSort};
+use crate::types::{
+    RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncStatus, Task,
+    TaskFilter, TaskList, TaskPatch, TaskSort,
+};
 
 pub struct TaskManagerCore {
     database: LocalDatabase,
@@ -49,6 +53,18 @@ impl TaskManagerCore {
         self.database.create_task(title, body, due_at)
     }
 
+    pub fn create_task_with_options(
+        &self,
+        title: String,
+        body: String,
+        due_at: Option<i64>,
+        project_id: Option<Uuid>,
+        tags: Vec<String>,
+    ) -> CoreResult<Task> {
+        self.database
+            .create_task_with_options(title, body, due_at, project_id, tags)
+    }
+
     pub fn get_task(&self, task_id: Uuid) -> CoreResult<Task> {
         self.database.get_task(task_id)
     }
@@ -67,6 +83,88 @@ impl TaskManagerCore {
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
         self.database.search_tasks(query)
+    }
+
+    pub fn share_task_with_recipient(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        recipient_public_key: &[u8],
+        owner_private_key: &[u8],
+    ) -> CoreResult<SharedTaskRecipient> {
+        self.database.get_task(task_id)?;
+        let task_key = self
+            .database
+            .shared_task_state(task_id)
+            .map(|state| state.task_key)
+            .unwrap_or_else(|_| generate_data_key().to_vec());
+        let wrapped_task_key = wrap_data_key(&task_key, recipient_public_key, owner_private_key)?;
+        self.database
+            .share_task(task_id, recipient_id, task_key, wrapped_task_key)
+    }
+
+    pub fn accept_shared_task_invite(
+        &self,
+        invite: SharedTaskInvite,
+        owner_public_key: &[u8],
+        recipient_private_key: &[u8],
+    ) -> CoreResult<SharedTaskState> {
+        let task_key = unwrap_data_key(
+            &invite.wrapped_task_key,
+            owner_public_key,
+            recipient_private_key,
+        )?;
+        self.database.accept_shared_task(invite, task_key.to_vec())
+    }
+
+    pub fn revoke_shared_task_recipient(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        remaining_recipient_public_keys: Vec<(Uuid, Vec<u8>)>,
+        owner_private_key: &[u8],
+    ) -> CoreResult<SharedTaskState> {
+        let current_state = self.database.shared_task_state(task_id)?;
+        let remaining_recipient_ids: Vec<Uuid> = current_state
+            .active_recipients()
+            .filter(|recipient| recipient.recipient_id != recipient_id)
+            .map(|recipient| recipient.recipient_id)
+            .collect();
+        let rotated_task_key = generate_data_key();
+        let mut rewrapped_recipients = Vec::with_capacity(remaining_recipient_ids.len());
+        for remaining_recipient_id in remaining_recipient_ids {
+            let public_key = remaining_recipient_public_keys
+                .iter()
+                .find(|(id, _)| *id == remaining_recipient_id)
+                .map(|(_, public_key)| public_key.as_slice())
+                .ok_or_else(|| {
+                    crate::error::PlatformError::OperationFailed(format!(
+                        "missing public key for remaining recipient {remaining_recipient_id}"
+                    ))
+                })?;
+            let wrapped_task_key = wrap_data_key(&rotated_task_key, public_key, owner_private_key)?;
+            rewrapped_recipients.push(SharedTaskRecipient {
+                task_id,
+                recipient_id: remaining_recipient_id,
+                wrapped_task_key,
+                created_at: 0,
+                revoked_at: None,
+            });
+        }
+        self.database.revoke_shared_task_recipient(
+            task_id,
+            recipient_id,
+            rotated_task_key.to_vec(),
+            rewrapped_recipients,
+        )
+    }
+
+    pub fn shared_task_state(&self, task_id: Uuid) -> CoreResult<SharedTaskState> {
+        self.database.shared_task_state(task_id)
+    }
+
+    pub fn shared_task_revocation_notice(&self) -> &'static str {
+        SharedTaskState::revocation_notice()
     }
 
     pub fn vault_settings(&self) -> CoreResult<VaultSettings> {
@@ -205,6 +303,142 @@ mod tests {
 
         core.delete_task(created.id).unwrap();
         assert!(core.get_task(created.id).unwrap().deleted);
+    }
+
+    #[test]
+    fn shared_task_flow_wraps_accepts_and_revokes_recipient_access() {
+        let owner = TaskManagerCore::open_in_memory().unwrap();
+        let recipient = TaskManagerCore::open_in_memory().unwrap();
+        let task = owner
+            .create_task("shared".to_owned(), "secret".to_owned(), None)
+            .unwrap();
+        let owner_keys = crate::crypto::generate_device_keypair();
+        let recipient_keys = crate::crypto::generate_device_keypair();
+        let recipient_id = Uuid::new_v4();
+
+        let share = owner
+            .share_task_with_recipient(
+                task.id,
+                recipient_id,
+                &recipient_keys.public_key,
+                &owner_keys.private_key,
+            )
+            .unwrap();
+        let owner_state = owner.shared_task_state(task.id).unwrap();
+        assert!(owner_state.is_shared());
+        assert_eq!(owner_state.active_recipients().count(), 1);
+
+        let accepted = recipient
+            .accept_shared_task_invite(
+                crate::types::SharedTaskInvite {
+                    task_id: task.id,
+                    owner_id: Uuid::new_v4(),
+                    recipient_id,
+                    wrapped_task_key: share.wrapped_task_key,
+                },
+                &owner_keys.public_key,
+                &recipient_keys.private_key,
+            )
+            .unwrap();
+        assert_eq!(accepted.task_key, owner_state.task_key);
+        assert!(accepted.accepted_at.is_some());
+
+        let second_recipient_keys = crate::crypto::generate_device_keypair();
+        let second_recipient_id = Uuid::new_v4();
+        let second_share = owner
+            .share_task_with_recipient(
+                task.id,
+                second_recipient_id,
+                &second_recipient_keys.public_key,
+                &owner_keys.private_key,
+            )
+            .unwrap();
+        let second_task_key = crate::crypto::unwrap_data_key(
+            &second_share.wrapped_task_key,
+            &owner_keys.public_key,
+            &second_recipient_keys.private_key,
+        )
+        .unwrap();
+        assert_eq!(second_task_key.to_vec(), owner_state.task_key);
+
+        let revoked = owner
+            .revoke_shared_task_recipient(
+                task.id,
+                recipient_id,
+                vec![(
+                    second_recipient_id,
+                    second_recipient_keys.public_key.clone(),
+                )],
+                &owner_keys.private_key,
+            )
+            .unwrap();
+        assert_eq!(revoked.active_recipients().count(), 1);
+        assert_ne!(revoked.task_key, owner_state.task_key);
+        let remaining = revoked.active_recipients().next().unwrap();
+        assert_eq!(remaining.recipient_id, second_recipient_id);
+        let rewrapped_task_key = crate::crypto::unwrap_data_key(
+            &remaining.wrapped_task_key,
+            &owner_keys.public_key,
+            &second_recipient_keys.private_key,
+        )
+        .unwrap();
+        assert_eq!(rewrapped_task_key.to_vec(), revoked.task_key);
+        assert!(owner.get_task(task.id).unwrap().dirty);
+        assert!(TaskManagerCore::open_in_memory()
+            .unwrap()
+            .shared_task_revocation_notice()
+            .contains("cannot erase plaintext"));
+    }
+
+    #[test]
+    fn create_task_with_options_validates_list_before_insert() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let missing_list = Uuid::new_v4();
+
+        let error = core
+            .create_task_with_options(
+                "title".to_owned(),
+                "body".to_owned(),
+                None,
+                Some(missing_list),
+                vec!["tag".to_owned()],
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoreError::Database(DbError::InvalidRowData(_))
+        ));
+        assert!(core
+            .list_tasks(TaskFilter::default(), TaskSort::UpdatedAtDesc)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn create_task_with_options_rejects_deleted_lists() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let list = core.create_list("Work".to_owned()).unwrap();
+        core.delete_list(list.id).unwrap();
+
+        let error = core
+            .create_task_with_options(
+                "title".to_owned(),
+                "body".to_owned(),
+                None,
+                Some(list.id),
+                Vec::new(),
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoreError::Database(DbError::InvalidRowData(_))
+        ));
+        assert!(core
+            .list_tasks(TaskFilter::default(), TaskSort::UpdatedAtDesc)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

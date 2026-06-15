@@ -31,7 +31,13 @@ For each artifact with releasable changes, the workflow creates:
 - an annotated Git tag like `server-v1.2.3`
 - a GitHub Release with generated notes for that artifact's path-scoped commits
 
-The release workflow does not push package-version commits directly to `main`, because repository rules require changes to land through pull requests. When package metadata needs a version bump, the workflow opens a release PR as `github-actions[bot]`; after that PR merges, the next release run creates the tag and GitHub Release.
+The release workflow does not push package-version commits directly to `main`, because repository rules require changes to land through pull requests. When package metadata needs a version bump, the workflow opens a release PR as `github-actions[bot]`; after that PR merges, the next release run creates the tag and GitHub Release. The release PR also prepends generated notes to the repository-level `CHANGELOG.md`. For `linux-app`, the release PR also keeps `packaging/arch/PKGBUILD`'s `pkgver` in sync with `linux/Cargo.toml`.
+
+To regenerate `CHANGELOG.md` from existing artifact tags:
+
+```sh
+python3 scripts/semantic_release.py --backfill-changelog
+```
 
 ## Commit examples
 

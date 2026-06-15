@@ -7,7 +7,10 @@ use uuid::Uuid;
 
 use crate::error::{CoreResult, DbError};
 use crate::settings::{VaultSettings, VAULT_SETTINGS_ID};
-use crate::types::{Task, TaskFilter, TaskList, TaskPatch, TaskSort, TaskStatus};
+use crate::types::{
+    Blob, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, Task, TaskFilter, TaskList,
+    TaskPatch, TaskSort, TaskStatus,
+};
 
 pub struct LocalDatabase {
     connection: Connection,
@@ -89,15 +92,35 @@ impl LocalDatabase {
         body: String,
         due_at: Option<i64>,
     ) -> CoreResult<Task> {
+        self.create_task_with_options(title, body, due_at, None, Vec::new())
+    }
+
+    pub fn create_task_with_options(
+        &self,
+        title: String,
+        body: String,
+        due_at: Option<i64>,
+        project_id: Option<Uuid>,
+        tags: Vec<String>,
+    ) -> CoreResult<Task> {
+        if let Some(list_id) = project_id {
+            let list = self.get_list(list_id)?;
+            if list.deleted {
+                return Err(DbError::InvalidRowData(format!("list is deleted: {list_id}")).into());
+            }
+        }
+
+        let reminder_offset_ms = self.default_reminder_offset_ms(due_at)?;
         let now = now_ms();
         let task = Task {
             id: Uuid::new_v4(),
             title,
             body,
             due_at,
+            reminder_offset_ms,
             status: TaskStatus::Open,
-            project_id: None,
-            tags: Vec::new(),
+            project_id,
+            tags,
             created_at: now,
             updated_at: now,
             deleted: false,
@@ -111,7 +134,7 @@ impl LocalDatabase {
     pub fn get_task(&self, task_id: Uuid) -> CoreResult<Task> {
         self.connection
             .query_row(
-                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1",
+                "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1",
                 params![task_id.to_string()],
                 read_task,
             )
@@ -128,8 +151,26 @@ impl LocalDatabase {
         if let Some(body) = patch.body {
             task.body = body;
         }
+        let had_due_at = task.due_at.is_some();
+        let has_reminder_patch = patch.reminder_offset_ms.is_some();
         if let Some(due_at) = patch.due_at {
             task.due_at = due_at;
+            if due_at.is_some()
+                && !had_due_at
+                && !has_reminder_patch
+                && task.reminder_offset_ms.is_none()
+            {
+                task.reminder_offset_ms = self.default_reminder_offset_ms(due_at)?;
+            }
+        }
+        if let Some(reminder_offset_ms) = patch.reminder_offset_ms {
+            if reminder_offset_ms.is_some_and(|offset| offset < 0) {
+                return Err(DbError::InvalidRowData(
+                    "reminder offset cannot be negative".to_owned(),
+                )
+                .into());
+            }
+            task.reminder_offset_ms = reminder_offset_ms;
         }
         if let Some(status) = patch.status {
             task.status = status;
@@ -157,7 +198,7 @@ impl LocalDatabase {
 
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
         let mut sql = String::from(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
+            "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
         );
         let mut values = vec![Value::Text(Uuid::nil().to_string())];
 
@@ -203,7 +244,7 @@ impl LocalDatabase {
         let task = self
             .connection
             .query_row(
-                "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1 AND title = ?2",
+                "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id = ?1 AND title = ?2",
                 params![Uuid::nil().to_string(), VAULT_SETTINGS_ID],
                 read_task,
             )
@@ -219,15 +260,215 @@ impl LocalDatabase {
         Ok(settings.clone())
     }
 
-    pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
-        let mut statement = self.connection.prepare(
-            "SELECT t.id, t.title, t.body, t.due_at, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
-             FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
-             WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
-             ORDER BY rank, t.updated_at DESC, t.id ASC",
+    fn default_reminder_offset_ms(&self, due_at: Option<i64>) -> CoreResult<Option<i64>> {
+        if due_at.is_none() {
+            return Ok(None);
+        }
+        let minutes = self.vault_settings()?.default_reminder_minutes;
+        if minutes <= 0 {
+            return Ok(None);
+        }
+        Ok(Some(i64::from(minutes) * 60_000))
+    }
+
+    pub fn share_task(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        task_key: Vec<u8>,
+        wrapped_task_key: Blob,
+    ) -> CoreResult<SharedTaskRecipient> {
+        self.get_task(task_id)?;
+        let now = now_ms();
+        self.connection.execute(
+            "INSERT INTO shared_task_state (task_id, owner_id, task_key, accepted_at, revoked_at)
+             VALUES (?1, NULL, ?2, NULL, NULL)
+             ON CONFLICT(task_id) DO UPDATE SET revoked_at = NULL",
+            params![task_id.to_string(), task_key],
         )?;
-        let tasks = statement.query_map(params![query, Uuid::nil().to_string()], read_task)?;
-        collect_tasks(tasks)
+        self.connection.execute(
+            "INSERT INTO shared_task_recipients (task_id, recipient_id, wrapped_task_key, nonce, created_at, revoked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+             ON CONFLICT(task_id, recipient_id) DO UPDATE SET wrapped_task_key = excluded.wrapped_task_key, nonce = excluded.nonce, created_at = excluded.created_at, revoked_at = NULL",
+            params![task_id.to_string(), recipient_id.to_string(), wrapped_task_key.ciphertext, wrapped_task_key.nonce.to_vec(), now],
+        )?;
+        self.mark_task_dirty(task_id)?;
+        Ok(SharedTaskRecipient {
+            task_id,
+            recipient_id,
+            wrapped_task_key,
+            created_at: now,
+            revoked_at: None,
+        })
+    }
+
+    pub fn accept_shared_task(
+        &self,
+        invite: SharedTaskInvite,
+        task_key: Vec<u8>,
+    ) -> CoreResult<SharedTaskState> {
+        let now = now_ms();
+        self.connection.execute(
+            "INSERT INTO shared_task_state (task_id, owner_id, task_key, accepted_at, revoked_at)
+             VALUES (?1, ?2, ?3, ?4, NULL)
+             ON CONFLICT(task_id) DO UPDATE SET owner_id = excluded.owner_id, task_key = excluded.task_key, accepted_at = excluded.accepted_at, revoked_at = NULL",
+            params![invite.task_id.to_string(), invite.owner_id.to_string(), task_key, now],
+        )?;
+        self.shared_task_state(invite.task_id)
+    }
+
+    pub fn revoke_shared_task_recipient(
+        &self,
+        task_id: Uuid,
+        recipient_id: Uuid,
+        rotated_task_key: Vec<u8>,
+        rewrapped_recipients: Vec<SharedTaskRecipient>,
+    ) -> CoreResult<SharedTaskState> {
+        self.connection.execute(
+            "UPDATE shared_task_state SET task_key = ?2, revoked_at = NULL WHERE task_id = ?1",
+            params![task_id.to_string(), rotated_task_key],
+        )?;
+        let now = now_ms();
+        self.connection.execute(
+            "UPDATE shared_task_recipients SET revoked_at = ?3 WHERE task_id = ?1 AND recipient_id = ?2 AND revoked_at IS NULL",
+            params![task_id.to_string(), recipient_id.to_string(), now],
+        )?;
+        for recipient in rewrapped_recipients {
+            self.connection.execute(
+                "UPDATE shared_task_recipients SET wrapped_task_key = ?3, nonce = ?4 WHERE task_id = ?1 AND recipient_id = ?2 AND revoked_at IS NULL",
+                params![task_id.to_string(), recipient.recipient_id.to_string(), recipient.wrapped_task_key.ciphertext, recipient.wrapped_task_key.nonce.to_vec()],
+            )?;
+        }
+        self.mark_task_dirty(task_id)?;
+        self.shared_task_state(task_id)
+    }
+
+    pub fn mark_task_dirty(&self, task_id: Uuid) -> CoreResult<()> {
+        let task = self.get_task(task_id)?;
+        let updated_at = now_ms().max(task.updated_at + 1);
+        self.connection.execute(
+            "UPDATE tasks SET updated_at = ?2, dirty = 1 WHERE id = ?1",
+            params![task_id.to_string(), updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn task_encryption_key(
+        &self,
+        task_id: Uuid,
+        account_data_key: &[u8],
+    ) -> CoreResult<Vec<u8>> {
+        match self.shared_task_state(task_id) {
+            Ok(state) => Ok(state.task_key),
+            Err(_) => Ok(account_data_key.to_vec()),
+        }
+    }
+
+    pub fn shared_task_state(&self, task_id: Uuid) -> CoreResult<SharedTaskState> {
+        let (owner_id, task_key, accepted_at, revoked_at): (Option<String>, Vec<u8>, Option<i64>, Option<i64>) = self.connection.query_row(
+            "SELECT owner_id, task_key, accepted_at, revoked_at FROM shared_task_state WHERE task_id = ?1",
+            params![task_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).optional()?.ok_or_else(|| DbError::TaskNotFound(task_id))?;
+        let mut statement = self.connection.prepare(
+            "SELECT recipient_id, wrapped_task_key, nonce, created_at, revoked_at FROM shared_task_recipients WHERE task_id = ?1 ORDER BY created_at ASC, recipient_id ASC",
+        )?;
+        let recipients = statement
+            .query_map(params![task_id.to_string()], |row| {
+                let recipient_id: String = row.get(0)?;
+                let nonce: Vec<u8> = row.get(2)?;
+                let nonce: [u8; 12] = nonce
+                    .try_into()
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?;
+                Ok(SharedTaskRecipient {
+                    task_id,
+                    recipient_id: parse_uuid(&recipient_id, "recipient_id")?,
+                    wrapped_task_key: Blob {
+                        ciphertext: row.get(1)?,
+                        nonce,
+                    },
+                    created_at: row.get(3)?,
+                    revoked_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SharedTaskState {
+            task_id,
+            owner_id: owner_id
+                .map(|id| Uuid::parse_str(&id))
+                .transpose()
+                .map_err(|error| DbError::InvalidRowData(error.to_string()))?,
+            task_key,
+            recipients,
+            accepted_at,
+            revoked_at,
+        })
+    }
+
+    pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
+        let search = SearchQuery::parse(&query);
+        if search.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tasks = if let Some(fts_query) = search.fts_query() {
+            let mut statement = self.connection.prepare(
+                "SELECT t.id, t.title, t.body, t.due_at, t.reminder_offset_ms, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
+                 FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
+                 WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
+                 ORDER BY rank, t.updated_at DESC, t.id ASC",
+            )?;
+            let rows =
+                statement.query_map(params![fts_query, Uuid::nil().to_string()], read_task)?;
+            let tasks = collect_tasks(rows)?;
+            if search.phrase {
+                tasks
+                    .into_iter()
+                    .filter(|task| search.matches_task(task))
+                    .collect()
+            } else {
+                tasks
+            }
+        } else {
+            Vec::new()
+        };
+
+        let mut statement = self.connection.prepare(
+            "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty
+             FROM tasks
+             WHERE deleted = 0
+               AND id != ?1
+               AND EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE lower(value) LIKE ?2 ESCAPE '\\')
+             ORDER BY updated_at DESC, id ASC",
+        )?;
+        let tag_pattern = search.tag_like_pattern();
+        for task in collect_tasks(
+            statement.query_map(params![Uuid::nil().to_string(), tag_pattern], read_task)?,
+        )? {
+            if !tasks.iter().any(|existing| existing.id == task.id) {
+                tasks.push(task);
+            }
+        }
+
+        if search.requires_literal_fallback() {
+            let mut statement = self.connection.prepare(
+                "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty
+                 FROM tasks
+                 WHERE deleted = 0 AND id != ?1
+                 ORDER BY updated_at DESC, id ASC",
+            )?;
+            for task in
+                collect_tasks(statement.query_map(params![Uuid::nil().to_string()], read_task)?)?
+            {
+                if search.matches_task(&task)
+                    && !tasks.iter().any(|existing| existing.id == task.id)
+                {
+                    tasks.push(task);
+                }
+            }
+        }
+
+        Ok(tasks)
     }
 
     fn initialize_schema(&self) -> CoreResult<()> {
@@ -237,6 +478,7 @@ impl LocalDatabase {
                 title       TEXT NOT NULL,
                 body        TEXT NOT NULL DEFAULT '',
                 due_at      INTEGER,
+                reminder_offset_ms INTEGER,
                 status      TEXT NOT NULL DEFAULT 'open',
                 project_id  TEXT,
                 tags        TEXT NOT NULL DEFAULT '[]',
@@ -283,6 +525,24 @@ impl LocalDatabase {
                 next_retry  INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS shared_task_state (
+                task_id     TEXT PRIMARY KEY,
+                owner_id    TEXT,
+                task_key    BLOB NOT NULL,
+                accepted_at INTEGER,
+                revoked_at  INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS shared_task_recipients (
+                task_id          TEXT NOT NULL,
+                recipient_id     TEXT NOT NULL,
+                wrapped_task_key BLOB NOT NULL,
+                nonce            BLOB NOT NULL,
+                created_at       INTEGER NOT NULL,
+                revoked_at       INTEGER,
+                PRIMARY KEY (task_id, recipient_id)
+            );
+
             DELETE FROM sync_queue
             WHERE rowid NOT IN (
                 SELECT keep.rowid
@@ -294,6 +554,24 @@ impl LocalDatabase {
 
             CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_task_id_unique
             ON sync_queue(task_id);",
+        )?;
+        self.add_column_if_missing("tasks", "reminder_offset_ms", "INTEGER")?;
+        Ok(())
+    }
+
+    fn add_column_if_missing(&self, table: &str, column: &str, definition: &str) -> CoreResult<()> {
+        let mut statement = self
+            .connection
+            .prepare(&format!("PRAGMA table_info({table})"))?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+        for existing in columns {
+            if existing? == column {
+                return Ok(());
+            }
+        }
+        self.connection.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
         )?;
         Ok(())
     }
@@ -326,7 +604,7 @@ impl LocalDatabase {
 
     pub(crate) fn dirty_tasks(&self) -> CoreResult<Vec<Task>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE dirty = 1 ORDER BY updated_at ASC, id ASC",
+            "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE dirty = 1 ORDER BY updated_at ASC, id ASC",
         )?;
         let tasks = statement.query_map([], read_task)?;
         collect_tasks(tasks)
@@ -404,14 +682,20 @@ impl LocalDatabase {
     }
 
     fn upsert_task(&self, task: &Task) -> CoreResult<()> {
+        if task.reminder_offset_ms.is_some_and(|offset| offset < 0) {
+            return Err(
+                DbError::InvalidRowData("reminder offset cannot be negative".to_owned()).into(),
+            );
+        }
         self.connection.execute(
             "INSERT INTO tasks
-             (id, title, body, due_at, status, project_id, tags, created_at, updated_at, deleted, dirty)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             (id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 body = excluded.body,
                 due_at = excluded.due_at,
+                reminder_offset_ms = excluded.reminder_offset_ms,
                 status = excluded.status,
                 project_id = excluded.project_id,
                 tags = excluded.tags,
@@ -424,6 +708,7 @@ impl LocalDatabase {
                 task.title,
                 task.body,
                 task.due_at,
+                task.reminder_offset_ms,
                 status_to_db(task.status),
                 task.project_id.map(|id| id.to_string()),
                 serde_json::to_string(&task.tags)?,
@@ -471,9 +756,9 @@ fn collect_tasks(
 
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     let id_text: String = row.get(0)?;
-    let status_text: String = row.get(4)?;
-    let project_id_text: Option<String> = row.get(5)?;
-    let tags_text: String = row.get(6)?;
+    let status_text: String = row.get(5)?;
+    let project_id_text: Option<String> = row.get(6)?;
+    let tags_text: String = row.get(7)?;
 
     let id = parse_uuid(&id_text, "id")?;
     let project_id = project_id_text
@@ -482,7 +767,7 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         .transpose()?;
     let tags = serde_json::from_str(&tags_text).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(
-            6,
+            7,
             rusqlite::types::Type::Text,
             Box::new(DbError::InvalidRowData(format!(
                 "invalid tags JSON: {error}"
@@ -495,14 +780,107 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         title: row.get(1)?,
         body: row.get(2)?,
         due_at: row.get(3)?,
+        reminder_offset_ms: row.get(4)?,
         status: status_from_db(&status_text)?,
         project_id,
         tags,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
-        deleted: db_to_bool(row.get(9)?),
-        dirty: db_to_bool(row.get(10)?),
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+        deleted: db_to_bool(row.get(10)?),
+        dirty: db_to_bool(row.get(11)?),
     })
+}
+
+struct SearchQuery {
+    text: String,
+    phrase: bool,
+}
+
+impl SearchQuery {
+    fn parse(query: &str) -> Self {
+        let query = query.trim();
+        if query.len() >= 2 && query.starts_with('"') && query.ends_with('"') {
+            Self {
+                text: query[1..query.len() - 1].replace("\"\"", "\""),
+                phrase: true,
+            }
+        } else {
+            Self {
+                text: query.to_owned(),
+                phrase: false,
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.text.trim().is_empty()
+    }
+
+    fn terms(&self) -> Vec<String> {
+        if self.phrase {
+            vec![self.text.to_lowercase()]
+        } else {
+            self.text
+                .split_whitespace()
+                .map(str::to_lowercase)
+                .collect()
+        }
+    }
+
+    fn fts_query(&self) -> Option<String> {
+        if !self
+            .text
+            .chars()
+            .all(|character| character.is_alphanumeric() || character.is_whitespace())
+        {
+            return None;
+        }
+        if self.phrase {
+            Some(format!("\"{}\"", self.text.replace('"', "\"\"")))
+        } else {
+            let terms = self.terms();
+            (!terms.is_empty()).then(|| terms.join(" "))
+        }
+    }
+
+    fn tag_like_pattern(&self) -> String {
+        let value = if self.phrase {
+            self.text.to_lowercase()
+        } else {
+            self.terms().join("%")
+        };
+        format!("%{}%", escape_like_query(&value))
+    }
+
+    fn requires_literal_fallback(&self) -> bool {
+        self.fts_query().is_none()
+    }
+
+    fn matches_task(&self, task: &Task) -> bool {
+        let title = task.title.to_lowercase();
+        let body = task.body.to_lowercase();
+        let tags = task
+            .tags
+            .iter()
+            .map(|tag| tag.to_lowercase())
+            .collect::<Vec<_>>();
+        if self.phrase {
+            let phrase = self.text.to_lowercase();
+            return title.contains(&phrase)
+                || body.contains(&phrase)
+                || tags.iter().any(|tag| tag.contains(&phrase));
+        }
+        self.terms().iter().all(|term| {
+            title.contains(term) || body.contains(term) || tags.iter().any(|tag| tag.contains(term))
+        })
+    }
+}
+
+fn escape_like_query(query: &str) -> String {
+    query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn parse_uuid(text: &str, column: &'static str) -> rusqlite::Result<Uuid> {
@@ -603,6 +981,45 @@ mod tests {
     }
 
     #[test]
+    fn task_schema_migrates_missing_reminder_column() {
+        let path = temporary_database_path("task_schema_migrates_missing_reminder_column");
+        let task_id = Uuid::new_v4();
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute(
+                    "CREATE TABLE tasks (
+                        id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        body TEXT NOT NULL DEFAULT '',
+                        due_at INTEGER,
+                        status TEXT NOT NULL DEFAULT 'open',
+                        project_id TEXT,
+                        tags TEXT NOT NULL DEFAULT '[]',
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        deleted INTEGER NOT NULL DEFAULT 0,
+                        dirty INTEGER NOT NULL DEFAULT 1
+                    )",
+                    [],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO tasks (id, title, body, status, tags, created_at, updated_at) VALUES (?1, 'old', '', 'open', '[]', 1, 1)",
+                    params![task_id.to_string()],
+                )
+                .unwrap();
+        }
+
+        let database = LocalDatabase::open(&path).unwrap();
+        let task = database.get_task(task_id).unwrap();
+
+        assert_eq!(task.reminder_offset_ms, None);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn sync_queue_migrates_old_non_unique_schema() {
         let path = temporary_database_path("sync_queue_migrates_old_non_unique_schema");
         {
@@ -642,6 +1059,95 @@ mod tests {
     }
 
     #[test]
+    fn create_task_applies_default_reminder_for_due_tasks() {
+        let database = db();
+        let due_task = create_named(&database, "due", "body", Some(10));
+        let undated_task = create_named(&database, "undated", "body", None);
+
+        assert_eq!(due_task.reminder_offset_ms, Some(30 * 60_000));
+        assert_eq!(undated_task.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn create_task_skips_default_reminder_when_disabled() {
+        let database = db();
+        let settings = VaultSettings {
+            default_reminder_minutes: 0,
+            ..VaultSettings::default()
+        };
+        database.update_vault_settings(&settings).unwrap();
+
+        let task = create_named(&database, "due", "body", Some(10));
+
+        assert_eq!(task.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn update_task_applies_default_reminder_when_due_date_is_added() {
+        let database = db();
+        let task = create_named(&database, "due", "body", None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(10)),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, Some(30 * 60_000));
+    }
+
+    #[test]
+    fn update_task_respects_explicit_reminder_patch_when_due_date_is_added() {
+        let database = db();
+        let task = create_named(&database, "due", "body", None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(10)),
+                    reminder_offset_ms: Some(None),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, None);
+    }
+
+    #[test]
+    fn update_task_keeps_disabled_reminder_when_due_date_changes() {
+        let database = db();
+        let task = create_named(&database, "due", "body", Some(10));
+        let disabled = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    reminder_offset_ms: Some(None),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(disabled.reminder_offset_ms, None);
+
+        let updated = database
+            .update_task(
+                task.id,
+                TaskPatch {
+                    due_at: Some(Some(20)),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.reminder_offset_ms, None);
+    }
+
+    #[test]
     fn update_task_changes_only_patched_fields() {
         let database = db();
         let task = create_named(&database, "old", "body", Some(10));
@@ -653,6 +1159,7 @@ mod tests {
                 TaskPatch {
                     title: Some("new".to_owned()),
                     status: Some(TaskStatus::Done),
+                    reminder_offset_ms: Some(Some(600_000)),
                     project_id: Some(Some(project_id)),
                     tags: Some(vec!["tag".to_owned()]),
                     ..TaskPatch::default()
@@ -663,6 +1170,7 @@ mod tests {
         assert_eq!(updated.title, "new");
         assert_eq!(updated.body, task.body);
         assert_eq!(updated.due_at, task.due_at);
+        assert_eq!(updated.reminder_offset_ms, Some(600_000));
         assert_eq!(updated.status, TaskStatus::Done);
         assert_eq!(updated.project_id, Some(project_id));
         assert_eq!(updated.tags, vec!["tag"]);
@@ -812,6 +1320,19 @@ mod tests {
         let database = db();
         let title_match = create_named(&database, "alpha project", "ordinary", None);
         let body_match = create_named(&database, "ordinary", "contains beta", None);
+        let tag_match = create_named(&database, "ordinary", "ordinary", None);
+        let punctuation_match = create_named(&database, "foo-bar", "ordinary", None);
+        let phrase_match = create_named(&database, "foo bar", "ordinary", None);
+        create_named(&database, "foo", "contains bar", None);
+        database
+            .update_task(
+                tag_match.id,
+                TaskPatch {
+                    tags: Some(vec!["urgent".to_owned()]),
+                    ..TaskPatch::default()
+                },
+            )
+            .unwrap();
 
         assert_eq!(
             database.search_tasks("alpha".to_owned()).unwrap()[0].id,
@@ -821,6 +1342,17 @@ mod tests {
             database.search_tasks("beta".to_owned()).unwrap()[0].id,
             body_match.id
         );
+        assert_eq!(
+            database.search_tasks("urgent".to_owned()).unwrap()[0].id,
+            tag_match.id
+        );
+        assert_eq!(
+            database.search_tasks("foo-bar".to_owned()).unwrap()[0].id,
+            punctuation_match.id
+        );
+        let phrase_results = database.search_tasks("\"foo bar\"".to_owned()).unwrap();
+        assert_eq!(phrase_results.len(), 1);
+        assert_eq!(phrase_results[0].id, phrase_match.id);
 
         database
             .update_task(
