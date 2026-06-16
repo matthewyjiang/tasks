@@ -192,3 +192,96 @@ import Testing
     await model.deleteTask(id: saved.id)
     #expect(model.tasks.isEmpty)
 }
+
+@Test @MainActor func appModelDeleteTaskReturnsTrueWhenSyncSummaryRefreshFailsAfterDelete() async throws {
+    let task = TaskItem(title: "Delete me", body: "", tags: [])
+    let repository = DeleteContractRepository(tasks: [task], syncSummaryShouldFail: true)
+    let model = AppModel(repository: repository)
+    await model.load()
+
+    let deleted = await model.deleteTask(id: task.id)
+
+    #expect(deleted)
+    #expect(model.tasks.isEmpty)
+    #expect(await repository.deletedTaskIDs == [task.id])
+}
+
+@Test @MainActor func appModelDeleteTaskReturnsFalseWhenRepositoryDeleteFails() async throws {
+    let task = TaskItem(title: "Keep me", body: "", tags: [])
+    let repository = DeleteContractRepository(tasks: [task], deleteShouldFail: true)
+    let model = AppModel(repository: repository)
+    await model.load()
+
+    let deleted = await model.deleteTask(id: task.id)
+
+    #expect(!deleted)
+    #expect(model.tasks.map(\.id) == [task.id])
+}
+
+private enum DeleteContractRepositoryError: LocalizedError {
+    case deleteFailed
+    case syncSummaryFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .deleteFailed:
+            "Delete failed"
+        case .syncSummaryFailed:
+            "Sync summary failed"
+        }
+    }
+}
+
+private actor DeleteContractRepository: TaskRepository {
+    private var tasks: [TaskItem]
+    private let deleteShouldFail: Bool
+    private let syncSummaryShouldFail: Bool
+    private(set) var deletedTaskIDs: [UUID] = []
+
+    init(tasks: [TaskItem], deleteShouldFail: Bool = false, syncSummaryShouldFail: Bool = false) {
+        self.tasks = tasks
+        self.deleteShouldFail = deleteShouldFail
+        self.syncSummaryShouldFail = syncSummaryShouldFail
+    }
+
+    func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] {
+        includeDeleted ? tasks : tasks.filter { !$0.deleted }
+    }
+
+    func loadLists() async throws -> [TaskListItem] { [] }
+
+    func createTask(title: String, body: String, dueAt: Date?, listID: UUID?, tags: [String]) async throws -> TaskItem {
+        throw TaskRepositoryError.syncAdapterUnavailable
+    }
+
+    func updateTask(_ task: TaskItem) async throws -> TaskItem {
+        throw TaskRepositoryError.syncAdapterUnavailable
+    }
+
+    func deleteTask(id: UUID) async throws {
+        if deleteShouldFail {
+            throw DeleteContractRepositoryError.deleteFailed
+        }
+        deletedTaskIDs.append(id)
+        tasks.removeAll { $0.id == id }
+    }
+
+    func createList(name: String) async throws -> TaskListItem {
+        throw TaskRepositoryError.syncAdapterUnavailable
+    }
+
+    func updateList(_ list: TaskListItem) async throws -> TaskListItem {
+        throw TaskRepositoryError.syncAdapterUnavailable
+    }
+
+    func deleteList(id: UUID) async throws {
+        throw TaskRepositoryError.syncAdapterUnavailable
+    }
+
+    func syncSummary() async throws -> SyncSummary {
+        if syncSummaryShouldFail {
+            throw DeleteContractRepositoryError.syncSummaryFailed
+        }
+        return SyncSummary()
+    }
+}
