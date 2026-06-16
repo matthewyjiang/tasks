@@ -2,13 +2,16 @@ import Foundation
 
 public actor CoreTaskRepository: TaskRepository {
     private let core: FfiTaskManagerCore
+    private let syncCoordinator: SyncCoordinator?
 
-    public init(databaseURL: URL) throws {
+    public init(databaseURL: URL, syncCoordinator: SyncCoordinator? = nil) throws {
         self.core = try FfiTaskManagerCore(databasePath: databaseURL.path)
+        self.syncCoordinator = syncCoordinator
     }
 
-    public init(databasePath: String) throws {
+    public init(databasePath: String, syncCoordinator: SyncCoordinator? = nil) throws {
         self.core = try FfiTaskManagerCore(databasePath: databasePath)
+        self.syncCoordinator = syncCoordinator
     }
 
     public func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] {
@@ -73,8 +76,18 @@ public actor CoreTaskRepository: TaskRepository {
     }
 
     public func syncSummary() async throws -> SyncSummary {
+        if let syncCoordinator {
+            let isOnline = await syncCoordinator.networkAvailable()
+            return try await syncCoordinator.syncSummary(core: core, isOnline: isOnline)
+        }
         let status = try core.syncStatus()
-        return SyncSummary(dirtyCount: status.dirtyCount, retryQueueDepth: status.retryQueueDepth, conflictCount: 0, isOnline: true)
+        return SyncSummary(dirtyCount: status.dirtyCount, retryQueueDepth: status.retryQueueDepth, conflictCount: 0, cursor: status.cursor, isOnline: true)
+    }
+
+    public func syncNow(isOnline: Bool) async throws -> SyncSummary {
+        guard let syncCoordinator else { throw TaskRepositoryError.syncAdapterUnavailable }
+        _ = try await syncCoordinator.foregroundSync(core: core, isOnline: isOnline)
+        return try await syncCoordinator.syncSummary(core: core, isOnline: isOnline)
     }
 
     fileprivate static func date(millisecondsSinceEpoch milliseconds: Int64) -> Date {

@@ -47,6 +47,8 @@ public struct SidebarView: View {
 
             Section("Sync") {
                 SyncStatusView(summary: model.syncSummary)
+                LabeledContent("Auth", value: model.syncAuthState.sidebarDisplayName)
+                LabeledContent("Failed", value: String(model.syncSummary.conflictCount))
             }
         }
         .listStyle(.sidebar)
@@ -191,6 +193,8 @@ public struct CompactSidebarView: View {
 
             Section("Sync") {
                 SyncStatusView(summary: model.syncSummary)
+                LabeledContent("Auth", value: model.syncAuthState.sidebarDisplayName)
+                LabeledContent("Failed", value: String(model.syncSummary.conflictCount))
             }
         }
         .navigationTitle("tsk")
@@ -243,5 +247,17 @@ public struct SyncStatusView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+private extension FfiSyncAuthState {
+    var sidebarDisplayName: String {
+        switch self {
+        case .localOnlyReady: "Local"
+        case .authenticatedEnrollmentPending: "Enroll"
+        case .syncReady: "Ready"
+        case .authRequired: "Auth"
+        case .misconfiguredOrigin: "Config"
+        }
     }
 }

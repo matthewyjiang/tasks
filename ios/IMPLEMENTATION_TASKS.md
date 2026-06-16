@@ -2,7 +2,7 @@
 
 Branch: `issue-92-ios-phase2-offline-ui`
 
-Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 3**.
+Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 4**.
 
 SwiftUI rule: keep the iOS app on intended native SwiftUI containers/modifiers first (`NavigationStack`, `NavigationSplitView`, `List`, `Form`, `.searchable`, toolbars, selection bindings). Avoid custom geometry, fixed-width panes, safe-area compensations, or gesture/state workarounds unless a native approach has been ruled out and the reason is documented.
 
@@ -52,14 +52,14 @@ Implemented on `issue-92-ios-phase2-offline-ui` after Phase 2 completion.
 
 ## Phase 4: Sync/auth parity
 
-Not started. Do not begin until Phase 3 is complete.
+Implemented on `ios-phase4-sync-auth-92`.
 
-- [ ] Add sync setup/sign-in flow.
-- [ ] Add basic device enrollment/key unwrap flow for existing accounts.
-- [ ] Store access/refresh tokens in Keychain.
-- [ ] Implement foreground sync.
-- [ ] Implement token refresh and one sync retry.
-- [ ] Surface real sync status.
+- [x] Add sync setup/sign-in flow.
+- [x] Add basic device enrollment/key unwrap flow for existing accounts.
+- [x] Store access/refresh tokens in Keychain.
+- [x] Implement foreground sync.
+- [x] Implement token refresh and one sync retry.
+- [x] Surface real sync status.
 
 ## Phase 5: Background sync and polish
 

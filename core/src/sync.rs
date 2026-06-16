@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
@@ -11,8 +11,9 @@ use crate::types::{Blob, SyncResult, Task};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteBlob {
     pub task_id: Uuid,
-    pub blob: Blob,
+    pub blob: Option<Blob>,
     pub updated_at: i64,
+    pub deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +38,27 @@ pub trait SyncClient {
     fn push_blobs(&self, blobs: Vec<BlobPush>) -> CoreResult<PushResponse>;
     fn delete_blobs(&self, task_ids: Vec<Uuid>) -> CoreResult<PushResponse>;
     fn pull_blobs(&self, since: i64) -> CoreResult<PullResponse>;
+}
+
+pub fn sync_session(
+    database: &LocalDatabase,
+    platform: &dyn Platform,
+    client: &dyn SyncClient,
+    data_key: &[u8],
+) -> CoreResult<SyncResult> {
+    if !platform.network_available() {
+        let _ = sync_push(database, platform, client, data_key);
+        return Err(SyncError::NetworkUnavailable.into());
+    }
+
+    let pull = sync_pull(database, client, data_key)?;
+    let push = sync_push(database, platform, client, data_key)?;
+    Ok(SyncResult {
+        pushed: push.pushed,
+        pulled: pull.pulled,
+        failed: pull.failed + push.failed,
+        cursor: pull.cursor,
+    })
 }
 
 pub fn sync_push(
@@ -83,6 +105,10 @@ pub fn sync_push(
         let attempted: Vec<Uuid> = blob_pushes.iter().map(|push| push.task_id).collect();
         match client.push_blobs(blob_pushes) {
             Ok(response) => {
+                if let Err(error) = validate_push_response(&attempted, &response) {
+                    queue_failed(database, attempted)?;
+                    return Err(error);
+                }
                 confirmed.extend(response.accepted_task_ids);
                 failed.extend(response.failed_task_ids);
             }
@@ -96,6 +122,10 @@ pub fn sync_push(
         let attempted = tombstones.clone();
         match client.delete_blobs(tombstones) {
             Ok(response) => {
+                if let Err(error) = validate_push_response(&attempted, &response) {
+                    queue_failed(database, attempted)?;
+                    return Err(error);
+                }
                 confirmed.extend(response.accepted_task_ids);
                 failed.extend(response.failed_task_ids);
             }
@@ -131,8 +161,48 @@ pub fn sync_pull(
     let mut conflicts = 0;
 
     for remote in response.blobs {
+        if remote.deleted {
+            let remote_tombstone = match database.get_task(remote.task_id) {
+                Ok(mut local) => {
+                    local.deleted = true;
+                    local.dirty = false;
+                    local.updated_at = remote.updated_at;
+                    local
+                }
+                Err(_) => Task {
+                    id: remote.task_id,
+                    title: String::new(),
+                    body: String::new(),
+                    due_at: None,
+                    reminder_offset_ms: None,
+                    status: crate::types::TaskStatus::Open,
+                    project_id: None,
+                    tags: Vec::new(),
+                    created_at: remote.updated_at,
+                    updated_at: remote.updated_at,
+                    deleted: true,
+                    dirty: false,
+                },
+            };
+            let task_to_store = match database.get_task(remote.task_id) {
+                Ok(local) if local.dirty => {
+                    conflicts += 1;
+                    resolve_conflict(&local, &remote_tombstone)
+                }
+                Ok(local) => resolve_conflict(&local, &remote_tombstone),
+                Err(_) => remote_tombstone,
+            };
+            database.upsert_synced_task(&task_to_store)?;
+            pulled += 1;
+            continue;
+        }
+
+        let blob = remote.blob.ok_or_else(|| SyncError::ServerError {
+            status: 502,
+            body: "malformed pull response: missing blob payload".to_owned(),
+        })?;
         let encryption_key = database.task_encryption_key(remote.task_id, data_key)?;
-        let mut remote_task = decrypt_blob(&remote.blob, &encryption_key)?;
+        let mut remote_task = decrypt_blob(&blob, &encryption_key)?;
         remote_task.dirty = false;
 
         let task_to_store = match database.get_task(remote.task_id) {
@@ -164,6 +234,55 @@ pub fn resolve_conflict(local: &Task, remote: &Task) -> Task {
     } else {
         local.clone()
     }
+}
+
+fn validate_push_response(attempted: &[Uuid], response: &PushResponse) -> CoreResult<()> {
+    let attempted: HashSet<Uuid> = attempted.iter().copied().collect();
+    let mut seen: HashMap<Uuid, &'static str> = HashMap::new();
+
+    for task_id in &response.accepted_task_ids {
+        if !attempted.contains(task_id) {
+            return Err(malformed_push_response(format!(
+                "accepted unknown task id {task_id}"
+            )));
+        }
+        if seen.insert(*task_id, "accepted").is_some() {
+            return Err(malformed_push_response(format!(
+                "duplicate task id {task_id} in push response"
+            )));
+        }
+    }
+
+    for task_id in &response.failed_task_ids {
+        if !attempted.contains(task_id) {
+            return Err(malformed_push_response(format!(
+                "failed unknown task id {task_id}"
+            )));
+        }
+        if let Some(previous) = seen.insert(*task_id, "failed") {
+            return Err(malformed_push_response(format!(
+                "task id {task_id} reported as both {previous} and failed"
+            )));
+        }
+    }
+
+    if seen.len() != attempted.len() {
+        return Err(malformed_push_response(format!(
+            "response accounted for {} of {} attempted task ids",
+            seen.len(),
+            attempted.len()
+        )));
+    }
+
+    Ok(())
+}
+
+fn malformed_push_response(body: String) -> crate::error::CoreError {
+    SyncError::ServerError {
+        status: 502,
+        body: format!("malformed push response: {body}"),
+    }
+    .into()
 }
 
 fn queue_failed(
@@ -199,10 +318,12 @@ mod tests {
         pull_response: RefCell<Option<PullResponse>>,
         push_error: RefCell<Option<SyncError>>,
         push_response: RefCell<Option<PushResponse>>,
+        calls: RefCell<Vec<&'static str>>,
     }
 
     impl SyncClient for FakeSyncClient {
         fn push_blobs(&self, blobs: Vec<BlobPush>) -> CoreResult<PushResponse> {
+            self.calls.borrow_mut().push("push");
             if let Some(error) = self.push_error.borrow_mut().take() {
                 return Err(error.into());
             }
@@ -218,6 +339,7 @@ mod tests {
                 }))
         }
         fn delete_blobs(&self, task_ids: Vec<Uuid>) -> CoreResult<PushResponse> {
+            self.calls.borrow_mut().push("delete");
             let accepted_task_ids = task_ids.clone();
             self.deleted.borrow_mut().extend(task_ids);
             Ok(PushResponse {
@@ -226,6 +348,7 @@ mod tests {
             })
         }
         fn pull_blobs(&self, _since: i64) -> CoreResult<PullResponse> {
+            self.calls.borrow_mut().push("pull");
             Ok(self
                 .pull_response
                 .borrow_mut()
@@ -394,6 +517,120 @@ mod tests {
     }
 
     #[test]
+    fn malformed_push_response_with_unknown_id_keeps_dirty_and_queues_retry() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.push_response.borrow_mut() = Some(PushResponse {
+            accepted_task_ids: vec![Uuid::new_v4()],
+            failed_task_ids: Vec::new(),
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let error = sync_push(&db, &platform, &client, &generate_data_key()).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Sync(SyncError::ServerError { status: 502, .. })
+        ));
+        assert!(db.get_task(task.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, task.id);
+    }
+
+    #[test]
+    fn malformed_push_response_with_missing_id_keeps_dirty_and_queues_retry() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.push_response.borrow_mut() = Some(PushResponse {
+            accepted_task_ids: Vec::new(),
+            failed_task_ids: Vec::new(),
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let error = sync_push(&db, &platform, &client, &generate_data_key()).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Sync(SyncError::ServerError { status: 502, .. })
+        ));
+        assert!(db.get_task(task.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, task.id);
+    }
+
+    #[test]
+    fn malformed_push_response_with_overlapping_ids_keeps_dirty_and_queues_retry() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let task = db
+            .create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.push_response.borrow_mut() = Some(PushResponse {
+            accepted_task_ids: vec![task.id],
+            failed_task_ids: vec![task.id],
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let error = sync_push(&db, &platform, &client, &generate_data_key()).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::CoreError::Sync(SyncError::ServerError { status: 502, .. })
+        ));
+        assert!(db.get_task(task.id).unwrap().dirty);
+        assert_eq!(db.retry_queue_entries().unwrap()[0].0, task.id);
+    }
+
+    #[test]
+    fn sync_session_pulls_before_pushing_dirty_tasks() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        db.create_task("a".to_owned(), "b".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: Vec::new(),
+            cursor: 9,
+        });
+        let platform = MockPlatform::with_network_available(true);
+        let result = sync_session(&db, &platform, &client, &generate_data_key()).unwrap();
+        assert_eq!(result.pushed, 1);
+        assert_eq!(result.pulled, 0);
+        assert_eq!(result.cursor, Some(9));
+        assert_eq!(client.calls.borrow().as_slice(), ["pull", "push"]);
+    }
+
+    #[test]
+    fn sync_session_resolves_remote_conflict_before_push_can_overwrite_it() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let key = generate_data_key();
+        let local = db
+            .create_task("stale local".to_owned(), "body".to_owned(), None)
+            .unwrap();
+        let mut remote = local.clone();
+        remote.title = "newer remote".to_owned();
+        remote.updated_at = local.updated_at + 1;
+        remote.dirty = false;
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: vec![RemoteBlob {
+                task_id: local.id,
+                blob: Some(encrypt_blob(&remote, &key).unwrap()),
+                updated_at: remote.updated_at,
+                deleted: false,
+            }],
+            cursor: 10,
+        });
+        let platform = MockPlatform::with_network_available(true);
+
+        let result = sync_session(&db, &platform, &client, &key).unwrap();
+
+        assert_eq!(result.pulled, 1);
+        assert_eq!(result.pushed, 0);
+        assert!(client.pushed.borrow().is_empty());
+        let stored = db.get_task(local.id).unwrap();
+        assert_eq!(stored.title, "newer remote");
+        assert!(!stored.dirty);
+    }
+
+    #[test]
     fn sync_push_uses_per_task_key_for_shared_tasks() {
         let db = LocalDatabase::open_in_memory().unwrap();
         let task = db
@@ -450,8 +687,9 @@ mod tests {
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: task.id,
-                blob: encrypt_blob(&task, &task_key).unwrap(),
+                blob: Some(encrypt_blob(&task, &task_key).unwrap()),
                 updated_at: task.updated_at,
+                deleted: false,
             }],
             cursor: 3,
         });
@@ -475,8 +713,9 @@ mod tests {
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: remote.id,
-                blob,
+                blob: Some(blob),
                 updated_at: remote.updated_at,
+                deleted: false,
             }],
             cursor: 55,
         });
@@ -489,17 +728,45 @@ mod tests {
     }
 
     #[test]
+    fn sync_pull_applies_remote_tombstones_before_advancing_cursor() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let key = generate_data_key();
+        let local = db
+            .create_task("deleted elsewhere".to_owned(), "body".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: vec![RemoteBlob {
+                task_id: local.id,
+                blob: None,
+                updated_at: local.updated_at + 1,
+                deleted: true,
+            }],
+            cursor: 56,
+        });
+
+        let result = sync_pull(&db, &client, &key).unwrap();
+
+        let stored = db.get_task(local.id).unwrap();
+        assert_eq!(result.pulled, 1);
+        assert!(stored.deleted);
+        assert!(!stored.dirty);
+        assert_eq!(db.last_pull_cursor().unwrap(), 56);
+    }
+
+    #[test]
     fn pull_decryption_failure_does_not_advance_cursor() {
         let db = LocalDatabase::open_in_memory().unwrap();
         let client = FakeSyncClient::default();
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: Uuid::new_v4(),
-                blob: Blob {
+                blob: Some(Blob {
                     ciphertext: vec![1, 2, 3],
                     nonce: [0; 12],
-                },
+                }),
                 updated_at: 1,
+                deleted: false,
             }],
             cursor: 55,
         });

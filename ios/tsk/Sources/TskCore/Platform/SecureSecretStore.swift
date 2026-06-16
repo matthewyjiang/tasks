@@ -9,8 +9,8 @@ public protocol SecureSecretStoring: Sendable {
 public enum SecureSecretID: Sendable {
     public static let devicePrivateKey = devicePrivateKeyId()
     public static let accountDataKey = accountDataKeyId()
-    public static let accessToken = "auth.access-token"
-    public static let refreshToken = "auth.refresh-token"
-    public static let accountID = "auth.account-id"
-    public static let syncOriginID = "sync.origin-id"
+    public static let accessToken = authAccessTokenId()
+    public static let refreshToken = authRefreshTokenId()
+    public static let accountID = authAccountIdId()
+    public static let syncOriginID = authSyncOriginId()
 }

@@ -1,12 +1,24 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func TestUniqueViolationIsEmailAlreadyRegisteredSentinel(t *testing.T) {
+	duplicateErr := &pgconn.PgError{Code: "23505"}
+	if !isUniqueViolation(duplicateErr) {
+		t.Fatal("unique violation was not recognized")
+	}
+	if isUniqueViolation(errors.New("plain error")) {
+		t.Fatal("plain error was recognized as unique violation")
+	}
+}
 
 func TestHashAndVerifyPassword(t *testing.T) {
 	hash, err := HashPassword("correct horse battery staple")

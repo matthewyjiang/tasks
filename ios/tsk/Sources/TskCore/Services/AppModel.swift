@@ -12,21 +12,36 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var syncSummary = SyncSummary()
     @Published public private(set) var localAccount: LocalAccountBootstrapState?
     @Published public private(set) var errorMessage: String?
+    @Published public var syncServerURL: String
+    @Published public private(set) var syncAuthState: FfiSyncAuthState = .localOnlyReady
+    @Published public private(set) var enrollmentState: FfiEnrollmentState = .localOnlyReady
+    @Published public private(set) var enrollmentDevicePublicKey: String?
+    @Published public private(set) var isSyncOperationInFlight = false
+    @Published public private(set) var lastSyncStatusMessage: String?
+
+    public static let syncServerURLDefaultsKey = "tsk.sync.serverURL"
 
     private let repository: any TaskRepository
     private let filterEngine: TaskFilterEngine
     private let notificationScheduler: (any LocalNotificationScheduling)?
+    private let syncCoordinator: SyncCoordinator?
+    private let serverURLDefaults: UserDefaults
 
     public init(
         repository: any TaskRepository = PreviewTaskRepository(),
         filterEngine: TaskFilterEngine = TaskFilterEngine(),
         localAccount: LocalAccountBootstrapState? = nil,
-        notificationScheduler: (any LocalNotificationScheduling)? = nil
+        notificationScheduler: (any LocalNotificationScheduling)? = nil,
+        syncCoordinator: SyncCoordinator? = nil,
+        serverURLDefaults: UserDefaults = .standard
     ) {
         self.repository = repository
         self.filterEngine = filterEngine
         self.localAccount = localAccount
         self.notificationScheduler = notificationScheduler
+        self.syncCoordinator = syncCoordinator
+        self.serverURLDefaults = serverURLDefaults
+        self.syncServerURL = serverURLDefaults.string(forKey: Self.syncServerURLDefaultsKey) ?? ""
     }
 
     public var selectedTask: TaskItem? {
@@ -62,6 +77,109 @@ public final class AppModel: ObservableObject {
         syncSummary.isOnline = status.isOnline
     }
 
+    public var canSyncNow: Bool {
+        syncAuthState == .syncReady && syncSummary.isOnline && !isSyncOperationInFlight
+    }
+
+    public func refreshSyncState() async {
+        guard let syncCoordinator else { return }
+        await syncCoordinator.updateServerURL(syncServerURL)
+        syncAuthState = await syncCoordinator.syncAuthState()
+        enrollmentState = await syncCoordinator.enrollmentState()
+        enrollmentDevicePublicKey = try? await syncCoordinator.devicePublicKeyBase64()
+    }
+
+    public func updateSyncServerURL(_ serverURL: String) async {
+        let trimmed = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        syncServerURL = trimmed
+        serverURLDefaults.set(trimmed, forKey: Self.syncServerURLDefaultsKey)
+        await syncCoordinator?.updateServerURL(trimmed)
+        await refreshSyncState()
+    }
+
+    public func configureSync(email: String, password: String) async {
+        guard let syncCoordinator else {
+            errorMessage = TaskRepositoryError.syncAdapterUnavailable.localizedDescription
+            return
+        }
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !syncServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !trimmedEmail.isEmpty,
+              !password.isEmpty else {
+            errorMessage = "Server URL, email, and password are required."
+            return
+        }
+        isSyncOperationInFlight = true
+        defer { isSyncOperationInFlight = false }
+        do {
+            await syncCoordinator.updateServerURL(syncServerURL)
+            let result = try await syncCoordinator.configureSyncAuth(email: trimmedEmail, password: password)
+            syncAuthState = result.state
+            await refreshSyncState()
+            lastSyncStatusMessage = "Signed in."
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            await refreshSyncState()
+        }
+    }
+
+    public func signOutSync() async {
+        guard let syncCoordinator else { return }
+        isSyncOperationInFlight = true
+        defer { isSyncOperationInFlight = false }
+        do {
+            try await syncCoordinator.logout()
+            lastSyncStatusMessage = "Signed out."
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await refreshSyncState()
+    }
+
+    public func acceptWrappedAccountDataKeyPayload(json: String) async {
+        guard let syncCoordinator else { return }
+        isSyncOperationInFlight = true
+        defer { isSyncOperationInFlight = false }
+        do {
+            let payload = try Self.decodeWrappedAccountDataKeyPayload(json: json)
+            enrollmentState = try await syncCoordinator.acceptWrappedAccountDataKeyPayload(payload)
+            await refreshSyncState()
+            lastSyncStatusMessage = "Account data key accepted."
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            await refreshSyncState()
+        }
+    }
+
+    public func syncNow() async {
+        isSyncOperationInFlight = true
+        defer { isSyncOperationInFlight = false }
+        do {
+            await refreshSyncState()
+            syncSummary = try await repository.syncNow(isOnline: syncSummary.isOnline)
+            async let loadedTasks = repository.loadTasks(includeDeleted: true)
+            async let loadedLists = repository.loadLists()
+            let allTasks = try await loadedTasks
+            let allLists = try await loadedLists
+            tasks = allTasks.filter { !$0.deleted }
+            lists = allLists.filter { !$0.deleted }
+            lastSyncStatusMessage = "Sync completed."
+            errorMessage = nil
+            await refreshSyncState()
+        } catch {
+            lastSyncStatusMessage = "Sync failed."
+            errorMessage = error.localizedDescription
+            if var summary = try? await repository.syncSummary() {
+                summary.isOnline = syncSummary.isOnline
+                syncSummary = summary
+            }
+            await refreshSyncState()
+        }
+    }
+
     public func select(_ destination: AppDestination) {
         self.destination = destination
         switch destination {
@@ -86,9 +204,11 @@ public final class AppModel: ObservableObject {
             let notificationError = await reconcileNotifications(for: allTasks)
             syncSummary = try await loadedSync
             syncSummary.isOnline = wasOnline
+            await refreshSyncState()
             errorMessage = notificationError
         } catch {
             errorMessage = error.localizedDescription
+            await refreshSyncState()
         }
     }
 
@@ -223,6 +343,36 @@ public final class AppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private static func decodeWrappedAccountDataKeyPayload(json: String) throws -> FfiWrappedAccountDataKeyPayload {
+        struct Payload: Decodable {
+            let senderPublicKey: String
+            let recipientPublicKey: String
+            let ciphertext: String
+            let nonce: String
+
+            enum CodingKeys: String, CodingKey {
+                case senderPublicKey = "sender_public_key"
+                case recipientPublicKey = "recipient_public_key"
+                case ciphertext
+                case nonce
+            }
+        }
+
+        let data = Data(json.utf8)
+        let payload = try JSONDecoder().decode(Payload.self, from: data)
+        guard let sender = Data(base64Encoded: payload.senderPublicKey),
+              let recipient = Data(base64Encoded: payload.recipientPublicKey),
+              let ciphertext = Data(base64Encoded: payload.ciphertext),
+              let nonce = Data(base64Encoded: payload.nonce) else {
+            throw TaskRepositoryError.invalidEnrollmentPayload
+        }
+        return FfiWrappedAccountDataKeyPayload(
+            senderPublicKey: Array(sender),
+            recipientPublicKey: Array(recipient),
+            wrappedAccountDataKey: FfiBlob(ciphertext: Array(ciphertext), nonce: Array(nonce))
+        )
     }
 
     private func reconcileNotifications(for tasks: [TaskItem]) async -> String? {

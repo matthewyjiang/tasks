@@ -5,7 +5,9 @@ use uuid::Uuid;
 use crate::crypto::{generate_data_key, unwrap_data_key, wrap_data_key};
 use crate::db::LocalDatabase;
 use crate::error::CoreResult;
+use crate::platform::Platform;
 use crate::settings::VaultSettings;
+use crate::sync::{sync_session, SyncClient};
 use crate::types::{
     RetryQueueEntry, SharedTaskInvite, SharedTaskRecipient, SharedTaskState, SyncStatus, Task,
     TaskFilter, TaskList, TaskPatch, TaskSort,
@@ -173,6 +175,15 @@ impl TaskManagerCore {
 
     pub fn update_vault_settings(&self, settings: VaultSettings) -> CoreResult<VaultSettings> {
         self.database.update_vault_settings(&settings)
+    }
+
+    pub fn sync_run(
+        &self,
+        platform: &dyn Platform,
+        client: &dyn SyncClient,
+        data_key: &[u8],
+    ) -> CoreResult<crate::types::SyncResult> {
+        sync_session(&self.database, platform, client, data_key)
     }
 
     pub fn sync_status(&self) -> CoreResult<SyncStatus> {
