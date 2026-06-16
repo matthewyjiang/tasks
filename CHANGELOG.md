@@ -1,5 +1,9 @@
 # Changelog
 
+## core-v0.19.0 - 2026-06-16
+
+- feat(core,linux): add recently deleted task restoration (#131) (e7db790)
+
 ## linux-app-v0.7.0 - 2026-06-16
 
 - feat(core,linux): add recently deleted task restoration (#131) (e7db790)
