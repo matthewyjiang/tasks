@@ -2,6 +2,18 @@
 
 A local-first, end-to-end encrypted task manager.
 
+## Documentation
+
+The Markdown documentation site lives in [`docs/`](./docs/) and is built with VitePress.
+
+```sh
+npm install
+npm run docs:dev
+npm run docs:build
+```
+
+Start at [`docs/overview.md`](./docs/overview.md) for project goals, architecture, security, client usage, development workflows, releases, and roadmap notes.
+
 ## Structure
 
 - `server/` — Go zero-knowledge sync server
