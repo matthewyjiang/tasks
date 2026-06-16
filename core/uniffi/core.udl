@@ -205,6 +205,60 @@ dictionary FfiSyncResult {
   i64? cursor;
 };
 
+dictionary FfiAuthCredentials {
+  string email;
+  string password;
+};
+
+dictionary FfiRegisterRequest {
+  string email;
+  string password;
+  string pub_key;
+};
+
+dictionary FfiLoginRequest {
+  string email;
+  string password;
+};
+
+dictionary FfiRefreshTokenRequest {
+  string refresh_token;
+};
+
+dictionary FfiDeleteSessionRequest {
+  string refresh_token;
+};
+
+dictionary FfiPutCurrentDeviceKeyRequest {
+  string pub_key;
+};
+
+dictionary FfiTokenResponse {
+  string jwt;
+  string refresh_token;
+  string? user_id;
+};
+
+dictionary FfiConfigureSyncAuthResult {
+  string server_url;
+  string sync_origin;
+  string? account_id;
+  FfiSyncAuthState state;
+};
+
+callback interface FfiAuthClient {
+  [Throws=FfiCoreError]
+  FfiTokenResponse register_account(string server_url, FfiRegisterRequest request);
+  [Throws=FfiCoreError]
+  FfiTokenResponse login(string server_url, FfiLoginRequest request);
+  [Throws=FfiCoreError]
+  FfiTokenResponse refresh(string server_url, FfiRefreshTokenRequest request);
+  [Throws=FfiCoreError]
+  void delete_session(string server_url, FfiDeleteSessionRequest request);
+  [Throws=FfiCoreError]
+  void put_current_device_key(string server_url, string access_token, FfiPutCurrentDeviceKeyRequest request);
+};
+
 callback interface FfiSyncClient {
   [Throws=FfiCoreError]
   FfiPushResponse push_blobs(sequence<FfiBlobPush> blobs);
@@ -335,6 +389,16 @@ namespace taskmanager_core {
   [Throws=FfiCoreError]
   string ffi_sync_server_origin(string server_url);
   FfiSyncAuthState ffi_sync_auth_state(FfiPlatform platform, string server_url);
+  [Throws=FfiCoreError]
+  FfiConfigureSyncAuthResult ffi_configure_sync_auth(FfiPlatform platform, FfiAuthClient auth_client, string server_url, FfiAuthCredentials credentials, string register_public_key_base64);
+  [Throws=FfiCoreError]
+  FfiTokenResponse ffi_refresh_auth(FfiPlatform platform, FfiAuthClient auth_client, string server_url);
+  [Throws=FfiCoreError]
+  void ffi_logout_sync_auth(FfiPlatform platform, FfiAuthClient auth_client, string server_url);
+  [Throws=FfiCoreError]
+  string ffi_load_access_token(FfiPlatform platform);
+  [Throws=FfiCoreError]
+  string ffi_device_public_key_base64_from_platform(FfiPlatform platform);
   FfiEnrollmentState ffi_existing_account_enrollment_state(FfiPlatform platform);
   [Throws=FfiCoreError]
   FfiEnrollmentState ffi_begin_existing_account_enrollment(FfiPlatform platform);

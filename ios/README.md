@@ -2,7 +2,7 @@
 
 Native SwiftUI iOS client for `tsk`, backed by the shared Rust `taskmanager-core` through UniFFI.
 
-Current implementation scope is Phase 3 from issue #92: iOS platform adapters for local-first offline use. Sync/auth and background sync phases are intentionally not started yet.
+Current implementation scope covers Issue #92 Phase 4 sync/auth parity for foreground sync. Background sync and broader polish remain Phase 5 work and are intentionally not implemented here.
 
 ## Structure
 
@@ -77,4 +77,27 @@ Phase 2 adds native SwiftUI flows for creating, editing, completing/reopening, a
 
 ## Implemented platform adapters
 
-Phase 3 initializes local-first device/account keys on first launch before sign-in is required. The device private key and account data key are stored in device-only Keychain items available after first unlock. The app also has native `NWPathMonitor` reachability plumbing and `UNUserNotificationCenter` schedule/cancel hooks; detailed reminder behavior remains deferred until the shared core/spec defines reminder semantics.
+Phase 3 initializes local-first device/account keys on first launch before sign-in is required. The device private key and account data key are stored in device-only Keychain items available after first unlock. The app also has native `NWPathMonitor` reachability plumbing and `UNUserNotificationCenter` schedule/cancel hooks backed by shared core reminder semantics.
+
+## Implemented foreground sync/auth
+
+Phase 4 adds foreground sync/auth parity through shared Rust core APIs and thin iOS platform adapters:
+
+- Settings provides a native SwiftUI sync setup form for server URL, email, and password. Credentials are transient view state and are not persisted.
+- The server URL is local plaintext app metadata stored in `UserDefaults` under `tsk.sync.serverURL`.
+- Access and refresh tokens are stored in Keychain using the same core-generated secret IDs consumed by Rust (`auth_access_token` and `auth_refresh_token`).
+- The iOS HTTP auth adapter uses the same server endpoints as Linux/shared core: `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/session`, and `/keys/me`.
+- Foreground sync uses the same encrypted blob protocol as Linux (`/blobs/batch`, `/blobs/{task_id}`, and `/blobs?since=...`) via the shared core `sync_run` orchestration API.
+- Expired access tokens trigger a shared-core refresh flow, store the rotated token pair, and retry the sync once.
+- Existing-account enrollment supports a basic manual wrapped account-data-key import path. Paste JSON with base64 `sender_public_key`, `recipient_public_key`, `ciphertext`, and `nonce`; the shared core unwraps and stores the account data key only if it is addressed to this device and no account data key already exists.
+- Settings and the sidebar surface online/offline state, auth/enrollment state, dirty count, retry queue depth, cursor, and the last failed/conflict count.
+
+Manual Phase 4 validation:
+
+1. Start a compatible `tsk` server.
+2. Launch the iOS app and open Settings.
+3. Enter the server URL, email, and password, then use **Sign In or Register**.
+4. For an existing account, copy the displayed device public key to an already-enrolled device, create a wrapped account-data-key payload, and paste the JSON into the enrollment field.
+5. Create or edit tasks offline, return online, then use **Sync Now**.
+6. Force an expired access token and verify foreground sync refreshes tokens and retries once.
+7. Verify retry queue/dirty counts remain visible and survive app restart when sync cannot complete.

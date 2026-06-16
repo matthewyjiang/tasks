@@ -18,11 +18,15 @@ public struct RootView: View {
         do {
             let paths = try AppPaths()
             try paths.createDirectories()
+            let secretStore = KeychainSecretStore(service: paths.bundleIdentifier)
             let account = try LocalFirstBootstrapService(
-                secretStore: KeychainSecretStore(service: paths.bundleIdentifier)
+                secretStore: secretStore
             ).ensureBootstrapped()
-            let repository = try CoreTaskRepository(databaseURL: paths.databaseURL)
-            return AppModel(repository: repository, localAccount: account, notificationScheduler: UserNotificationScheduler())
+            let platform = CorePlatformAdapter(secretStore: secretStore)
+            let serverURL = UserDefaults.standard.string(forKey: "tsk.sync.serverURL") ?? ""
+            let syncCoordinator = SyncCoordinator(serverURL: serverURL, platform: platform, authClient: SyncHTTPAuthClient())
+            let repository = try CoreTaskRepository(databaseURL: paths.databaseURL, syncCoordinator: syncCoordinator)
+            return AppModel(repository: repository, localAccount: account, notificationScheduler: UserNotificationScheduler(), syncCoordinator: syncCoordinator)
         } catch {
             return AppModel(repository: StartupFailedRepository(error: error))
         }

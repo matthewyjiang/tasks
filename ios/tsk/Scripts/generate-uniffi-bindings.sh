@@ -23,14 +23,16 @@ RUST_TARGETS=(
   "aarch64-apple-ios-sim"
 )
 
+# Prefer the rustup-managed Rust toolchain over system/Homebrew Rust. The iOS
+# targets are installed for rustup, and Homebrew rustc may not see them.
+if [ -d "/opt/homebrew/bin" ]; then
+  export PATH="${PATH}:/opt/homebrew/bin"
+fi
 if [ -d "${HOME}/.cargo/bin" ]; then
   export PATH="${HOME}/.cargo/bin:${PATH}"
 fi
 if [ -d "${HOME}/.rustup/toolchains/stable-aarch64-apple-darwin/bin" ]; then
   export PATH="${HOME}/.rustup/toolchains/stable-aarch64-apple-darwin/bin:${PATH}"
-fi
-if [ -d "/opt/homebrew/bin" ]; then
-  export PATH="/opt/homebrew/bin:${PATH}"
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then

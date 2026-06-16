@@ -15,11 +15,14 @@ public protocol TaskRepository: Sendable {
 
 public enum TaskRepositoryError: Error, Equatable, LocalizedError, Sendable {
     case syncAdapterUnavailable
+    case invalidEnrollmentPayload
 
     public var errorDescription: String? {
         switch self {
         case .syncAdapterUnavailable:
-            "Foreground sync is not available yet."
+            "Foreground sync is not available in this preview."
+        case .invalidEnrollmentPayload:
+            "Enrollment payload must be JSON with base64 sender_public_key, recipient_public_key, ciphertext, and nonce fields."
         }
     }
 }

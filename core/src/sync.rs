@@ -50,12 +50,12 @@ pub fn sync_session(
         return Err(SyncError::NetworkUnavailable.into());
     }
 
-    let push = sync_push(database, platform, client, data_key)?;
     let pull = sync_pull(database, client, data_key)?;
+    let push = sync_push(database, platform, client, data_key)?;
     Ok(SyncResult {
         pushed: push.pushed,
         pulled: pull.pulled,
-        failed: push.failed + pull.failed,
+        failed: pull.failed + push.failed,
         cursor: pull.cursor,
     })
 }
@@ -277,10 +277,12 @@ mod tests {
         pull_response: RefCell<Option<PullResponse>>,
         push_error: RefCell<Option<SyncError>>,
         push_response: RefCell<Option<PushResponse>>,
+        calls: RefCell<Vec<&'static str>>,
     }
 
     impl SyncClient for FakeSyncClient {
         fn push_blobs(&self, blobs: Vec<BlobPush>) -> CoreResult<PushResponse> {
+            self.calls.borrow_mut().push("push");
             if let Some(error) = self.push_error.borrow_mut().take() {
                 return Err(error.into());
             }
@@ -296,6 +298,7 @@ mod tests {
                 }))
         }
         fn delete_blobs(&self, task_ids: Vec<Uuid>) -> CoreResult<PushResponse> {
+            self.calls.borrow_mut().push("delete");
             let accepted_task_ids = task_ids.clone();
             self.deleted.borrow_mut().extend(task_ids);
             Ok(PushResponse {
@@ -304,6 +307,7 @@ mod tests {
             })
         }
         fn pull_blobs(&self, _since: i64) -> CoreResult<PullResponse> {
+            self.calls.borrow_mut().push("pull");
             Ok(self
                 .pull_response
                 .borrow_mut()
@@ -535,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_session_combines_push_and_pull_results() {
+    fn sync_session_pulls_before_pushing_dirty_tasks() {
         let db = LocalDatabase::open_in_memory().unwrap();
         db.create_task("a".to_owned(), "b".to_owned(), None)
             .unwrap();
@@ -549,6 +553,39 @@ mod tests {
         assert_eq!(result.pushed, 1);
         assert_eq!(result.pulled, 0);
         assert_eq!(result.cursor, Some(9));
+        assert_eq!(client.calls.borrow().as_slice(), ["pull", "push"]);
+    }
+
+    #[test]
+    fn sync_session_resolves_remote_conflict_before_push_can_overwrite_it() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let key = generate_data_key();
+        let local = db
+            .create_task("stale local".to_owned(), "body".to_owned(), None)
+            .unwrap();
+        let mut remote = local.clone();
+        remote.title = "newer remote".to_owned();
+        remote.updated_at = local.updated_at + 1;
+        remote.dirty = false;
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: vec![RemoteBlob {
+                task_id: local.id,
+                blob: encrypt_blob(&remote, &key).unwrap(),
+                updated_at: remote.updated_at,
+            }],
+            cursor: 10,
+        });
+        let platform = MockPlatform::with_network_available(true);
+
+        let result = sync_session(&db, &platform, &client, &key).unwrap();
+
+        assert_eq!(result.pulled, 1);
+        assert_eq!(result.pushed, 0);
+        assert!(client.pushed.borrow().is_empty());
+        let stored = db.get_task(local.id).unwrap();
+        assert_eq!(stored.title, "newer remote");
+        assert!(!stored.dirty);
     }
 
     #[test]

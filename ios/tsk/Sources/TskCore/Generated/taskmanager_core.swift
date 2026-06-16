@@ -921,6 +921,60 @@ public func FfiConverterTypeFfiTaskManagerCore_lower(_ value: FfiTaskManagerCore
 
 
 
+public struct FfiAuthCredentials: Equatable, Hashable {
+    public var email: String
+    public var password: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(email: String, password: String) {
+        self.email = email
+        self.password = password
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiAuthCredentials: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAuthCredentials: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAuthCredentials {
+        return
+            try FfiAuthCredentials(
+                email: FfiConverterString.read(from: &buf), 
+                password: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAuthCredentials, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.email, into: &buf)
+        FfiConverterString.write(value.password, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAuthCredentials_lift(_ buf: RustBuffer) throws -> FfiAuthCredentials {
+    return try FfiConverterTypeFfiAuthCredentials.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAuthCredentials_lower(_ value: FfiAuthCredentials) -> RustBuffer {
+    return FfiConverterTypeFfiAuthCredentials.lower(value)
+}
+
+
 public struct FfiBlob: Equatable, Hashable {
     public var ciphertext: [UInt8]
     public var nonce: [UInt8]
@@ -1026,6 +1080,118 @@ public func FfiConverterTypeFfiBlobPush_lift(_ buf: RustBuffer) throws -> FfiBlo
 #endif
 public func FfiConverterTypeFfiBlobPush_lower(_ value: FfiBlobPush) -> RustBuffer {
     return FfiConverterTypeFfiBlobPush.lower(value)
+}
+
+
+public struct FfiConfigureSyncAuthResult: Equatable, Hashable {
+    public var serverUrl: String
+    public var syncOrigin: String
+    public var accountId: String?
+    public var state: FfiSyncAuthState
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(serverUrl: String, syncOrigin: String, accountId: String?, state: FfiSyncAuthState) {
+        self.serverUrl = serverUrl
+        self.syncOrigin = syncOrigin
+        self.accountId = accountId
+        self.state = state
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiConfigureSyncAuthResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiConfigureSyncAuthResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiConfigureSyncAuthResult {
+        return
+            try FfiConfigureSyncAuthResult(
+                serverUrl: FfiConverterString.read(from: &buf), 
+                syncOrigin: FfiConverterString.read(from: &buf), 
+                accountId: FfiConverterOptionString.read(from: &buf), 
+                state: FfiConverterTypeFfiSyncAuthState.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiConfigureSyncAuthResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.serverUrl, into: &buf)
+        FfiConverterString.write(value.syncOrigin, into: &buf)
+        FfiConverterOptionString.write(value.accountId, into: &buf)
+        FfiConverterTypeFfiSyncAuthState.write(value.state, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiConfigureSyncAuthResult_lift(_ buf: RustBuffer) throws -> FfiConfigureSyncAuthResult {
+    return try FfiConverterTypeFfiConfigureSyncAuthResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiConfigureSyncAuthResult_lower(_ value: FfiConfigureSyncAuthResult) -> RustBuffer {
+    return FfiConverterTypeFfiConfigureSyncAuthResult.lower(value)
+}
+
+
+public struct FfiDeleteSessionRequest: Equatable, Hashable {
+    public var refreshToken: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(refreshToken: String) {
+        self.refreshToken = refreshToken
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiDeleteSessionRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDeleteSessionRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDeleteSessionRequest {
+        return
+            try FfiDeleteSessionRequest(
+                refreshToken: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDeleteSessionRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.refreshToken, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDeleteSessionRequest_lift(_ buf: RustBuffer) throws -> FfiDeleteSessionRequest {
+    return try FfiConverterTypeFfiDeleteSessionRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDeleteSessionRequest_lower(_ value: FfiDeleteSessionRequest) -> RustBuffer {
+    return FfiConverterTypeFfiDeleteSessionRequest.lower(value)
 }
 
 
@@ -1211,6 +1377,60 @@ public func FfiConverterTypeFfiLocalAccountBootstrap_lower(_ value: FfiLocalAcco
 }
 
 
+public struct FfiLoginRequest: Equatable, Hashable {
+    public var email: String
+    public var password: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(email: String, password: String) {
+        self.email = email
+        self.password = password
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiLoginRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiLoginRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiLoginRequest {
+        return
+            try FfiLoginRequest(
+                email: FfiConverterString.read(from: &buf), 
+                password: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiLoginRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.email, into: &buf)
+        FfiConverterString.write(value.password, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLoginRequest_lift(_ buf: RustBuffer) throws -> FfiLoginRequest {
+    return try FfiConverterTypeFfiLoginRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLoginRequest_lower(_ value: FfiLoginRequest) -> RustBuffer {
+    return FfiConverterTypeFfiLoginRequest.lower(value)
+}
+
+
 public struct FfiPlaintextSettings: Equatable, Hashable {
     public var schemaVersion: Int32
     public var serverUrl: String
@@ -1382,6 +1602,164 @@ public func FfiConverterTypeFfiPushResponse_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiPushResponse_lower(_ value: FfiPushResponse) -> RustBuffer {
     return FfiConverterTypeFfiPushResponse.lower(value)
+}
+
+
+public struct FfiPutCurrentDeviceKeyRequest: Equatable, Hashable {
+    public var pubKey: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pubKey: String) {
+        self.pubKey = pubKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiPutCurrentDeviceKeyRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPutCurrentDeviceKeyRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPutCurrentDeviceKeyRequest {
+        return
+            try FfiPutCurrentDeviceKeyRequest(
+                pubKey: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPutCurrentDeviceKeyRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.pubKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPutCurrentDeviceKeyRequest_lift(_ buf: RustBuffer) throws -> FfiPutCurrentDeviceKeyRequest {
+    return try FfiConverterTypeFfiPutCurrentDeviceKeyRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPutCurrentDeviceKeyRequest_lower(_ value: FfiPutCurrentDeviceKeyRequest) -> RustBuffer {
+    return FfiConverterTypeFfiPutCurrentDeviceKeyRequest.lower(value)
+}
+
+
+public struct FfiRefreshTokenRequest: Equatable, Hashable {
+    public var refreshToken: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(refreshToken: String) {
+        self.refreshToken = refreshToken
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiRefreshTokenRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRefreshTokenRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRefreshTokenRequest {
+        return
+            try FfiRefreshTokenRequest(
+                refreshToken: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRefreshTokenRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.refreshToken, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRefreshTokenRequest_lift(_ buf: RustBuffer) throws -> FfiRefreshTokenRequest {
+    return try FfiConverterTypeFfiRefreshTokenRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRefreshTokenRequest_lower(_ value: FfiRefreshTokenRequest) -> RustBuffer {
+    return FfiConverterTypeFfiRefreshTokenRequest.lower(value)
+}
+
+
+public struct FfiRegisterRequest: Equatable, Hashable {
+    public var email: String
+    public var password: String
+    public var pubKey: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(email: String, password: String, pubKey: String) {
+        self.email = email
+        self.password = password
+        self.pubKey = pubKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiRegisterRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRegisterRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRegisterRequest {
+        return
+            try FfiRegisterRequest(
+                email: FfiConverterString.read(from: &buf), 
+                password: FfiConverterString.read(from: &buf), 
+                pubKey: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRegisterRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.email, into: &buf)
+        FfiConverterString.write(value.password, into: &buf)
+        FfiConverterString.write(value.pubKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRegisterRequest_lift(_ buf: RustBuffer) throws -> FfiRegisterRequest {
+    return try FfiConverterTypeFfiRegisterRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRegisterRequest_lower(_ value: FfiRegisterRequest) -> RustBuffer {
+    return FfiConverterTypeFfiRegisterRequest.lower(value)
 }
 
 
@@ -2244,6 +2622,64 @@ public func FfiConverterTypeFfiTaskPatch_lift(_ buf: RustBuffer) throws -> FfiTa
 #endif
 public func FfiConverterTypeFfiTaskPatch_lower(_ value: FfiTaskPatch) -> RustBuffer {
     return FfiConverterTypeFfiTaskPatch.lower(value)
+}
+
+
+public struct FfiTokenResponse: Equatable, Hashable {
+    public var jwt: String
+    public var refreshToken: String
+    public var userId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(jwt: String, refreshToken: String, userId: String?) {
+        self.jwt = jwt
+        self.refreshToken = refreshToken
+        self.userId = userId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiTokenResponse: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTokenResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTokenResponse {
+        return
+            try FfiTokenResponse(
+                jwt: FfiConverterString.read(from: &buf), 
+                refreshToken: FfiConverterString.read(from: &buf), 
+                userId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTokenResponse, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.jwt, into: &buf)
+        FfiConverterString.write(value.refreshToken, into: &buf)
+        FfiConverterOptionString.write(value.userId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTokenResponse_lift(_ buf: RustBuffer) throws -> FfiTokenResponse {
+    return try FfiConverterTypeFfiTokenResponse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTokenResponse_lower(_ value: FfiTokenResponse) -> RustBuffer {
+    return FfiConverterTypeFfiTokenResponse.lower(value)
 }
 
 
@@ -3164,6 +3600,258 @@ public func FfiConverterTypeFfiTheme_lower(_ value: FfiTheme) -> RustBuffer {
 
 
 
+public protocol FfiAuthClient: AnyObject, Sendable {
+    
+    func registerAccount(serverUrl: String, request: FfiRegisterRequest) throws  -> FfiTokenResponse
+    
+    func login(serverUrl: String, request: FfiLoginRequest) throws  -> FfiTokenResponse
+    
+    func refresh(serverUrl: String, request: FfiRefreshTokenRequest) throws  -> FfiTokenResponse
+    
+    func deleteSession(serverUrl: String, request: FfiDeleteSessionRequest) throws 
+    
+    func putCurrentDeviceKey(serverUrl: String, accessToken: String, request: FfiPutCurrentDeviceKeyRequest) throws 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiAuthClient {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFfiAuthClient = UniffiVTableCallbackInterfaceFfiAuthClient(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceFfiAuthClient.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FfiAuthClient: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceFfiAuthClient.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FfiAuthClient: handle missing in uniffiClone")
+            }
+        },
+        registerAccount: { (
+            uniffiHandle: UInt64,
+            serverUrl: RustBuffer,
+            request: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> FfiTokenResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAuthClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.registerAccount(
+                     serverUrl: try FfiConverterString.lift(serverUrl),
+                     request: try FfiConverterTypeFfiRegisterRequest_lift(request)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeFfiTokenResponse_lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        },
+        login: { (
+            uniffiHandle: UInt64,
+            serverUrl: RustBuffer,
+            request: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> FfiTokenResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAuthClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.login(
+                     serverUrl: try FfiConverterString.lift(serverUrl),
+                     request: try FfiConverterTypeFfiLoginRequest_lift(request)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeFfiTokenResponse_lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        },
+        refresh: { (
+            uniffiHandle: UInt64,
+            serverUrl: RustBuffer,
+            request: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> FfiTokenResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAuthClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.refresh(
+                     serverUrl: try FfiConverterString.lift(serverUrl),
+                     request: try FfiConverterTypeFfiRefreshTokenRequest_lift(request)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterTypeFfiTokenResponse_lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        },
+        deleteSession: { (
+            uniffiHandle: UInt64,
+            serverUrl: RustBuffer,
+            request: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAuthClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.deleteSession(
+                     serverUrl: try FfiConverterString.lift(serverUrl),
+                     request: try FfiConverterTypeFfiDeleteSessionRequest_lift(request)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        },
+        putCurrentDeviceKey: { (
+            uniffiHandle: UInt64,
+            serverUrl: RustBuffer,
+            accessToken: RustBuffer,
+            request: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAuthClient.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.putCurrentDeviceKey(
+                     serverUrl: try FfiConverterString.lift(serverUrl),
+                     accessToken: try FfiConverterString.lift(accessToken),
+                     request: try FfiConverterTypeFfiPutCurrentDeviceKeyRequest_lift(request)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiCoreError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFfiAuthClient> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFfiAuthClient>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitFfiAuthClient() {
+    uniffi_taskmanager_core_fn_init_callback_vtable_ffiauthclient(UniffiCallbackInterfaceFfiAuthClient.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFfiAuthClient {
+    fileprivate static let handleMap = UniffiHandleMap<FfiAuthClient>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFfiAuthClient : FfiConverter {
+    typealias SwiftType = FfiAuthClient
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiAuthClient_lift(_ handle: UInt64) throws -> FfiAuthClient {
+    return try FfiConverterCallbackInterfaceFfiAuthClient.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiAuthClient_lower(_ v: FfiAuthClient) -> UInt64 {
+    return FfiConverterCallbackInterfaceFfiAuthClient.lower(v)
+}
+
+
+
+
 public protocol FfiPlatform: AnyObject, Sendable {
     
     func storeKey(id: String, bytes: [UInt8]) throws 
@@ -3987,10 +4675,52 @@ public func ffiBeginExistingAccountEnrollment(platform: FfiPlatform)throws  -> F
     )
 })
 }
+public func ffiConfigureSyncAuth(platform: FfiPlatform, authClient: FfiAuthClient, serverUrl: String, credentials: FfiAuthCredentials, registerPublicKeyBase64: String)throws  -> FfiConfigureSyncAuthResult  {
+    return try  FfiConverterTypeFfiConfigureSyncAuthResult_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_func_ffi_configure_sync_auth(
+        FfiConverterCallbackInterfaceFfiPlatform_lower(platform),
+        FfiConverterCallbackInterfaceFfiAuthClient_lower(authClient),
+        FfiConverterString.lower(serverUrl),
+        FfiConverterTypeFfiAuthCredentials_lower(credentials),
+        FfiConverterString.lower(registerPublicKeyBase64),$0
+    )
+})
+}
+public func ffiDevicePublicKeyBase64FromPlatform(platform: FfiPlatform)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_func_ffi_device_public_key_base64_from_platform(
+        FfiConverterCallbackInterfaceFfiPlatform_lower(platform),$0
+    )
+})
+}
 public func ffiExistingAccountEnrollmentState(platform: FfiPlatform) -> FfiEnrollmentState  {
     return try!  FfiConverterTypeFfiEnrollmentState_lift(try! rustCall() {
     uniffi_taskmanager_core_fn_func_ffi_existing_account_enrollment_state(
         FfiConverterCallbackInterfaceFfiPlatform_lower(platform),$0
+    )
+})
+}
+public func ffiLoadAccessToken(platform: FfiPlatform)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_func_ffi_load_access_token(
+        FfiConverterCallbackInterfaceFfiPlatform_lower(platform),$0
+    )
+})
+}
+public func ffiLogoutSyncAuth(platform: FfiPlatform, authClient: FfiAuthClient, serverUrl: String)throws   {try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_func_ffi_logout_sync_auth(
+        FfiConverterCallbackInterfaceFfiPlatform_lower(platform),
+        FfiConverterCallbackInterfaceFfiAuthClient_lower(authClient),
+        FfiConverterString.lower(serverUrl),$0
+    )
+}
+}
+public func ffiRefreshAuth(platform: FfiPlatform, authClient: FfiAuthClient, serverUrl: String)throws  -> FfiTokenResponse  {
+    return try  FfiConverterTypeFfiTokenResponse_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_func_ffi_refresh_auth(
+        FfiConverterCallbackInterfaceFfiPlatform_lower(platform),
+        FfiConverterCallbackInterfaceFfiAuthClient_lower(authClient),
+        FfiConverterString.lower(serverUrl),$0
     )
 })
 }
@@ -4126,7 +4856,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_taskmanager_core_checksum_func_ffi_begin_existing_account_enrollment() != 54734) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_taskmanager_core_checksum_func_ffi_configure_sync_auth() != 33171) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_func_ffi_device_public_key_base64_from_platform() != 2500) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_taskmanager_core_checksum_func_ffi_existing_account_enrollment_state() != 24421) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_func_ffi_load_access_token() != 62677) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_func_ffi_logout_sync_auth() != 58991) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_func_ffi_refresh_auth() != 11512) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_taskmanager_core_checksum_func_ffi_sync_auth_state() != 8122) {
@@ -4231,6 +4976,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_taskmanager_core_checksum_constructor_ffitaskmanagercore_new() != 23565) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_taskmanager_core_checksum_method_ffiauthclient_register_account() != 15702) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffiauthclient_login() != 30112) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffiauthclient_refresh() != 54961) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffiauthclient_delete_session() != 63251) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffiauthclient_put_current_device_key() != 31794) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_taskmanager_core_checksum_method_ffiplatform_store_key() != 19540) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4253,6 +5013,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitFfiAuthClient()
     uniffiCallbackInitFfiPlatform()
     uniffiCallbackInitFfiSyncClient()
     return InitializationResult.ok

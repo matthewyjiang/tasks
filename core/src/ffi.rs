@@ -5,7 +5,10 @@ use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
 use crate::auth::{
-    normalize_sync_server_url, sync_auth_state, sync_server_origin, SyncAuthState,
+    configure_sync_auth, device_public_key_base64_from_platform, load_access_token,
+    logout_sync_auth, normalize_sync_server_url, refresh_auth, sync_auth_state, sync_server_origin,
+    AuthClient, AuthCredentials, ConfigureSyncAuthResult, DeleteSessionRequest, LoginRequest,
+    PutCurrentDeviceKeyRequest, RefreshTokenRequest, RegisterRequest, SyncAuthState, TokenResponse,
     AUTH_ACCESS_TOKEN_ID, AUTH_ACCOUNT_ID_ID, AUTH_REFRESH_TOKEN_ID, AUTH_SYNC_ORIGIN_ID,
 };
 use crate::core::TaskManagerCore;
@@ -18,7 +21,7 @@ use crate::enrollment::{
     create_wrapped_account_data_key_payload, existing_account_enrollment_state, EnrollmentState,
     WrappedAccountDataKeyPayload,
 };
-use crate::error::{CoreError, CoreResult};
+use crate::error::{CoreError, CoreResult, SyncError};
 use crate::platform::{Platform, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID};
 use crate::settings::{
     AuthMethod, DefaultSort, DisplayDensity, Keybindings, PlaintextSettings, Theme, VaultSettings,
@@ -276,6 +279,84 @@ pub struct FfiSyncResult {
     pub pulled: u64,
     pub failed: u64,
     pub cursor: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiAuthCredentials {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiRegisterRequest {
+    pub email: String,
+    pub password: String,
+    pub pub_key: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiLoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiRefreshTokenRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiDeleteSessionRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiPutCurrentDeviceKeyRequest {
+    pub pub_key: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiTokenResponse {
+    pub jwt: String,
+    pub refresh_token: String,
+    pub user_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiConfigureSyncAuthResult {
+    pub server_url: String,
+    pub sync_origin: String,
+    pub account_id: Option<String>,
+    pub state: FfiSyncAuthState,
+}
+
+pub trait FfiAuthClient: Send + Sync {
+    fn register_account(
+        &self,
+        server_url: String,
+        request: FfiRegisterRequest,
+    ) -> Result<FfiTokenResponse, FfiCoreError>;
+    fn login(
+        &self,
+        server_url: String,
+        request: FfiLoginRequest,
+    ) -> Result<FfiTokenResponse, FfiCoreError>;
+    fn refresh(
+        &self,
+        server_url: String,
+        request: FfiRefreshTokenRequest,
+    ) -> Result<FfiTokenResponse, FfiCoreError>;
+    fn delete_session(
+        &self,
+        server_url: String,
+        request: FfiDeleteSessionRequest,
+    ) -> Result<(), FfiCoreError>;
+    fn put_current_device_key(
+        &self,
+        server_url: String,
+        access_token: String,
+        request: FfiPutCurrentDeviceKeyRequest,
+    ) -> Result<(), FfiCoreError>;
 }
 
 pub trait FfiSyncClient: Send + Sync {
@@ -745,6 +826,66 @@ pub fn ffi_sync_auth_state(platform: Box<dyn FfiPlatform>, server_url: String) -
     sync_auth_state(&adapter, &server_url).into()
 }
 
+pub fn ffi_configure_sync_auth(
+    platform: Box<dyn FfiPlatform>,
+    auth_client: Box<dyn FfiAuthClient>,
+    server_url: String,
+    credentials: FfiAuthCredentials,
+    register_public_key_base64: String,
+) -> Result<FfiConfigureSyncAuthResult, FfiCoreError> {
+    let platform = FfiPlatformAdapter { platform };
+    let auth_client = FfiAuthClientAdapter {
+        client: auth_client,
+    };
+    configure_sync_auth(
+        &platform,
+        &auth_client,
+        &server_url,
+        credentials.into(),
+        register_public_key_base64,
+    )
+    .map(FfiConfigureSyncAuthResult::from)
+    .map_err(FfiCoreError::from)
+}
+
+pub fn ffi_refresh_auth(
+    platform: Box<dyn FfiPlatform>,
+    auth_client: Box<dyn FfiAuthClient>,
+    server_url: String,
+) -> Result<FfiTokenResponse, FfiCoreError> {
+    let platform = FfiPlatformAdapter { platform };
+    let auth_client = FfiAuthClientAdapter {
+        client: auth_client,
+    };
+    refresh_auth(&platform, &auth_client, &server_url)
+        .map(FfiTokenResponse::from)
+        .map_err(FfiCoreError::from)
+}
+
+pub fn ffi_logout_sync_auth(
+    platform: Box<dyn FfiPlatform>,
+    auth_client: Box<dyn FfiAuthClient>,
+    server_url: String,
+) -> Result<(), FfiCoreError> {
+    let platform = FfiPlatformAdapter { platform };
+    let auth_client = FfiAuthClientAdapter {
+        client: auth_client,
+    };
+    logout_sync_auth(&platform, &auth_client, &server_url).map_err(FfiCoreError::from)
+}
+
+pub fn ffi_load_access_token(platform: Box<dyn FfiPlatform>) -> Result<String, FfiCoreError> {
+    let platform = FfiPlatformAdapter { platform };
+    load_access_token(&platform).map_err(FfiCoreError::from)
+}
+
+pub fn ffi_device_public_key_base64_from_platform(
+    platform: Box<dyn FfiPlatform>,
+) -> Result<String, FfiCoreError> {
+    let platform = FfiPlatformAdapter { platform };
+    device_public_key_base64_from_platform(&platform).map_err(FfiCoreError::from)
+}
+
 pub fn ffi_existing_account_enrollment_state(platform: Box<dyn FfiPlatform>) -> FfiEnrollmentState {
     let adapter = FfiPlatformAdapter { platform };
     existing_account_enrollment_state(&adapter).into()
@@ -1061,6 +1202,54 @@ impl Platform for FfiPlatformAdapter {
     }
 }
 
+struct FfiAuthClientAdapter {
+    client: Box<dyn FfiAuthClient>,
+}
+
+impl AuthClient for FfiAuthClientAdapter {
+    fn register(&self, server_url: &str, request: RegisterRequest) -> CoreResult<TokenResponse> {
+        self.client
+            .register_account(server_url.to_owned(), request.into())
+            .map(TokenResponse::from)
+            .map_err(ffi_error_to_core)
+    }
+
+    fn login(&self, server_url: &str, request: LoginRequest) -> CoreResult<TokenResponse> {
+        self.client
+            .login(server_url.to_owned(), request.into())
+            .map(TokenResponse::from)
+            .map_err(ffi_error_to_core)
+    }
+
+    fn refresh(&self, server_url: &str, request: RefreshTokenRequest) -> CoreResult<TokenResponse> {
+        self.client
+            .refresh(server_url.to_owned(), request.into())
+            .map(TokenResponse::from)
+            .map_err(ffi_error_to_core)
+    }
+
+    fn delete_session(&self, server_url: &str, request: DeleteSessionRequest) -> CoreResult<()> {
+        self.client
+            .delete_session(server_url.to_owned(), request.into())
+            .map_err(ffi_error_to_core)
+    }
+
+    fn put_current_device_key(
+        &self,
+        server_url: &str,
+        access_token: &str,
+        request: PutCurrentDeviceKeyRequest,
+    ) -> CoreResult<()> {
+        self.client
+            .put_current_device_key(
+                server_url.to_owned(),
+                access_token.to_owned(),
+                request.into(),
+            )
+            .map_err(ffi_error_to_core)
+    }
+}
+
 struct FfiSyncClientAdapter {
     client: Box<dyn FfiSyncClient>,
 }
@@ -1089,12 +1278,177 @@ impl SyncClient for FfiSyncClientAdapter {
 }
 
 fn ffi_error_to_core(error: FfiCoreError) -> CoreError {
-    if let FfiCoreError::PlatformError { error_message } = &error {
-        if let Some(key_id) = error_message.strip_prefix("missing key ") {
-            return crate::error::PlatformError::KeyNotFound(key_id.to_owned()).into();
+    match error {
+        FfiCoreError::SyncError { error_message } => ffi_sync_error_to_core(error_message),
+        FfiCoreError::PlatformError { error_message } => {
+            if let Some(key_id) = error_message.strip_prefix("missing key ") {
+                crate::error::PlatformError::KeyNotFound(key_id.to_owned()).into()
+            } else {
+                crate::error::PlatformError::OperationFailed(error_message).into()
+            }
+        }
+        other => crate::error::PlatformError::OperationFailed(other.to_string()).into(),
+    }
+}
+
+fn ffi_sync_error_to_core(error_message: String) -> CoreError {
+    let normalized = error_message.to_ascii_lowercase();
+    if normalized.contains("auth expired") {
+        SyncError::AuthExpired.into()
+    } else if normalized.contains("network unavailable") {
+        SyncError::NetworkUnavailable.into()
+    } else if let Some(task_id) = normalized
+        .strip_prefix("blob conflict: ")
+        .and_then(|id| Uuid::parse_str(id).ok())
+    {
+        SyncError::BlobConflict(task_id).into()
+    } else {
+        let status = normalized
+            .strip_prefix("server error ")
+            .and_then(|suffix| suffix.split(|c: char| !c.is_ascii_digit()).next())
+            .and_then(|digits| digits.parse::<u16>().ok())
+            .unwrap_or(500);
+        SyncError::ServerError {
+            status,
+            body: error_message,
+        }
+        .into()
+    }
+}
+
+impl From<AuthCredentials> for FfiAuthCredentials {
+    fn from(credentials: AuthCredentials) -> Self {
+        Self {
+            email: credentials.email,
+            password: credentials.password,
         }
     }
-    crate::error::PlatformError::OperationFailed(error.to_string()).into()
+}
+
+impl From<FfiAuthCredentials> for AuthCredentials {
+    fn from(credentials: FfiAuthCredentials) -> Self {
+        Self {
+            email: credentials.email,
+            password: credentials.password,
+        }
+    }
+}
+
+impl From<RegisterRequest> for FfiRegisterRequest {
+    fn from(request: RegisterRequest) -> Self {
+        Self {
+            email: request.email,
+            password: request.password,
+            pub_key: request.pub_key,
+        }
+    }
+}
+
+impl From<FfiRegisterRequest> for RegisterRequest {
+    fn from(request: FfiRegisterRequest) -> Self {
+        Self {
+            email: request.email,
+            password: request.password,
+            pub_key: request.pub_key,
+        }
+    }
+}
+
+impl From<LoginRequest> for FfiLoginRequest {
+    fn from(request: LoginRequest) -> Self {
+        Self {
+            email: request.email,
+            password: request.password,
+        }
+    }
+}
+
+impl From<FfiLoginRequest> for LoginRequest {
+    fn from(request: FfiLoginRequest) -> Self {
+        Self {
+            email: request.email,
+            password: request.password,
+        }
+    }
+}
+
+impl From<RefreshTokenRequest> for FfiRefreshTokenRequest {
+    fn from(request: RefreshTokenRequest) -> Self {
+        Self {
+            refresh_token: request.refresh_token,
+        }
+    }
+}
+
+impl From<FfiRefreshTokenRequest> for RefreshTokenRequest {
+    fn from(request: FfiRefreshTokenRequest) -> Self {
+        Self {
+            refresh_token: request.refresh_token,
+        }
+    }
+}
+
+impl From<DeleteSessionRequest> for FfiDeleteSessionRequest {
+    fn from(request: DeleteSessionRequest) -> Self {
+        Self {
+            refresh_token: request.refresh_token,
+        }
+    }
+}
+
+impl From<FfiDeleteSessionRequest> for DeleteSessionRequest {
+    fn from(request: FfiDeleteSessionRequest) -> Self {
+        Self {
+            refresh_token: request.refresh_token,
+        }
+    }
+}
+
+impl From<PutCurrentDeviceKeyRequest> for FfiPutCurrentDeviceKeyRequest {
+    fn from(request: PutCurrentDeviceKeyRequest) -> Self {
+        Self {
+            pub_key: request.pub_key,
+        }
+    }
+}
+
+impl From<FfiPutCurrentDeviceKeyRequest> for PutCurrentDeviceKeyRequest {
+    fn from(request: FfiPutCurrentDeviceKeyRequest) -> Self {
+        Self {
+            pub_key: request.pub_key,
+        }
+    }
+}
+
+impl From<TokenResponse> for FfiTokenResponse {
+    fn from(response: TokenResponse) -> Self {
+        Self {
+            jwt: response.jwt,
+            refresh_token: response.refresh_token,
+            user_id: response.user_id,
+        }
+    }
+}
+
+impl From<FfiTokenResponse> for TokenResponse {
+    fn from(response: FfiTokenResponse) -> Self {
+        Self {
+            jwt: response.jwt,
+            refresh_token: response.refresh_token,
+            user_id: response.user_id,
+        }
+    }
+}
+
+impl From<ConfigureSyncAuthResult> for FfiConfigureSyncAuthResult {
+    fn from(result: ConfigureSyncAuthResult) -> Self {
+        Self {
+            server_url: result.server_url,
+            sync_origin: result.sync_origin,
+            account_id: result.account_id,
+            state: result.state.into(),
+        }
+    }
 }
 
 impl From<SyncAuthState> for FfiSyncAuthState {
@@ -1639,6 +1993,48 @@ mod tests {
         assert_eq!(result.pushed, 1);
         assert_eq!(result.cursor, Some(7));
         assert!(!core.get_task(task.id).unwrap().dirty);
+    }
+
+    struct FfiSyncErrorClient;
+
+    impl FfiSyncClient for FfiSyncErrorClient {
+        fn push_blobs(&self, _blobs: Vec<FfiBlobPush>) -> Result<FfiPushResponse, FfiCoreError> {
+            Ok(FfiPushResponse {
+                accepted_task_ids: Vec::new(),
+                failed_task_ids: Vec::new(),
+            })
+        }
+
+        fn delete_blobs(&self, _task_ids: Vec<String>) -> Result<FfiPushResponse, FfiCoreError> {
+            Ok(FfiPushResponse {
+                accepted_task_ids: Vec::new(),
+                failed_task_ids: Vec::new(),
+            })
+        }
+
+        fn pull_blobs(&self, _since: i64) -> Result<FfiPullResponse, FfiCoreError> {
+            Err(FfiCoreError::SyncError {
+                error_message: "auth expired".to_owned(),
+            })
+        }
+    }
+
+    #[test]
+    fn ffi_sync_client_sync_errors_preserve_kind_through_sync_run() {
+        let database_path =
+            temporary_database_path("ffi_sync_client_sync_errors_preserve_kind_through_sync_run");
+        let core = FfiTaskManagerCore::new(database_path.to_string_lossy().into_owned()).unwrap();
+
+        let error = core
+            .sync_run(
+                true,
+                Box::new(FfiSyncErrorClient),
+                generate_data_key().to_vec(),
+            )
+            .unwrap_err();
+
+        assert_eq!(error.kind(), FfiCoreErrorKind::SyncError);
+        assert_eq!(error.message(), "auth expired");
     }
 
     #[test]
