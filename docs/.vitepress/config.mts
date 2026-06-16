@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  base: '/tasks/',
   title: 'tsk',
   description: 'Local-first, end-to-end encrypted task manager documentation',
   cleanUrls: true,
