@@ -7,7 +7,13 @@ on:
       - "Cargo.lock"
       - "core/**"
       - "cli/**"
-      - "server/**"
+      - "server/Dockerfile"
+      - "server/docker-compose.yml"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/cmd/**"
+      - "server/internal/**"
+      - "server/migrations/**"
       - "scripts/cli_e2e.py"
       - ".github/workflows/cli.yml"
   pull_request:
@@ -16,9 +22,19 @@ on:
       - "Cargo.lock"
       - "core/**"
       - "cli/**"
-      - "server/**"
+      - "server/Dockerfile"
+      - "server/docker-compose.yml"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/cmd/**"
+      - "server/internal/**"
+      - "server/migrations/**"
       - "scripts/cli_e2e.py"
       - ".github/workflows/cli.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -27,10 +43,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
+      - run: cargo fmt -p taskmanager-cli --check
       - run: cargo clippy -p taskmanager-cli --all-targets
-      - run: cargo test -p taskmanager-cli
-      - run: cargo build -p taskmanager-cli
+      - run: cargo test -p taskmanager-cli --all-targets
 
   e2e:
     runs-on: ubuntu-latest
