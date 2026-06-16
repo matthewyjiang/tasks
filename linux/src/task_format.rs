@@ -69,6 +69,28 @@ pub(crate) fn format_task_row_summary(task: &Task) -> String {
     parts.join(" · ")
 }
 
+pub(crate) fn format_deleted_summary(deleted_at_ms: i64) -> String {
+    let Ok(date_time) = gtk::glib::DateTime::from_unix_local(deleted_at_ms / 1000) else {
+        return "Deleted".to_owned();
+    };
+    if let Ok(now) = gtk::glib::DateTime::now_local() {
+        if same_local_day(&date_time, &now) {
+            return "Deleted today".to_owned();
+        }
+        if now
+            .add_days(-1)
+            .map(|yesterday| same_local_day(&date_time, &yesterday))
+            .unwrap_or(false)
+        {
+            return "Deleted yesterday".to_owned();
+        }
+    }
+    date_time
+        .format("Deleted %b %d, %Y")
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "Deleted".to_owned())
+}
+
 pub(crate) fn format_due_date(due_at_ms: i64) -> String {
     let Ok(date_time) = gtk::glib::DateTime::from_unix_local(due_at_ms / 1000) else {
         return "unknown".to_owned();
@@ -119,6 +141,7 @@ pub(crate) fn sidebar_filter_title(filter: TaskFilterState) -> &'static str {
         TaskFilterState::Upcoming => "Upcoming",
         TaskFilterState::NoDueDate => "Anytime",
         TaskFilterState::Done => "Done",
+        TaskFilterState::RecentlyDeleted => "Recently Deleted",
     }
 }
 
@@ -129,6 +152,7 @@ pub(crate) fn sidebar_filter_icon(filter: TaskFilterState) -> &'static str {
         TaskFilterState::Upcoming => "\u{f073}",
         TaskFilterState::NoDueDate => "\u{f5fd}",
         TaskFilterState::Done => "\u{f058}",
+        TaskFilterState::RecentlyDeleted => "\u{f1f8}",
     }
 }
 
@@ -139,6 +163,7 @@ pub(crate) fn sidebar_filter_icon_class(filter: TaskFilterState) -> &'static str
         TaskFilterState::Upcoming => "sidebar-icon-upcoming",
         TaskFilterState::NoDueDate => "sidebar-icon-anytime",
         TaskFilterState::Done => "sidebar-icon-done",
+        TaskFilterState::RecentlyDeleted => "sidebar-icon-deleted",
     }
 }
 

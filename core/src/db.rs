@@ -196,6 +196,15 @@ impl LocalDatabase {
         self.upsert_task(&task)
     }
 
+    pub fn restore_task(&self, task_id: Uuid) -> CoreResult<Task> {
+        let mut task = self.get_task(task_id)?;
+        task.deleted = false;
+        task.dirty = true;
+        task.updated_at = now_ms().max(task.updated_at + 1);
+        self.upsert_task(&task)?;
+        Ok(task)
+    }
+
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
         let mut sql = String::from(
             "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty FROM tasks WHERE id != ?",
@@ -1189,6 +1198,32 @@ mod tests {
         assert!(deleted.deleted);
         assert!(deleted.dirty);
         assert!(deleted.updated_at > task.updated_at);
+    }
+
+    #[test]
+    fn restore_task_clears_tombstone_and_marks_dirty() {
+        let database = db();
+        let task = create_named(&database, "restore", "body", None);
+        database.delete_task(task.id).unwrap();
+        let deleted = database.get_task(task.id).unwrap();
+
+        let restored = database.restore_task(task.id).unwrap();
+
+        assert!(!restored.deleted);
+        assert!(restored.dirty);
+        assert!(restored.updated_at > deleted.updated_at);
+        assert_eq!(restored.title, "restore");
+
+        let reloaded = database.get_task(task.id).unwrap();
+        assert!(!reloaded.deleted);
+
+        let default_list = database
+            .list_tasks(TaskFilter::default(), TaskSort::CreatedAtAsc)
+            .unwrap();
+        assert_eq!(
+            default_list.iter().map(|task| task.id).collect::<Vec<_>>(),
+            vec![task.id]
+        );
     }
 
     #[test]

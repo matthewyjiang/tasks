@@ -89,6 +89,7 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
         .sidebar-icon-upcoming { color: #0a84ff; }
         .sidebar-icon-anytime { color: #8e8e93; }
         .sidebar-icon-done { color: #30d158; }
+        .sidebar-icon-deleted { color: #ff453a; }
         .sidebar-count {
             color: @dim_label_color;
             font-size: 12px;

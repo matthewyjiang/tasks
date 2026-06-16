@@ -30,6 +30,7 @@ impl AppState {
                 label.set_visible(false);
             }
         }
+
         self.render_user_lists(&tasks);
     }
 

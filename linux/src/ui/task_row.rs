@@ -5,7 +5,7 @@ use gtk4 as gtk;
 use taskmanager_core::{Task, TaskStatus};
 use uuid::Uuid;
 
-use crate::task_format::format_task_row_summary;
+use crate::task_format::{format_deleted_summary, format_task_row_summary};
 use crate::ui::layout::TASK_ACTION_POPOVER_WIDTH;
 use crate::ui::widgets::font_awesome_label;
 
@@ -17,7 +17,8 @@ pub(crate) struct TaskRowActions {
     pub(crate) move_task: Rc<dyn Fn(Uuid, gtk::Button)>,
     pub(crate) shared_state_summary: Rc<dyn Fn(Uuid) -> Option<String>>,
     pub(crate) manage_sharing: Rc<dyn Fn(Uuid, gtk::Button)>,
-    pub(crate) delete_task: Rc<dyn Fn(Uuid)>,
+    pub(crate) delete_task: Rc<dyn Fn(Uuid, gtk::Button)>,
+    pub(crate) restore_task: Rc<dyn Fn(Uuid)>,
     pub(crate) finish_expand: Rc<dyn Fn(Uuid)>,
     pub(crate) finish_collapse: Rc<dyn Fn(Uuid)>,
     pub(crate) finish_delete_editor: Rc<dyn Fn(Uuid)>,
@@ -54,12 +55,21 @@ pub(crate) fn task_row(
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.add_css_class("task-row");
+    row.set_widget_name(&task.id.to_string());
+
+    if task.deleted {
+        row.add_css_class("task-row-deleted");
+        row.set_selectable(false);
+        row.set_activatable(false);
+        row.set_child(Some(&build_deleted_row(task, actions)));
+        return row;
+    }
+
     if expansion.is_editing() {
         row.add_css_class("task-row-expanded");
     }
     row.set_selectable(true);
     row.set_activatable(true);
-    row.set_widget_name(&task.id.to_string());
 
     let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
     container.set_margin_top(7);
@@ -557,9 +567,63 @@ fn delete_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {
     delete.connect_clicked({
         let delete_task = Rc::clone(&actions.delete_task);
         let task_id = task.id;
-        move |_| delete_task(task_id)
+        move |button| delete_task(task_id, button.clone())
     });
     delete
+}
+
+fn build_deleted_row(task: &Task, actions: &TaskRowActions) -> gtk::Box {
+    let container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    container.set_margin_top(7);
+    container.set_margin_bottom(7);
+    container.set_margin_start(14);
+    container.set_margin_end(14);
+
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    text.set_hexpand(true);
+    text.set_valign(gtk::Align::Center);
+
+    let title_text = if task.title.trim().is_empty() {
+        "(untitled task)"
+    } else {
+        task.title.as_str()
+    };
+    let title = gtk::Label::new(Some(title_text));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.add_css_class("task-title");
+
+    let summary = gtk::Label::new(Some(&format_deleted_summary(task.updated_at)));
+    summary.set_xalign(0.0);
+    summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    summary.add_css_class("task-summary");
+
+    text.append(&title);
+    text.append(&summary);
+    container.append(&text);
+    container.append(&restore_button(task, actions));
+    container
+}
+
+fn restore_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {
+    let restore = gtk::Button::new();
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    content.set_halign(gtk::Align::Center);
+    let icon = font_awesome_label("\u{f0e2}");
+    content.append(&icon);
+    content.append(&gtk::Label::new(Some("Restore")));
+    restore.set_child(Some(&content));
+    restore.add_css_class("flat");
+    restore.add_css_class("suggested-action");
+    restore.set_valign(gtk::Align::Center);
+    restore.set_tooltip_text(Some("Restore task"));
+    restore.connect_clicked({
+        let restore_task = Rc::clone(&actions.restore_task);
+        let task_id = task.id;
+        move |_| restore_task(task_id)
+    });
+    restore
 }
 
 fn connect_inline_autosave(

@@ -335,8 +335,9 @@ fn linux_remote_blob_from_wire(blob: LinuxPullWireBlob) -> Option<RemoteBlob> {
         .ok()?;
     Some(RemoteBlob {
         task_id: blob.task_id,
-        blob: Blob { ciphertext, nonce },
+        blob: Some(Blob { ciphertext, nonce }),
         updated_at: blob.updated_at,
+        deleted: false,
     })
 }
 

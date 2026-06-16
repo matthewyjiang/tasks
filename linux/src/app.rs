@@ -112,6 +112,7 @@ struct AppState {
     list_rename_button: gtk::Button,
     list_actions_button: gtk::MenuButton,
     filter_count_labels: Vec<gtk::Label>,
+    deleted_list: gtk::ListBox,
     user_lists: RefCell<Vec<TaskList>>,
     user_list_box: gtk::ListBox,
     empty_state: gtk::Box,
@@ -324,7 +325,11 @@ impl AppState {
             }),
             delete_task: Rc::new({
                 let state = Rc::clone(self);
-                move |task_id| state.delete_task_with_animation(task_id)
+                move |task_id, button| state.confirm_delete_task(task_id, &button)
+            }),
+            restore_task: Rc::new({
+                let state = Rc::clone(self);
+                move |task_id| state.restore_task(task_id)
             }),
             finish_expand: Rc::new({
                 let state = Rc::clone(self);
@@ -658,6 +663,35 @@ impl AppState {
         }
     }
 
+    fn confirm_delete_task(self: &Rc<Self>, task_id: Uuid, button: &gtk::Button) {
+        let popover = gtk::Popover::new();
+        attach_one_shot_popover(&popover, button);
+        popover.set_position(gtk::PositionType::Bottom);
+        popover.set_offset(0, 8);
+        popover.set_has_arrow(false);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        content.add_css_class("task-action-popover");
+        content.set_size_request(-1, -1);
+
+        let delete = gtk::Button::with_label("Delete");
+        delete.add_css_class("task-date-quick-button");
+        delete.add_css_class("destructive-action");
+        content.append(&delete);
+
+        delete.connect_clicked({
+            let state = Rc::clone(self);
+            let popover = popover.clone();
+            move |_| {
+                popover.popdown();
+                state.delete_task_with_animation(task_id);
+            }
+        });
+
+        popover.set_child(Some(&content));
+        popover.popup();
+    }
+
     fn delete_task_with_animation(self: &Rc<Self>, task_id: Uuid) {
         self.current_editing_task_id.replace(None);
         self.current_expanding_task_id.replace(None);
@@ -685,6 +719,30 @@ impl AppState {
         } else {
             self.cancel_task_notification(task_id);
             self.request_sync();
+            self.show_delete_undo_toast(task_id);
+        }
+        self.load_tasks();
+    }
+
+    fn show_delete_undo_toast(self: &Rc<Self>, task_id: Uuid) {
+        let toast = adw::Toast::new("Task deleted");
+        toast.set_button_label(Some("Undo"));
+        toast.set_timeout(6);
+        toast.connect_button_clicked({
+            let state = Rc::clone(self);
+            move |_| state.restore_task(task_id)
+        });
+        self.toast_overlay.add_toast(toast);
+    }
+
+    fn restore_task(self: &Rc<Self>, task_id: Uuid) {
+        match self.core.restore_task(task_id) {
+            Ok(task) => {
+                self.sync_task_notification(&task);
+                self.request_sync();
+                self.toast("Task restored".to_owned());
+            }
+            Err(error) => self.toast(format!("Failed to restore task: {error}")),
         }
         self.load_tasks();
     }
@@ -969,6 +1027,37 @@ fn build_ui(app: &adw::Application) {
     let sidebar_spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sidebar_spacer.set_vexpand(true);
     sidebar.append(&sidebar_spacer);
+
+    let deleted_list = gtk::ListBox::new();
+    deleted_list.add_css_class("sidebar-list");
+    deleted_list.set_selection_mode(gtk::SelectionMode::Single);
+    {
+        let filter = TaskFilterState::RecentlyDeleted;
+        let row = gtk::ListBoxRow::new();
+        row.add_css_class("sidebar-row");
+        row.set_widget_name(filter.label());
+
+        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        row_box.set_margin_top(8);
+        row_box.set_margin_bottom(8);
+        row_box.set_margin_start(10);
+        row_box.set_margin_end(10);
+
+        let icon = font_awesome_label(sidebar_filter_icon(filter));
+        icon.add_css_class("sidebar-icon");
+        icon.add_css_class(sidebar_filter_icon_class(filter));
+
+        let label = gtk::Label::new(Some(sidebar_filter_title(filter)));
+        label.set_xalign(0.0);
+        label.set_hexpand(true);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+
+        row_box.append(&icon);
+        row_box.append(&label);
+        row.set_child(Some(&row_box));
+        deleted_list.append(&row);
+    };
+    sidebar.append(&deleted_list);
 
     let sidebar_bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     sidebar_bottom_bar.add_css_class("sidebar-bottom-bar");
@@ -1258,6 +1347,7 @@ fn build_ui(app: &adw::Application) {
         list_rename_button,
         list_actions_button,
         filter_count_labels,
+        deleted_list,
         user_lists: RefCell::new(Vec::new()),
         user_list_box,
         empty_state,
@@ -1424,6 +1514,7 @@ fn build_ui(app: &adw::Application) {
         move || {
             state.selected_list_id.replace(None);
             state.active_filter.replace(TaskFilterState::Inbox);
+            state.deleted_list.unselect_all();
             if let Some(row) = filter_list.row_at_index(0) {
                 filter_list.select_row(Some(&row));
             }
@@ -1580,6 +1671,7 @@ fn build_ui(app: &adw::Application) {
                 _ => TaskFilterState::Inbox,
             };
             user_list_box.unselect_all();
+            state.deleted_list.unselect_all();
             if state.navigate_to_page(filter, None) {
                 state.request_sync();
             }
@@ -1591,9 +1683,21 @@ fn build_ui(app: &adw::Application) {
         move |_, row| {
             if let Ok(list_id) = Uuid::parse_str(&row.widget_name()) {
                 filter_list_for_user_rows.unselect_all();
+                state.deleted_list.unselect_all();
                 if state.navigate_to_page(TaskFilterState::Upcoming, Some(list_id)) {
                     state.request_sync();
                 }
+            }
+        }
+    });
+    state.deleted_list.connect_row_activated({
+        let state = Rc::clone(&state);
+        let filter_list_for_deleted = filter_list.clone();
+        move |_, _| {
+            filter_list_for_deleted.unselect_all();
+            state.user_list_box.unselect_all();
+            if state.navigate_to_page(TaskFilterState::RecentlyDeleted, None) {
+                state.request_sync();
             }
         }
     });

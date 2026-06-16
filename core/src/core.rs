@@ -79,6 +79,10 @@ impl TaskManagerCore {
         self.database.delete_task(task_id)
     }
 
+    pub fn restore_task(&self, task_id: Uuid) -> CoreResult<Task> {
+        self.database.restore_task(task_id)
+    }
+
     pub fn list_tasks(&self, filter: TaskFilter, sort: TaskSort) -> CoreResult<Vec<Task>> {
         self.database.list_tasks(filter, sort)
     }
@@ -314,6 +318,10 @@ mod tests {
 
         core.delete_task(created.id).unwrap();
         assert!(core.get_task(created.id).unwrap().deleted);
+
+        let restored = core.restore_task(created.id).unwrap();
+        assert!(!restored.deleted);
+        assert!(!core.get_task(created.id).unwrap().deleted);
     }
 
     #[test]
