@@ -43,7 +43,7 @@ Interface tests to add before leaving this milestone:
 - [x] `--profile`, `--config`, `--db`, `--server`, and `--offline` resolve into `CliContext` correctly.
 - [x] CLI errors serialize to the stable JSON error shape when JSON output is selected.
 - [x] Exit-code mapping covers input, DB/key-store, crypto, network, conflict, and unsupported-platform errors.
-- [ ] CI workflow syntax validates.
+- [x] CI workflow YAML syntax validates locally.
 - [x] Release workflow dry-run includes `cli` without affecting `server`, `core`, or `app` artifacts.
 
 ## Milestone 2: Output contract and test harness utilities
@@ -74,7 +74,7 @@ Provide the desktop/headless `Platform` implementation required by `core`.
 
 TODO:
 
-- [ ] Implement OS key-store selection for supported desktop platforms.
+- [x] Implement OS key-store selection for supported desktop platforms through the native `keyring` backend.
 - [x] Implement explicit insecure file-backed key store selected only by `TASKMANAGER_INSECURE_KEY_DIR` or a test-only flag.
 - [x] Implement `store_key`, `load_key`, and `delete_key`.
 - [x] Implement headless reminder persistence for `schedule_notification` and `cancel_notification`.
@@ -125,8 +125,9 @@ Add bootstrap and device-pairing command coverage.
 TODO:
 
 - [x] Add `account init`.
-- [ ] Add `auth login`, `auth refresh`, and `auth logout`.
-  - Note: `auth login` and `auth logout` are implemented for local token storage; `auth refresh` remains blocked until server auth is wired.
+- [x] Add `auth login` and `auth logout`.
+- [ ] Add `auth refresh`.
+  - Note: `auth refresh` remains blocked until server auth is wired.
 - [x] Add `device init-keypair`.
 - [ ] Add `device register`.
   - Note: blocked until server auth/device directory commands are wired.
@@ -265,7 +266,7 @@ TODO:
 - [x] Add generated shell completions for bash, zsh, fish, and PowerShell.
 - [x] Add man page or markdown command reference generated from `clap`.
 - [ ] Add install/archive steps to release workflow if binary artifacts are desired.
-- [ ] Confirm artifact-prefixed tags use only `cli-vX.Y.Z` for CLI releases.
+- [x] Confirm artifact-prefixed tags use only `cli-vX.Y.Z` for CLI releases.
 
 Tests/checks to add before leaving this milestone:
 

@@ -2,7 +2,7 @@
 
 Branch: `issue-92-ios-phase2-offline-ui`
 
-Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 4**.
+Rule for this branch: implement and validate **one phase at a time**. Current active phase: **Phase 5**.
 
 SwiftUI rule: keep the iOS app on intended native SwiftUI containers/modifiers first (`NavigationStack`, `NavigationSplitView`, `List`, `Form`, `.searchable`, toolbars, selection bindings). Avoid custom geometry, fixed-width panes, safe-area compensations, or gesture/state workarounds unless a native approach has been ruled out and the reason is documented.
 
@@ -63,16 +63,16 @@ Implemented on `ios-phase4-sync-auth-92`.
 
 ## Phase 5: Background sync and polish
 
-Not started. Do not begin until Phase 4 is complete.
+In progress on top of the completed Phase 4 sync/auth implementation.
 
-- [ ] Register background refresh.
-- [ ] Reconcile notifications after background/foreground sync once reminder semantics exist.
-- [ ] Add iPad adaptive layout polish.
+- [x] Register background refresh.
+- [x] Reconcile notifications after background/foreground sync once reminder semantics exist.
+- [x] Add iPad adaptive layout polish using native compact `NavigationStack` and regular-width `NavigationSplitView`.
 - [ ] Evaluate a native three-column iPad split view for sidebar, task list, and task detail once Phase 4 sync flows are stable.
 - [ ] Add UI smoke tests or snapshot-style checks for iPad sidebar/task-list geometry to catch regressions in split-view layout.
 - [ ] Add accessibility pass.
-- [ ] Add README and development checks.
-- [ ] Document Linux API reuse opportunities.
+- [x] Add README and development checks.
+- [x] Document Linux/shared-core API reuse opportunities.
 
 ## Validation notes
 
