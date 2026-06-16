@@ -1,5 +1,9 @@
 # Changelog
 
+## linux-app-v0.6.0 - 2026-06-16
+
+- feat(ios): add foreground sync auth seam (#126) (d0cc342)
+
 ## core-v0.18.0 - 2026-06-16
 
 - feat(ios): add foreground sync auth seam (#126) (d0cc342)
