@@ -1,5 +1,10 @@
 # Changelog
 
+## core-v0.18.0 - 2026-06-16
+
+- feat(ios): add foreground sync auth seam (#126) (d0cc342)
+- feat(ios-app): schedule reminders from core semantics (#124) (efe8040)
+
 ## core-v0.17.1 - 2026-06-15
 
 - fix: address reminder review follow-ups (#119) (b06df7b)
