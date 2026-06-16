@@ -14,11 +14,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/argon2"
 )
 
-var ErrInvalidCredentials = errors.New("invalid credentials")
+var (
+	ErrInvalidCredentials     = errors.New("invalid credentials")
+	ErrInvalidRegistration    = errors.New("email, password, and pub_key are required")
+	ErrEmailAlreadyRegistered = errors.New("email already registered")
+)
 
 type Service struct {
 	DB              *pgxpool.Pool
@@ -37,7 +42,7 @@ type TokenPair struct {
 func (s Service) Register(ctx context.Context, email, password string, pubKey []byte) (TokenPair, error) {
 	email = normalizeEmail(email)
 	if email == "" || password == "" || len(pubKey) == 0 {
-		return TokenPair{}, fmt.Errorf("email, password, and pub_key are required")
+		return TokenPair{}, ErrInvalidRegistration
 	}
 	passwordHash, err := HashPassword(password)
 	if err != nil {
@@ -52,6 +57,9 @@ func (s Service) Register(ctx context.Context, email, password string, pubKey []
 
 	var userID uuid.UUID
 	if err := tx.QueryRow(ctx, `INSERT INTO users (email, password_h) VALUES ($1, $2) RETURNING id`, email, passwordHash).Scan(&userID); err != nil {
+		if isUniqueViolation(err) {
+			return TokenPair{}, ErrEmailAlreadyRegistered
+		}
 		return TokenPair{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO devices (user_id, pub_key) VALUES ($1, $2)`, userID, pubKey); err != nil {
@@ -154,6 +162,11 @@ func (s Service) AccessToken(userID uuid.UUID) (string, error) {
 }
 
 func normalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
 
 func randomToken(n int) (string, error) {
 	b := make([]byte, n)

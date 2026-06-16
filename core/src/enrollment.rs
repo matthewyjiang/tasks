@@ -1,3 +1,4 @@
+use crate::auth::{clear_enrollment_pending, AUTH_ENROLLMENT_PENDING_ID};
 use crate::crypto::{public_key_from_private_key, unwrap_data_key, wrap_data_key};
 use crate::error::{CoreError, CoreResult, PlatformError};
 use crate::platform::{Platform, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID};
@@ -22,15 +23,19 @@ pub fn existing_account_enrollment_state(platform: &dyn Platform) -> EnrollmentS
         platform.load_key(DEVICE_PRIVATE_KEY_ID),
         platform.load_key(ACCOUNT_DATA_KEY_ID),
     ) {
-        (Ok(_), Ok(_)) => EnrollmentState::SyncReady,
-        (Ok(_), Err(_)) => EnrollmentState::ExistingAccountPending,
+        (Ok(_), Ok(_)) if platform.load_key(AUTH_ENROLLMENT_PENDING_ID).is_err() => {
+            EnrollmentState::SyncReady
+        }
+        (Ok(_), _) => EnrollmentState::ExistingAccountPending,
         (Err(_), _) => EnrollmentState::LocalOnlyReady,
     }
 }
 
 pub fn begin_existing_account_enrollment(platform: &dyn Platform) -> CoreResult<EnrollmentState> {
     platform.load_key(DEVICE_PRIVATE_KEY_ID)?;
-    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok() {
+    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok()
+        && platform.load_key(AUTH_ENROLLMENT_PENDING_ID).is_err()
+    {
         Ok(EnrollmentState::SyncReady)
     } else {
         Ok(EnrollmentState::ExistingAccountPending)
@@ -59,12 +64,13 @@ pub fn accept_wrapped_account_data_key_payload(
     payload: &WrappedAccountDataKeyPayload,
 ) -> CoreResult<EnrollmentState> {
     match platform.load_key(ACCOUNT_DATA_KEY_ID) {
-        Ok(_) => {
+        Ok(_) if platform.load_key(AUTH_ENROLLMENT_PENDING_ID).is_err() => {
             return Err(PlatformError::OperationFailed(
                 "account data key already exists; refusing to replace it".to_owned(),
             )
             .into());
         }
+        Ok(_) => {}
         Err(CoreError::Platform(PlatformError::KeyNotFound(_))) => {}
         Err(error) => return Err(error),
     }
@@ -82,6 +88,7 @@ pub fn accept_wrapped_account_data_key_payload(
         &recipient_private_key,
     )?;
     platform.store_key(ACCOUNT_DATA_KEY_ID, &account_data_key)?;
+    clear_enrollment_pending(platform)?;
     Ok(EnrollmentState::SyncReady)
 }
 
@@ -153,6 +160,44 @@ mod tests {
             platform.load_key(ACCOUNT_DATA_KEY_ID).unwrap(),
             existing_account_data_key.to_vec()
         );
+    }
+
+    #[test]
+    fn accepting_wrapped_payload_can_replace_local_key_only_when_enrollment_is_pending() {
+        let sender = generate_device_keypair();
+        let recipient = generate_device_keypair();
+        let local_bootstrap_key = generate_data_key();
+        let wrapped_account_data_key = generate_data_key();
+        let payload = create_wrapped_account_data_key_payload(
+            &wrapped_account_data_key,
+            &recipient.public_key,
+            &sender.private_key,
+        )
+        .unwrap();
+        let platform = MockPlatform::new();
+        platform
+            .store_key(DEVICE_PRIVATE_KEY_ID, &recipient.private_key)
+            .unwrap();
+        platform
+            .store_key(ACCOUNT_DATA_KEY_ID, &local_bootstrap_key)
+            .unwrap();
+        platform
+            .store_key(AUTH_ENROLLMENT_PENDING_ID, b"true")
+            .unwrap();
+
+        assert_eq!(
+            existing_account_enrollment_state(&platform),
+            EnrollmentState::ExistingAccountPending
+        );
+        assert_eq!(
+            accept_wrapped_account_data_key_payload(&platform, &payload).unwrap(),
+            EnrollmentState::SyncReady
+        );
+        assert_eq!(
+            platform.load_key(ACCOUNT_DATA_KEY_ID).unwrap(),
+            wrapped_account_data_key.to_vec()
+        );
+        assert!(platform.load_key(AUTH_ENROLLMENT_PENDING_ID).is_err());
     }
 
     #[test]

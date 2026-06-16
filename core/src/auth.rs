@@ -6,6 +6,7 @@ pub const AUTH_ACCESS_TOKEN_ID: &str = "auth_access_token";
 pub const AUTH_REFRESH_TOKEN_ID: &str = "auth_refresh_token";
 pub const AUTH_SYNC_ORIGIN_ID: &str = "auth_sync_origin";
 pub const AUTH_ACCOUNT_ID_ID: &str = "auth_account_id";
+pub const AUTH_ENROLLMENT_PENDING_ID: &str = "auth_enrollment_pending";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthCredentials {
@@ -135,7 +136,9 @@ pub fn sync_auth_state(platform: &dyn Platform, server_url: &str) -> SyncAuthSta
     {
         return SyncAuthState::AuthRequired;
     }
-    if platform.load_key(ACCOUNT_DATA_KEY_ID).is_err() {
+    if platform.load_key(AUTH_ENROLLMENT_PENDING_ID).is_ok()
+        || platform.load_key(ACCOUNT_DATA_KEY_ID).is_err()
+    {
         return SyncAuthState::AuthenticatedEnrollmentPending;
     }
     SyncAuthState::SyncReady
@@ -167,7 +170,7 @@ pub fn configure_sync_auth(
     let mut registered_new_account = true;
     let tokens = match auth_client.register(&server_url, register) {
         Ok(tokens) => tokens,
-        Err(_) => {
+        Err(error) if register_error_allows_login_fallback(&error) => {
             registered_new_account = false;
             let tokens = auth_client.login(
                 &server_url,
@@ -186,12 +189,18 @@ pub fn configure_sync_auth(
             )?;
             tokens
         }
+        Err(error) => return Err(error),
     };
 
     store_tokens(platform, &tokens)?;
     platform.store_key(AUTH_SYNC_ORIGIN_ID, sync_origin.as_bytes())?;
     if let Some(account_id) = &tokens.user_id {
         platform.store_key(AUTH_ACCOUNT_ID_ID, account_id.as_bytes())?;
+    }
+    if registered_new_account {
+        let _ = platform.delete_key(AUTH_ENROLLMENT_PENDING_ID);
+    } else {
+        platform.store_key(AUTH_ENROLLMENT_PENDING_ID, b"true")?;
     }
 
     Ok(ConfigureSyncAuthResult {
@@ -237,6 +246,12 @@ pub fn clear_sync_auth(platform: &dyn Platform) -> CoreResult<()> {
     platform.delete_key(AUTH_REFRESH_TOKEN_ID)?;
     let _ = platform.delete_key(AUTH_SYNC_ORIGIN_ID);
     let _ = platform.delete_key(AUTH_ACCOUNT_ID_ID);
+    let _ = platform.delete_key(AUTH_ENROLLMENT_PENDING_ID);
+    Ok(())
+}
+
+pub fn clear_enrollment_pending(platform: &dyn Platform) -> CoreResult<()> {
+    let _ = platform.delete_key(AUTH_ENROLLMENT_PENDING_ID);
     Ok(())
 }
 
@@ -260,6 +275,13 @@ fn load_utf8_key(platform: &dyn Platform, key_id: &str) -> CoreResult<String> {
     String::from_utf8(platform.load_key(key_id)?).map_err(|error| {
         PlatformError::OperationFailed(format!("stored {key_id} is not UTF-8: {error}")).into()
     })
+}
+
+fn register_error_allows_login_fallback(error: &CoreError) -> bool {
+    matches!(
+        error,
+        CoreError::Sync(crate::error::SyncError::ServerError { status: 409, .. })
+    )
 }
 
 fn config_error(message: &str) -> CoreError {
@@ -523,7 +545,12 @@ mod tests {
         let platform = MockPlatform::new();
         init_device_keypair(&platform).unwrap();
         let client = FakeAuthClient::default();
-        *client.register_response.lock().unwrap() = Some(Err(config_error("already exists")));
+        *client.register_response.lock().unwrap() =
+            Some(Err(crate::error::SyncError::ServerError {
+                status: 409,
+                body: "already exists".to_owned(),
+            }
+            .into()));
         let result = configure_sync_auth(
             &platform,
             &client,
@@ -549,7 +576,12 @@ mod tests {
         let platform = MockPlatform::new();
         init_account(&platform).unwrap();
         let client = FakeAuthClient::default();
-        *client.register_response.lock().unwrap() = Some(Err(config_error("already exists")));
+        *client.register_response.lock().unwrap() =
+            Some(Err(crate::error::SyncError::ServerError {
+                status: 409,
+                body: "already exists".to_owned(),
+            }
+            .into()));
 
         let result = configure_sync_auth(
             &platform,
@@ -564,6 +596,43 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.state, SyncAuthState::AuthenticatedEnrollmentPending);
+        assert_eq!(
+            sync_auth_state(&platform, "https://example.com"),
+            SyncAuthState::AuthenticatedEnrollmentPending
+        );
+        assert!(!sync_auth_configured(&platform, "https://example.com"));
+    }
+
+    #[test]
+    fn register_non_conflict_error_does_not_attempt_login_fallback() {
+        let platform = MockPlatform::new();
+        init_account(&platform).unwrap();
+        let client = FakeAuthClient::default();
+        *client.register_response.lock().unwrap() =
+            Some(Err(crate::error::SyncError::ServerError {
+                status: 500,
+                body: "oops".to_owned(),
+            }
+            .into()));
+
+        let error = configure_sync_auth(
+            &platform,
+            &client,
+            "https://example.com",
+            AuthCredentials {
+                email: "me@example.com".to_owned(),
+                password: "secret".to_owned(),
+            },
+            "public-key".to_owned(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            CoreError::Sync(crate::error::SyncError::ServerError { status: 500, .. })
+        ));
+        assert_eq!(*client.registered_device_key.lock().unwrap(), None);
+        assert!(platform.load_key(AUTH_ACCESS_TOKEN_ID).is_err());
     }
 
     #[test]

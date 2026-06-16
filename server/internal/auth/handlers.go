@@ -44,7 +44,15 @@ func (h Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	pair, err := h.Service.Register(r.Context(), req.Email, req.Password, pubKey)
 	if err != nil {
-		respond.Error(w, http.StatusBadRequest, err.Error())
+		status := http.StatusInternalServerError
+		msg := "internal error"
+		switch {
+		case errors.Is(err, ErrEmailAlreadyRegistered):
+			status, msg = http.StatusConflict, "email already registered"
+		case errors.Is(err, ErrInvalidRegistration):
+			status, msg = http.StatusBadRequest, err.Error()
+		}
+		respond.Error(w, status, msg)
 		return
 	}
 	respond.JSON(w, http.StatusCreated, tokenResponse{JWT: pair.AccessToken, RefreshToken: pair.RefreshToken, UserID: pair.UserID.String()})
