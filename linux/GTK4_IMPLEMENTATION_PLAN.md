@@ -59,13 +59,13 @@ Keep the GUI binary as `tsk-gui` for now because the existing CLI already uses `
 - [x] Initial settings JSON helpers and onboarding detection helper added.
 - [x] Component placeholder modules added for later extraction.
 - [x] Onboarding detection and local account initialization wired into startup.
-- [ ] Add due date editor.
-- [ ] Add full settings dialog.
-- [ ] Add sync facade/client/UI.
+- [x] Add due date editor.
+- [x] Add settings panel for sync/account, appearance, and keybindings.
+- [x] Add sync facade/client/UI.
 - [ ] Add Flatpak packaging.
 - [x] Validation completed for the initial GTK4 offline CRUD implementation.
 - [x] Linux app PR and release process documented.
-- [ ] Create PR to `main`.
+- [x] Create PR to `main` / land Linux work on `main`.
 
 ## Recommended stack
 

@@ -139,7 +139,7 @@ pub struct Task {
     pub dirty:      bool,           // true = not yet synced to server
 }
 
-pub enum TaskStatus { Inbox, InProgress, Done }
+pub enum TaskStatus { Open, Done }
 
 pub struct Blob {
     pub ciphertext: Vec<u8>,
@@ -514,7 +514,7 @@ CREATE TABLE plaintext_settings (
 
 ## 7. Rust CLI
 
-The project includes a first-party Rust command-line application, `taskmanager`, built on top of the same `core/` crate as the GUI shells. The CLI is not a reduced admin tool: it must expose every user-facing and integration-facing capability of the core library so it can be used as a complete terminal client and as an autonomous end-to-end test driver for the core ⇄ server pipeline.
+The project includes a first-party Rust command-line application, `tsk`, built on top of the same `core/` crate as the GUI shells. The CLI is not a reduced admin tool: it must expose every user-facing and integration-facing capability of the core library so it can be used as a complete terminal client and as an autonomous end-to-end test driver for the core ⇄ server pipeline.
 
 ### 7.1 Goals
 
@@ -527,7 +527,7 @@ The project includes a first-party Rust command-line application, `taskmanager`,
 
 ### 7.2 Binary and configuration
 
-**Binary:** `taskmanager`
+**Binary:** `tsk`
 
 Global flags:
 
@@ -773,7 +773,8 @@ Server migrations live in `server/migrations/` as numbered SQL files:
 server/migrations/
 ├── 001_init.sql
 ├── 002_add_settings.sql
-└── 003_add_shared_blobs.sql
+├── 003_add_shared_blobs.sql
+└── 004_secure_shared_blobs_ownership.sql
 ```
 
 Rules:
@@ -801,9 +802,9 @@ Any change to `core/` triggers all downstream platform builds. This is intention
 
 - **Tombstone window:** 30-day tombstone retention may be too short for infrequent users. Consider extending to 90 days or making it configurable.
 - **Account key rotation on device loss:** If a device is lost, its keychain copy of the account `data_key` is potentially exposed. Rotating the account `data_key` means re-encrypting every blob under a new key and re-wrapping it for all remaining devices — non-trivial and not yet specified. (Per-task revocation in §2.6 is solved; whole-account rotation is not.)
-- **Shared-task model overhead:** Tasks switch from the account `data_key` to a per-task `task_key` when first shared (§2.6). The client must track which key encrypts which blob. Consider storing a `key_id` reference per task locally so the right key is selected on decrypt.
+- **Shared-task key lookup:** Tasks switch from the account `data_key` to a per-task `task_key` when first shared (§2.6). Core now tracks shared-task state locally; revisit whether an explicit `key_id` reference is needed if multiple shared-key generations or richer collaboration semantics are added.
 - **Conflict resolution:** Last-write-wins on the payload `updated_at` is the default. Per-field merge (e.g. preserve the longer body) is possible but adds complexity; worth revisiting when collaborative editing is needed.
-- **Blob size limit:** No limit defined. A task with large attachments could produce a very large blob. Consider a per-blob size cap (e.g. 1 MB) and a separate attachment storage path.
+- **Blob size and attachments:** The server enforces request/blob size caps, but large attachments are not specified. Consider a separate encrypted attachment storage path before supporting attachments.
 - **Account deletion:** Cascading delete on `users` will remove all blobs. Define a grace period and export mechanism before shipping.
 - **Key substitution defense:** The key directory could serve a malicious public key (§ key directory). A device-signed identity key with client-side verification (Signal-style key transparency) would close this; acceptable to defer for v1 against a non-adversarial server.
 
