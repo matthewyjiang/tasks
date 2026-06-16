@@ -164,9 +164,11 @@ pub fn configure_sync_auth(
         password: credentials.password.clone(),
         pub_key: register_public_key_base64.clone(),
     };
+    let mut registered_new_account = true;
     let tokens = match auth_client.register(&server_url, register) {
         Ok(tokens) => tokens,
         Err(_) => {
+            registered_new_account = false;
             let tokens = auth_client.login(
                 &server_url,
                 LoginRequest {
@@ -196,7 +198,7 @@ pub fn configure_sync_auth(
         server_url,
         sync_origin,
         account_id: tokens.user_id,
-        state: if platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok() {
+        state: if registered_new_account && platform.load_key(ACCOUNT_DATA_KEY_ID).is_ok() {
             SyncAuthState::SyncReady
         } else {
             SyncAuthState::AuthenticatedEnrollmentPending
@@ -540,6 +542,28 @@ mod tests {
         );
         assert!(platform.load_key(ACCOUNT_DATA_KEY_ID).is_err());
         assert!(!sync_auth_configured(&platform, "https://example.com"));
+    }
+
+    #[test]
+    fn login_fallback_keeps_enrollment_pending_even_when_local_bootstrap_key_exists() {
+        let platform = MockPlatform::new();
+        init_account(&platform).unwrap();
+        let client = FakeAuthClient::default();
+        *client.register_response.lock().unwrap() = Some(Err(config_error("already exists")));
+
+        let result = configure_sync_auth(
+            &platform,
+            &client,
+            "https://example.com",
+            AuthCredentials {
+                email: "me@example.com".to_owned(),
+                password: "secret".to_owned(),
+            },
+            "public-key".to_owned(),
+        )
+        .unwrap();
+
+        assert_eq!(result.state, SyncAuthState::AuthenticatedEnrollmentPending);
     }
 
     #[test]

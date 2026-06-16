@@ -1765,15 +1765,17 @@ public func FfiConverterTypeFfiRegisterRequest_lower(_ value: FfiRegisterRequest
 
 public struct FfiRemoteBlob: Equatable, Hashable {
     public var taskId: String
-    public var blob: FfiBlob
+    public var blob: FfiBlob?
     public var updatedAt: Int64
+    public var deleted: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(taskId: String, blob: FfiBlob, updatedAt: Int64) {
+    public init(taskId: String, blob: FfiBlob?, updatedAt: Int64, deleted: Bool) {
         self.taskId = taskId
         self.blob = blob
         self.updatedAt = updatedAt
+        self.deleted = deleted
     }
 
     
@@ -1793,15 +1795,17 @@ public struct FfiConverterTypeFfiRemoteBlob: FfiConverterRustBuffer {
         return
             try FfiRemoteBlob(
                 taskId: FfiConverterString.read(from: &buf), 
-                blob: FfiConverterTypeFfiBlob.read(from: &buf), 
-                updatedAt: FfiConverterInt64.read(from: &buf)
+                blob: FfiConverterOptionTypeFfiBlob.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf), 
+                deleted: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiRemoteBlob, into buf: inout [UInt8]) {
         FfiConverterString.write(value.taskId, into: &buf)
-        FfiConverterTypeFfiBlob.write(value.blob, into: &buf)
+        FfiConverterOptionTypeFfiBlob.write(value.blob, into: &buf)
         FfiConverterInt64.write(value.updatedAt, into: &buf)
+        FfiConverterBool.write(value.deleted, into: &buf)
     }
 }
 
@@ -4290,6 +4294,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiBlob: FfiConverterRustBuffer {
+    typealias SwiftType = FfiBlob?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiBlob.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiBlob.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }

@@ -77,7 +77,8 @@ public actor CoreTaskRepository: TaskRepository {
 
     public func syncSummary() async throws -> SyncSummary {
         if let syncCoordinator {
-            return try await syncCoordinator.syncSummary(core: core, isOnline: true)
+            let isOnline = await syncCoordinator.networkAvailable()
+            return try await syncCoordinator.syncSummary(core: core, isOnline: isOnline)
         }
         let status = try core.syncStatus()
         return SyncSummary(dirtyCount: status.dirtyCount, retryQueueDepth: status.retryQueueDepth, conflictCount: 0, cursor: status.cursor, isOnline: true)

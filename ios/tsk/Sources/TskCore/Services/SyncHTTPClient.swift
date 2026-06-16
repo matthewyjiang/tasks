@@ -170,8 +170,10 @@ public final class SyncHTTPBlobClient: FfiSyncClient, @unchecked Sendable {
 
     public func pullBlobs(since: Int64) throws -> FfiPullResponse {
         let response: PullWireResponse = try send(method: "GET", path: "/blobs", queryItems: [URLQueryItem(name: "since", value: String(since))], body: Optional<EmptyRequest>.none, response: PullWireResponse.self)
-        let blobs = try response.blobs.compactMap { wire -> FfiRemoteBlob? in
-            if wire.deleted { return nil }
+        let blobs = try response.blobs.map { wire -> FfiRemoteBlob in
+            if wire.deleted {
+                return FfiRemoteBlob(taskId: wire.task_id, blob: nil, updatedAt: wire.updated_at, deleted: true)
+            }
             guard
                 let ciphertext = wire.ciphertext,
                 let nonce = wire.nonce,
@@ -180,7 +182,7 @@ public final class SyncHTTPBlobClient: FfiSyncClient, @unchecked Sendable {
             else {
                 throw FfiCoreError.SyncError(errorMessage: "malformed blob payload")
             }
-            return FfiRemoteBlob(taskId: wire.task_id, blob: FfiBlob(ciphertext: Array(ciphertextData), nonce: Array(nonceData)), updatedAt: wire.updated_at)
+            return FfiRemoteBlob(taskId: wire.task_id, blob: FfiBlob(ciphertext: Array(ciphertextData), nonce: Array(nonceData)), updatedAt: wire.updated_at, deleted: false)
         }
         return FfiPullResponse(blobs: blobs, cursor: response.cursor)
     }

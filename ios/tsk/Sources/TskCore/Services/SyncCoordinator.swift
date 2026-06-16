@@ -103,6 +103,10 @@ public actor SyncCoordinator {
         return SyncSummary(dirtyCount: status.dirtyCount, retryQueueDepth: status.retryQueueDepth, conflictCount: lastSyncFailedCount, cursor: status.cursor, isOnline: isOnline)
     }
 
+    public func networkAvailable() -> Bool {
+        platform.networkAvailable()
+    }
+
     private func runSync(core: FfiTaskManagerCore, dataKey: [UInt8]) throws -> FfiSyncResult {
         let token = try loadAccessToken()
         return try core.syncRun(networkAvailable: platform.networkAvailable(), client: syncClientFactory(serverURL, token), dataKey: dataKey)

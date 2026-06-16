@@ -257,8 +257,9 @@ pub struct FfiBlobPush {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FfiRemoteBlob {
     pub task_id: String,
-    pub blob: FfiBlob,
+    pub blob: Option<FfiBlob>,
     pub updated_at: i64,
+    pub deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1757,8 +1758,9 @@ impl TryFrom<FfiRemoteBlob> for RemoteBlob {
     fn try_from(blob: FfiRemoteBlob) -> Result<Self, Self::Error> {
         Ok(Self {
             task_id: parse_uuid(&blob.task_id)?,
-            blob: blob.blob.try_into()?,
+            blob: blob.blob.map(TryInto::try_into).transpose()?,
             updated_at: blob.updated_at,
+            deleted: blob.deleted,
         })
     }
 }

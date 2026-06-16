@@ -11,8 +11,9 @@ use crate::types::{Blob, SyncResult, Task};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteBlob {
     pub task_id: Uuid,
-    pub blob: Blob,
+    pub blob: Option<Blob>,
     pub updated_at: i64,
+    pub deleted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,8 +161,48 @@ pub fn sync_pull(
     let mut conflicts = 0;
 
     for remote in response.blobs {
+        if remote.deleted {
+            let remote_tombstone = match database.get_task(remote.task_id) {
+                Ok(mut local) => {
+                    local.deleted = true;
+                    local.dirty = false;
+                    local.updated_at = remote.updated_at;
+                    local
+                }
+                Err(_) => Task {
+                    id: remote.task_id,
+                    title: String::new(),
+                    body: String::new(),
+                    due_at: None,
+                    reminder_offset_ms: None,
+                    status: crate::types::TaskStatus::Open,
+                    project_id: None,
+                    tags: Vec::new(),
+                    created_at: remote.updated_at,
+                    updated_at: remote.updated_at,
+                    deleted: true,
+                    dirty: false,
+                },
+            };
+            let task_to_store = match database.get_task(remote.task_id) {
+                Ok(local) if local.dirty => {
+                    conflicts += 1;
+                    resolve_conflict(&local, &remote_tombstone)
+                }
+                Ok(local) => resolve_conflict(&local, &remote_tombstone),
+                Err(_) => remote_tombstone,
+            };
+            database.upsert_synced_task(&task_to_store)?;
+            pulled += 1;
+            continue;
+        }
+
+        let blob = remote.blob.ok_or_else(|| SyncError::ServerError {
+            status: 502,
+            body: "malformed pull response: missing blob payload".to_owned(),
+        })?;
         let encryption_key = database.task_encryption_key(remote.task_id, data_key)?;
-        let mut remote_task = decrypt_blob(&remote.blob, &encryption_key)?;
+        let mut remote_task = decrypt_blob(&blob, &encryption_key)?;
         remote_task.dirty = false;
 
         let task_to_store = match database.get_task(remote.task_id) {
@@ -571,8 +612,9 @@ mod tests {
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: local.id,
-                blob: encrypt_blob(&remote, &key).unwrap(),
+                blob: Some(encrypt_blob(&remote, &key).unwrap()),
                 updated_at: remote.updated_at,
+                deleted: false,
             }],
             cursor: 10,
         });
@@ -645,8 +687,9 @@ mod tests {
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: task.id,
-                blob: encrypt_blob(&task, &task_key).unwrap(),
+                blob: Some(encrypt_blob(&task, &task_key).unwrap()),
                 updated_at: task.updated_at,
+                deleted: false,
             }],
             cursor: 3,
         });
@@ -670,8 +713,9 @@ mod tests {
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: remote.id,
-                blob,
+                blob: Some(blob),
                 updated_at: remote.updated_at,
+                deleted: false,
             }],
             cursor: 55,
         });
@@ -684,17 +728,45 @@ mod tests {
     }
 
     #[test]
+    fn sync_pull_applies_remote_tombstones_before_advancing_cursor() {
+        let db = LocalDatabase::open_in_memory().unwrap();
+        let key = generate_data_key();
+        let local = db
+            .create_task("deleted elsewhere".to_owned(), "body".to_owned(), None)
+            .unwrap();
+        let client = FakeSyncClient::default();
+        *client.pull_response.borrow_mut() = Some(PullResponse {
+            blobs: vec![RemoteBlob {
+                task_id: local.id,
+                blob: None,
+                updated_at: local.updated_at + 1,
+                deleted: true,
+            }],
+            cursor: 56,
+        });
+
+        let result = sync_pull(&db, &client, &key).unwrap();
+
+        let stored = db.get_task(local.id).unwrap();
+        assert_eq!(result.pulled, 1);
+        assert!(stored.deleted);
+        assert!(!stored.dirty);
+        assert_eq!(db.last_pull_cursor().unwrap(), 56);
+    }
+
+    #[test]
     fn pull_decryption_failure_does_not_advance_cursor() {
         let db = LocalDatabase::open_in_memory().unwrap();
         let client = FakeSyncClient::default();
         *client.pull_response.borrow_mut() = Some(PullResponse {
             blobs: vec![RemoteBlob {
                 task_id: Uuid::new_v4(),
-                blob: Blob {
+                blob: Some(Blob {
                     ciphertext: vec![1, 2, 3],
                     nonce: [0; 12],
-                },
+                }),
                 updated_at: 1,
+                deleted: false,
             }],
             cursor: 55,
         });

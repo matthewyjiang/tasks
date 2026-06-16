@@ -184,8 +184,9 @@ dictionary FfiBlobPush {
 
 dictionary FfiRemoteBlob {
   string task_id;
-  FfiBlob blob;
+  FfiBlob? blob;
   i64 updated_at;
+  boolean deleted;
 };
 
 dictionary FfiPushResponse {
