@@ -586,8 +586,8 @@ impl SyncClient for HttpSyncClient {
             blobs: response
                 .blobs
                 .into_iter()
-                .filter_map(remote_blob_from_wire)
-                .collect(),
+                .map(remote_blob_from_wire)
+                .collect::<Result<Vec<_>, _>>()?,
             cursor: response.cursor,
         })
     }
@@ -654,22 +654,39 @@ struct PullWireBlob {
     deleted: bool,
 }
 
-fn remote_blob_from_wire(blob: PullWireBlob) -> Option<RemoteBlob> {
+fn remote_blob_from_wire(blob: PullWireBlob) -> taskmanager_core::CoreResult<RemoteBlob> {
     if blob.deleted {
-        return None;
+        return Ok(RemoteBlob {
+            task_id: blob.task_id,
+            blob: None,
+            updated_at: blob.updated_at,
+            deleted: true,
+        });
     }
-    let ciphertext = base64::engine::general_purpose::STANDARD
-        .decode(blob.ciphertext?)
-        .ok()?;
-    let nonce = base64::engine::general_purpose::STANDARD
-        .decode(blob.nonce?)
-        .ok()?
-        .try_into()
-        .ok()?;
-    Some(RemoteBlob {
+    let ciphertext = blob
+        .ciphertext
+        .and_then(|ciphertext| {
+            base64::engine::general_purpose::STANDARD
+                .decode(ciphertext)
+                .ok()
+        })
+        .ok_or_else(|| SyncError::ServerError {
+            status: 502,
+            body: "malformed blob payload".to_owned(),
+        })?;
+    let nonce = blob
+        .nonce
+        .and_then(|nonce| base64::engine::general_purpose::STANDARD.decode(nonce).ok())
+        .and_then(|nonce| nonce.try_into().ok())
+        .ok_or_else(|| SyncError::ServerError {
+            status: 502,
+            body: "malformed blob payload".to_owned(),
+        })?;
+    Ok(RemoteBlob {
         task_id: blob.task_id,
-        blob: Blob { ciphertext, nonce },
+        blob: Some(Blob { ciphertext, nonce }),
         updated_at: blob.updated_at,
+        deleted: false,
     })
 }
 
