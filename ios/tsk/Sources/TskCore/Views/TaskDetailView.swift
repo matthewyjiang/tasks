@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct TaskDetailView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     private let task: TaskItem
     @State private var draft: TaskItem
     @State private var hasDueDate: Bool
@@ -43,7 +44,11 @@ public struct TaskDetailView: View {
 
             Section {
                 Button("Delete Task", role: .destructive) {
-                    Task { await model.deleteTask(id: draft.id) }
+                    Task {
+                        if await model.deleteTask(id: draft.id) {
+                            dismiss()
+                        }
+                    }
                 }
             }
         }

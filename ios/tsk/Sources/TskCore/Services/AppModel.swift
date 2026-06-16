@@ -281,17 +281,25 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    public func deleteTask(id: UUID) async {
+    @discardableResult
+    public func deleteTask(id: UUID) async -> Bool {
         do {
             try await repository.deleteTask(id: id)
-            tasks.removeAll { $0.id == id }
-            if selectedTaskID == id { selectedTaskID = nil }
-            notificationScheduler?.cancelTaskNotification(taskID: id)
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+
+        tasks.removeAll { $0.id == id }
+        if selectedTaskID == id { selectedTaskID = nil }
+        notificationScheduler?.cancelTaskNotification(taskID: id)
+        do {
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+        return true
     }
 
     @discardableResult
