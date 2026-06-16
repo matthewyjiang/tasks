@@ -1,0 +1,63 @@
+name: ios
+
+on:
+  push:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate UniFFI bindings and XCFramework
+        run: ./ios/tsk/Scripts/generate-uniffi-bindings.sh > /tmp/ios-generate-uniffi.log 2>&1
+      - name: Run SwiftPM tests
+        run: swift test --package-path ios/tsk > /tmp/ios-swift-test.log 2>&1
+      - name: Build iOS app target
+        run: |
+          xcodebuild \
+            -project ios/tsk/tsk.xcodeproj \
+            -scheme tsk \
+            -destination 'generic/platform=iOS Simulator' \
+            build > /tmp/ios-xcodebuild.log 2>&1
+      - name: Print failure excerpts
+        if: failure()
+        run: |
+          for log in /tmp/ios-generate-uniffi.log /tmp/ios-swift-test.log /tmp/ios-xcodebuild.log; do
+            if [ -f "$log" ]; then
+              echo "::group::$(basename "$log")"
+              tail -n 200 "$log"
+              echo "::endgroup::"
+            fi
+          done
+      - name: Upload validation logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-validation-logs
+          path: |
+            /tmp/ios-generate-uniffi.log
+            /tmp/ios-swift-test.log
+            /tmp/ios-xcodebuild.log
+          if-no-files-found: ignore
