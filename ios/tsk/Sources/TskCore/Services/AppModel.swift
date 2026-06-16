@@ -78,7 +78,11 @@ public final class AppModel: ObservableObject {
     }
 
     public var canSyncNow: Bool {
-        syncAuthState == .syncReady && syncSummary.isOnline && !isSyncOperationInFlight
+        canScheduleBackgroundSync && !isSyncOperationInFlight
+    }
+
+    public var canScheduleBackgroundSync: Bool {
+        syncAuthState == .syncReady && syncSummary.isOnline
     }
 
     public func refreshSyncState() async {
@@ -116,10 +120,12 @@ public final class AppModel: ObservableObject {
             let result = try await syncCoordinator.configureSyncAuth(email: trimmedEmail, password: password)
             syncAuthState = result.state
             await refreshSyncState()
-            lastSyncStatusMessage = "Signed in."
+            lastSyncStatusMessage = syncAuthState == .syncReady
+                ? "Signed in and sync ready."
+                : "Signed in. Approve this device from another enrolled device to finish sync setup."
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
             await refreshSyncState()
         }
     }
@@ -133,7 +139,7 @@ public final class AppModel: ObservableObject {
             lastSyncStatusMessage = "Signed out."
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
         }
         await refreshSyncState()
     }
@@ -149,12 +155,26 @@ public final class AppModel: ObservableObject {
             lastSyncStatusMessage = "Account data key accepted."
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
             await refreshSyncState()
         }
     }
 
     public func syncNow() async {
+        _ = await runSync(updateUserVisibleErrors: true)
+    }
+
+    @discardableResult
+    public func backgroundSyncNow() async -> Bool {
+        if let syncCoordinator {
+            syncSummary.isOnline = await syncCoordinator.networkAvailable()
+        }
+        return await runSync(updateUserVisibleErrors: false)
+    }
+
+    @discardableResult
+    private func runSync(updateUserVisibleErrors: Bool) async -> Bool {
+        guard !isSyncOperationInFlight else { return false }
         isSyncOperationInFlight = true
         defer { isSyncOperationInFlight = false }
         do {
@@ -166,17 +186,24 @@ public final class AppModel: ObservableObject {
             let allLists = try await loadedLists
             tasks = allTasks.filter { !$0.deleted }
             lists = allLists.filter { !$0.deleted }
+            let notificationError = await reconcileNotifications(for: allTasks)
             lastSyncStatusMessage = "Sync completed."
-            errorMessage = nil
+            if updateUserVisibleErrors {
+                errorMessage = notificationError
+            }
             await refreshSyncState()
+            return notificationError == nil
         } catch {
             lastSyncStatusMessage = "Sync failed."
-            errorMessage = error.localizedDescription
+            if updateUserVisibleErrors {
+                errorMessage = Self.userFacingErrorDescription(error)
+            }
             if var summary = try? await repository.syncSummary() {
                 summary.isOnline = syncSummary.isOnline
                 syncSummary = summary
             }
             await refreshSyncState()
+            return false
         }
     }
 
@@ -207,7 +234,7 @@ public final class AppModel: ObservableObject {
             await refreshSyncState()
             errorMessage = notificationError
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
             await refreshSyncState()
         }
     }
@@ -242,7 +269,7 @@ public final class AppModel: ObservableObject {
             errorMessage = notificationError
             return task
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
             return nil
         }
     }
@@ -277,7 +304,7 @@ public final class AppModel: ObservableObject {
             syncSummary = try await repository.syncSummary()
             errorMessage = notificationError
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
         }
     }
 
@@ -286,7 +313,7 @@ public final class AppModel: ObservableObject {
         do {
             try await repository.deleteTask(id: id)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
             return false
         }
 
@@ -297,7 +324,7 @@ public final class AppModel: ObservableObject {
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
         }
         return true
     }
@@ -314,7 +341,7 @@ public final class AppModel: ObservableObject {
             errorMessage = nil
             return list
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
             return nil
         }
     }
@@ -332,7 +359,7 @@ public final class AppModel: ObservableObject {
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
         }
     }
 
@@ -349,7 +376,32 @@ public final class AppModel: ObservableObject {
             syncSummary = try await repository.syncSummary()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.userFacingErrorDescription(error)
+        }
+    }
+
+    private static func userFacingErrorDescription(_ error: Error) -> String {
+        switch error {
+        case let FfiCoreError.SyncError(message):
+            return message
+        case let FfiCoreError.PlatformError(message):
+            return message
+        case let FfiCoreError.DatabaseError(message):
+            return message
+        case let FfiCoreError.SettingsError(message):
+            return message
+        case let FfiCoreError.CryptoError(message):
+            return message
+        case let FfiCoreError.SerializationError(message):
+            return message
+        case let FfiCoreError.InvalidUuid(message):
+            return message
+        case let FfiCoreError.InvalidNonce(message):
+            return message
+        case let FfiCoreError.InvalidPatch(message):
+            return message
+        default:
+            return error.localizedDescription
         }
     }
 
@@ -409,7 +461,7 @@ public final class AppModel: ObservableObject {
             )
             return nil
         } catch {
-            return error.localizedDescription
+            return Self.userFacingErrorDescription(error)
         }
     }
 

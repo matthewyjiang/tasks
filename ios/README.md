@@ -2,7 +2,7 @@
 
 Native SwiftUI iOS client for `tsk`, backed by the shared Rust `taskmanager-core` through UniFFI.
 
-Current implementation scope covers Issue #92 Phase 4 sync/auth parity for foreground sync. Background sync and broader polish remain Phase 5 work and are intentionally not implemented here.
+Current implementation scope covers Issue #92 Phase 5 background sync foundations and polish on top of the Phase 4 foreground sync/auth implementation.
 
 ## Structure
 
@@ -91,6 +91,27 @@ Phase 4 adds foreground sync/auth parity through shared Rust core APIs and thin 
 - Expired access tokens trigger a shared-core refresh flow, store the rotated token pair, and retry the sync once.
 - Existing-account enrollment supports a basic manual wrapped account-data-key import path. Paste JSON with base64 `sender_public_key`, `recipient_public_key`, `ciphertext`, and `nonce`; the shared core unwraps and stores the account data key only if it is addressed to this device and no account data key already exists.
 - Settings and the sidebar surface online/offline state, auth/enrollment state, dirty count, retry queue depth, cursor, and the last failed/conflict count.
+
+## Implemented background sync and polish
+
+Phase 5 registers iOS background refresh at app launch using `BGAppRefreshTask` with the permitted identifier `com.matthewyjiang.tsk.refresh` and the `fetch` background mode in the app `Info.plist`. Background refresh is best-effort: the app schedules refreshes on launch and when entering the background, then runs the same shared-core sync path used by foreground sync when iOS grants execution time. Foreground launch/resume/manual sync remains authoritative because iOS can defer or skip background work.
+
+After foreground or background sync pulls task changes, the app reloads tasks/lists and reconciles local notifications through shared core reminder semantics, so changed/deleted synced tasks update or cancel their stable task-UUID notification requests.
+
+Polish added in this phase:
+
+- The Xcode app target now includes all Phase 4/5 Swift sources used by the runnable iOS app, not just SwiftPM tests.
+- Settings documents background refresh status alongside notification platform behavior.
+- Unit coverage verifies background scheduler registration/scheduling and that failed background sync does not replace the user's visible error state.
+- Xcode simulator builds cover the app bundle, custom `Info.plist` metadata/background configuration, and full source target membership.
+
+Manual Phase 5 validation:
+
+1. Build the app with `xcodebuild -project ios/tsk/tsk.xcodeproj -scheme tsk -destination 'generic/platform=iOS Simulator' build`.
+2. Launch the app, configure sync in Settings, and verify foreground **Sync Now** still succeeds.
+3. Background the app and verify a `BGAppRefreshTaskRequest` can be submitted without crashing. Device-level execution timing is controlled by iOS and is not guaranteed in Simulator.
+4. Change a task reminder on another device, sync, and verify the local notification request is updated or cancelled after the pull.
+5. Use Dynamic Type, dark mode, and VoiceOver rotor/navigation to smoke-test the native `NavigationStack`, `NavigationSplitView`, `List`, `Form`, labels, and row accessibility actions.
 
 Manual Phase 4 validation:
 

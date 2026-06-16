@@ -134,7 +134,7 @@ public final class SyncHTTPAuthClient: FfiAuthClient, @unchecked Sendable {
 
     private func decode<Response: Decodable>(_ response: SyncHTTPResponse, as type: Response.Type) throws -> Response {
         if response.statusCode == 401 { throw FfiCoreError.SyncError(errorMessage: "auth expired") }
-        guard (200..<300).contains(response.statusCode) else { throw FfiCoreError.SyncError(errorMessage: "server error \(response.statusCode)") }
+        guard (200..<300).contains(response.statusCode) else { throw FfiCoreError.SyncError(errorMessage: serverErrorMessage(response)) }
         if type == EmptyResponse.self { return EmptyResponse() as! Response }
         do { return try JSONDecoder().decode(type, from: response.body) } catch { throw FfiCoreError.SyncError(errorMessage: error.localizedDescription) }
     }
@@ -214,7 +214,7 @@ public final class SyncHTTPBlobClient: FfiSyncClient, @unchecked Sendable {
 
     private func decode<Response: Decodable>(_ response: SyncHTTPResponse, as type: Response.Type) throws -> Response {
         if response.statusCode == 401 { throw FfiCoreError.SyncError(errorMessage: "auth expired") }
-        guard (200..<300).contains(response.statusCode) else { throw FfiCoreError.SyncError(errorMessage: "server error \(response.statusCode)") }
+        guard (200..<300).contains(response.statusCode) else { throw FfiCoreError.SyncError(errorMessage: serverErrorMessage(response)) }
         if type == EmptyResponse.self { return EmptyResponse() as! Response }
         do { return try JSONDecoder().decode(type, from: response.body) } catch { throw FfiCoreError.SyncError(errorMessage: error.localizedDescription) }
     }
@@ -224,8 +224,22 @@ private func syncTransportError(_ error: Error) -> FfiCoreError {
     FfiCoreError.SyncError(errorMessage: "network unavailable")
 }
 
+private func serverErrorMessage(_ response: SyncHTTPResponse) -> String {
+    let fallback = "server error \(response.statusCode)"
+    guard !response.body.isEmpty else { return fallback }
+    if let decoded = try? JSONDecoder().decode(ServerErrorResponse.self, from: response.body), !decoded.error.isEmpty {
+        return "\(fallback): \(decoded.error)"
+    }
+    if let body = String(data: response.body, encoding: .utf8) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return "\(fallback): \(trimmed)" }
+    }
+    return fallback
+}
+
 private struct EmptyRequest: Encodable {}
 private struct EmptyResponse: Codable {}
+private struct ServerErrorResponse: Decodable { var error: String }
 private struct AuthRegisterRequest: Encodable { var email: String; var password: String; var pub_key: String }
 private struct AuthLoginRequest: Encodable { var email: String; var password: String }
 private struct AuthRefreshRequest: Encodable { var refresh_token: String }
