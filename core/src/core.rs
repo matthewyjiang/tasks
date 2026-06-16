@@ -91,6 +91,10 @@ impl TaskManagerCore {
         self.database.search_tasks(query)
     }
 
+    pub fn search_tasks_including_deleted(&self, query: String) -> CoreResult<Vec<Task>> {
+        self.database.search_tasks_including_deleted(query)
+    }
+
     pub fn share_task_with_recipient(
         &self,
         task_id: Uuid,

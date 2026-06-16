@@ -415,6 +415,14 @@ impl LocalDatabase {
     }
 
     pub fn search_tasks(&self, query: String) -> CoreResult<Vec<Task>> {
+        self.search_tasks_matching(query, false)
+    }
+
+    pub fn search_tasks_including_deleted(&self, query: String) -> CoreResult<Vec<Task>> {
+        self.search_tasks_matching(query, true)
+    }
+
+    fn search_tasks_matching(&self, query: String, include_deleted: bool) -> CoreResult<Vec<Task>> {
         let search = SearchQuery::parse(&query);
         if search.is_empty() {
             return Ok(Vec::new());
@@ -424,11 +432,13 @@ impl LocalDatabase {
             let mut statement = self.connection.prepare(
                 "SELECT t.id, t.title, t.body, t.due_at, t.reminder_offset_ms, t.status, t.project_id, t.tags, t.created_at, t.updated_at, t.deleted, t.dirty
                  FROM tasks_fts f JOIN tasks t ON t.rowid = f.rowid
-                 WHERE tasks_fts MATCH ?1 AND t.deleted = 0 AND t.id != ?2
+                 WHERE tasks_fts MATCH ?1 AND (?3 OR t.deleted = 0) AND t.id != ?2
                  ORDER BY rank, t.updated_at DESC, t.id ASC",
             )?;
-            let rows =
-                statement.query_map(params![fts_query, Uuid::nil().to_string()], read_task)?;
+            let rows = statement.query_map(
+                params![fts_query, Uuid::nil().to_string(), include_deleted],
+                read_task,
+            )?;
             let tasks = collect_tasks(rows)?;
             if search.phrase {
                 tasks
@@ -445,15 +455,16 @@ impl LocalDatabase {
         let mut statement = self.connection.prepare(
             "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty
              FROM tasks
-             WHERE deleted = 0
+             WHERE (?3 OR deleted = 0)
                AND id != ?1
                AND EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE lower(value) LIKE ?2 ESCAPE '\\')
              ORDER BY updated_at DESC, id ASC",
         )?;
         let tag_pattern = search.tag_like_pattern();
-        for task in collect_tasks(
-            statement.query_map(params![Uuid::nil().to_string(), tag_pattern], read_task)?,
-        )? {
+        for task in collect_tasks(statement.query_map(
+            params![Uuid::nil().to_string(), tag_pattern, include_deleted],
+            read_task,
+        )?)? {
             if !tasks.iter().any(|existing| existing.id == task.id) {
                 tasks.push(task);
             }
@@ -463,12 +474,13 @@ impl LocalDatabase {
             let mut statement = self.connection.prepare(
                 "SELECT id, title, body, due_at, reminder_offset_ms, status, project_id, tags, created_at, updated_at, deleted, dirty
                  FROM tasks
-                 WHERE deleted = 0 AND id != ?1
+                 WHERE (?2 OR deleted = 0) AND id != ?1
                  ORDER BY updated_at DESC, id ASC",
             )?;
-            for task in
-                collect_tasks(statement.query_map(params![Uuid::nil().to_string()], read_task)?)?
-            {
+            for task in collect_tasks(
+                statement
+                    .query_map(params![Uuid::nil().to_string(), include_deleted], read_task)?,
+            )? {
                 if search.matches_task(&task)
                     && !tasks.iter().any(|existing| existing.id == task.id)
                 {
@@ -1417,6 +1429,12 @@ mod tests {
             .search_tasks("alpha".to_owned())
             .unwrap()
             .is_empty());
+        let deleted_results = database
+            .search_tasks_including_deleted("alpha".to_owned())
+            .unwrap();
+        assert_eq!(deleted_results.len(), 1);
+        assert_eq!(deleted_results[0].id, title_match.id);
+        assert!(deleted_results[0].deleted);
     }
 
     #[test]

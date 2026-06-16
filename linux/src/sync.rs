@@ -323,7 +323,12 @@ struct LinuxPullWireBlob {
 
 fn linux_remote_blob_from_wire(blob: LinuxPullWireBlob) -> Option<RemoteBlob> {
     if blob.deleted {
-        return None;
+        return Some(RemoteBlob {
+            task_id: blob.task_id,
+            blob: None,
+            updated_at: blob.updated_at,
+            deleted: true,
+        });
     }
     let ciphertext = base64::engine::general_purpose::STANDARD
         .decode(blob.ciphertext?)
@@ -688,4 +693,27 @@ fn accept_share_inbox(
 
 fn refresh_linux_auth(platform: &LinuxPlatform, server_url: &str) -> CoreResult<()> {
     refresh_auth(platform, &LinuxAuthClient::new(), server_url).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deleted_wire_blob_maps_to_core_tombstone() {
+        let task_id = Uuid::new_v4();
+        let remote = linux_remote_blob_from_wire(LinuxPullWireBlob {
+            task_id,
+            ciphertext: None,
+            nonce: None,
+            updated_at: 123,
+            deleted: true,
+        })
+        .expect("deleted wire blobs should be preserved as tombstones");
+
+        assert_eq!(remote.task_id, task_id);
+        assert_eq!(remote.updated_at, 123);
+        assert!(remote.deleted);
+        assert!(remote.blob.is_none());
+    }
 }

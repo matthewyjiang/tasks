@@ -167,6 +167,8 @@ impl AppState {
             }
             filter.project_id = selected_list_id;
             self.core.list_tasks(filter, default_sort())
+        } else if self.active_filter.borrow().is_deleted_view() && selected_list_id.is_none() {
+            self.core.search_tasks_including_deleted(query)
         } else {
             self.core.search_tasks(query)
         };
