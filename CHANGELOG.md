@@ -1,6 +1,6 @@
 # Changelog
 
-## cli-v1.4.0 - 2026-06-16
+## linux-app-v0.6.0 - 2026-06-16
 
 - feat(ios): add foreground sync auth seam (#126) (d0cc342)
 
