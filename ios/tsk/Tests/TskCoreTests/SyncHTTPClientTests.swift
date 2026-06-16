@@ -80,6 +80,18 @@ private final class RecordingTransport: SyncHTTPTransport, @unchecked Sendable {
     #expect(blobs?.first?["nonce"] == "BAUG")
 }
 
+@Test func syncHTTPClientsIncludeServerErrorResponseBodies() throws {
+    let transport = RecordingTransport([
+        SyncHTTPResponse(statusCode: 400, body: Data(#"{"error":"invalid registration"}"#.utf8))
+    ])
+    do {
+        _ = try SyncHTTPAuthClient(transport: transport).registerAccount(serverUrl: "https://example.com", request: FfiRegisterRequest(email: "a@b.com", password: "pw", pubKey: "pub"))
+        Issue.record("Expected server error to throw")
+    } catch FfiCoreError.SyncError(let message) {
+        #expect(message == "server error 400: invalid registration")
+    }
+}
+
 @Test func syncHTTPClientsMapUnauthorizedAndMalformedJSONToCoreSyncErrors() throws {
     let unauthorized = RecordingTransport([SyncHTTPResponse(statusCode: 401)])
     #expect(throws: FfiCoreError.self) {

@@ -2,6 +2,12 @@ import Foundation
 import Testing
 @testable import TskCore
 
+private enum AppModelSyncTestError: LocalizedError {
+    case deleteFailed
+
+    var errorDescription: String? { "Delete failed" }
+}
+
 private final class AppModelSyncSecretStore: SecureSecretStoring, @unchecked Sendable {
     var values: [String: Data] = [:]
     func data(for id: String) throws -> Data? { values[id] }
@@ -29,6 +35,29 @@ private final class AppModelSyncAuthClient: FfiAuthClient, @unchecked Sendable {
     func putCurrentDeviceKey(serverUrl: String, accessToken: String, request: FfiPutCurrentDeviceKeyRequest) throws {}
 }
 
+private final class AppModelSyncRecordingRepository: TaskRepository, @unchecked Sendable {
+    private(set) var syncNowOnlineArguments: [Bool] = []
+    var failDeletes = false
+
+    func loadTasks(includeDeleted: Bool) async throws -> [TaskItem] { [] }
+    func loadLists() async throws -> [TaskListItem] { [] }
+    func createTask(title: String, body: String, dueAt: Date?, listID: UUID?, tags: [String]) async throws -> TaskItem {
+        TaskItem(title: title, body: body, dueAt: dueAt, listID: listID, tags: tags)
+    }
+    func updateTask(_ task: TaskItem) async throws -> TaskItem { task }
+    func deleteTask(id: UUID) async throws {
+        if failDeletes { throw AppModelSyncTestError.deleteFailed }
+    }
+    func createList(name: String) async throws -> TaskListItem { TaskListItem(name: name) }
+    func updateList(_ list: TaskListItem) async throws -> TaskListItem { list }
+    func deleteList(id: UUID) async throws {}
+    func syncSummary() async throws -> SyncSummary { SyncSummary(isOnline: false) }
+    func syncNow(isOnline: Bool) async throws -> SyncSummary {
+        syncNowOnlineArguments.append(isOnline)
+        return SyncSummary(isOnline: isOnline)
+    }
+}
+
 @Test @MainActor func appModelConfiguresSyncAndPersistsOnlyServerURL() async throws {
     let suiteName = "tsk-appmodel-sync-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -53,6 +82,38 @@ private final class AppModelSyncAuthClient: FfiAuthClient, @unchecked Sendable {
     #expect(store.values[SecureSecretID.refreshToken] == Data("refresh".utf8))
     #expect(model.syncAuthState == .syncReady)
     #expect(model.canSyncNow)
+}
+
+@Test @MainActor func backgroundSyncUsesPlatformReachabilityWhenUiReachabilityIsOffline() async throws {
+    let suiteName = "tsk-appmodel-background-sync-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let bootstrap = generateLocalAccountBootstrap()
+    let store = AppModelSyncSecretStore()
+    store.values[SecureSecretID.devicePrivateKey] = Data(bootstrap.devicePrivateKey)
+    store.values[SecureSecretID.accountDataKey] = Data(bootstrap.accountDataKey)
+    store.values[SecureSecretID.accessToken] = Data("access".utf8)
+    store.values[SecureSecretID.refreshToken] = Data("refresh".utf8)
+    store.values[SecureSecretID.syncOriginID] = Data("https://example.com:443".utf8)
+    let coordinator = SyncCoordinator(
+        serverURL: "https://example.com",
+        platform: CorePlatformAdapter(secretStore: store, networkAvailable: { true }),
+        authClient: AppModelSyncAuthClient()
+    )
+    let repository = AppModelSyncRecordingRepository()
+    let model = AppModel(repository: repository, syncCoordinator: coordinator, serverURLDefaults: defaults)
+    model.updateReachability(.offline)
+    repository.failDeletes = true
+    _ = await model.deleteTask(id: UUID())
+    #expect(model.errorMessage == "Delete failed")
+    repository.failDeletes = false
+
+    let success = await model.backgroundSyncNow()
+
+    #expect(success)
+    #expect(repository.syncNowOnlineArguments == [true])
+    #expect(model.syncSummary.isOnline)
+    #expect(model.errorMessage == "Delete failed")
 }
 
 @Test @MainActor func appModelAcceptsWrappedEnrollmentPayloadWithoutReplacingExistingKey() async throws {

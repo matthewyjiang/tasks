@@ -14,7 +14,7 @@ public struct RootView: View {
         _model = StateObject(wrappedValue: model)
     }
 
-    private static func makeDefaultModel() -> AppModel {
+    public static func makeDefaultModel() -> AppModel {
         do {
             let paths = try AppPaths()
             try paths.createDirectories()

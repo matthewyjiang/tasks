@@ -56,10 +56,12 @@ public struct SettingsView: View {
 
             if model.syncAuthState == .authenticatedEnrollmentPending || model.enrollmentState == .existingAccountPending {
                 Section("Existing Account Enrollment") {
+                    Text("You are signed in, but this device needs approval from another enrolled device before it can decrypt and sync existing tasks.")
+                        .foregroundStyle(.secondary)
                     if let devicePublicKey = model.enrollmentDevicePublicKey {
-                        LabeledContent("Device public key", value: devicePublicKey)
+                        LabeledContent("This device public key", value: devicePublicKey)
                             .textSelection(.enabled)
-                        Text("On another signed-in device, wrap the account data key for this public key, then paste the JSON payload below.")
+                        Text("On an enrolled device, wrap the account data key for this public key, then paste the wrapped JSON payload below. The raw account key and private keys should never be copied.")
                             .foregroundStyle(.secondary)
                     }
                     TextEditor(text: $enrollmentPayload)
@@ -96,6 +98,8 @@ public struct SettingsView: View {
             Section("Platform") {
                 Text("Notification scheduling/cancellation hooks use UNUserNotificationCenter and shared core reminder semantics.")
                     .foregroundStyle(.secondary)
+                Text("Background refresh is configured with BGAppRefreshTask and performs best-effort sync when iOS grants runtime.")
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Settings")
@@ -110,7 +114,7 @@ private extension FfiSyncAuthState {
     var displayName: String {
         switch self {
         case .localOnlyReady: "Local Only"
-        case .authenticatedEnrollmentPending: "Enrollment Pending"
+        case .authenticatedEnrollmentPending: "Signed In, Approval Needed"
         case .syncReady: "Sync Ready"
         case .authRequired: "Auth Required"
         case .misconfiguredOrigin: "Misconfigured Origin"

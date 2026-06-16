@@ -11,6 +11,10 @@
 		A10000000000000000000003 /* LocalFirstBootstrapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LocalFirstBootstrapService.swift */; };
 		A10000000000000000000004 /* NotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* NotificationScheduler.swift */; };
 		A10000000000000000000005 /* ReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* ReachabilityMonitor.swift */; };
+		A10000000000000000000006 /* BackgroundSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* BackgroundSyncService.swift */; };
+		A10000000000000000000008 /* CorePlatformAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* CorePlatformAdapter.swift */; };
+		A10000000000000000000009 /* SyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* SyncCoordinator.swift */; };
+		A1000000000000000000000A /* SyncHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* SyncHTTPClient.swift */; };
 		7ABB6B5BA8B141E7BD3B8CDB /* StartupFailedRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102066F2F8994ED898431844 /* StartupFailedRepository.swift */; };
 		FA494AF7D3E5475B9B33359B /* TskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CB85414C9C40F0A6D187D1 /* TskApp.swift */; };
 		20F2EC00E7364FA88CA59BC8 /* taskmanager_core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A7A2EB40684703865A794B /* taskmanager_core.swift */; };
@@ -35,6 +39,11 @@
 		B10000000000000000000003 /* LocalFirstBootstrapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/LocalFirstBootstrapService.swift"; sourceTree = "<group>"; };
 		B10000000000000000000004 /* NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/NotificationScheduler.swift"; sourceTree = "<group>"; };
 		B10000000000000000000005 /* ReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/ReachabilityMonitor.swift"; sourceTree = "<group>"; };
+		B10000000000000000000006 /* BackgroundSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/BackgroundSyncService.swift"; sourceTree = "<group>"; };
+		B10000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000008 /* CorePlatformAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/CorePlatformAdapter.swift"; sourceTree = "<group>"; };
+		B10000000000000000000009 /* SyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/SyncCoordinator.swift"; sourceTree = "<group>"; };
+		B1000000000000000000000A /* SyncHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/SyncHTTPClient.swift"; sourceTree = "<group>"; };
 		102066F2F8994ED898431844 /* StartupFailedRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/StartupFailedRepository.swift; sourceTree = "<group>"; };
 		41CB85414C9C40F0A6D187D1 /* TskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/tsk/TskApp.swift"; sourceTree = "<group>"; };
 		74A7A2EB40684703865A794B /* taskmanager_core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Generated/taskmanager_core.swift"; sourceTree = "<group>"; };
@@ -73,6 +82,7 @@
 				5CF9D46A93854749964E9DD8 /* Sources */,
 				93F509BDF3834EEE97607A9B /* Frameworks */,
 				C912CAF65AB349A1A30DB1B8 /* Products */,
+				B10000000000000000000007 /* Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -89,8 +99,12 @@
 				B10000000000000000000003 /* LocalFirstBootstrapService.swift */,
 				B10000000000000000000004 /* NotificationScheduler.swift */,
 				B10000000000000000000005 /* ReachabilityMonitor.swift */,
+				B10000000000000000000008 /* CorePlatformAdapter.swift */,
+				B10000000000000000000006 /* BackgroundSyncService.swift */,
 				0124E614FF084E3C8F7C8573 /* AppModel.swift */,
 				102066F2F8994ED898431844 /* StartupFailedRepository.swift */,
+				B10000000000000000000009 /* SyncCoordinator.swift */,
+				B1000000000000000000000A /* SyncHTTPClient.swift */,
 				7BD2CD39752A4ACFAB7DABF0 /* CoreTaskRepository.swift */,
 				5DFD92960663468DA781C637 /* TaskRepository.swift */,
 				9DD5D29DDAAA40EC84E315C7 /* RootView.swift */,
@@ -171,7 +185,11 @@
 				A10000000000000000000003 /* LocalFirstBootstrapService.swift in Sources */,
 				A10000000000000000000004 /* NotificationScheduler.swift in Sources */,
 				A10000000000000000000005 /* ReachabilityMonitor.swift in Sources */,
+				A10000000000000000000008 /* CorePlatformAdapter.swift in Sources */,
+				A10000000000000000000006 /* BackgroundSyncService.swift in Sources */,
 				C0A26763FB6642A289A95525 /* AppModel.swift in Sources */,
+				A10000000000000000000009 /* SyncCoordinator.swift in Sources */,
+				A1000000000000000000000A /* SyncHTTPClient.swift in Sources */,
 				5A34C48815C243B8A11F3B6C /* CoreTaskRepository.swift in Sources */,
 				A11A756FAFEC441CA643F390 /* TaskRepository.swift in Sources */,
 				59226D0211474445A504E037 /* RootView.swift in Sources */,
@@ -187,8 +205,8 @@
 /* Begin XCBuildConfiguration section */
 		140C36E6FEA6409D9DD9A874 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; }; name = Debug; };
 		C26BE07264354B8FB3DE7042 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; }; name = Release; };
-		5FBB4FAC202B4633B07D3E18 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64; DEVELOPMENT_ASSET_PATHS = ""; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = tsk; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
-		0D0FB4C6D6FB4585B15BE2DB /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = tsk; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		5FBB4FAC202B4633B07D3E18 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64; DEVELOPMENT_ASSET_PATHS = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; INFOPLIST_KEY_CFBundleDisplayName = tsk; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		0D0FB4C6D6FB4585B15BE2DB /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; INFOPLIST_KEY_CFBundleDisplayName = tsk; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
