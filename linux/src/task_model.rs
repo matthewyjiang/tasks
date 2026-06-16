@@ -1,5 +1,12 @@
 use taskmanager_core::{Task, TaskFilter, TaskSort, TaskStatus};
 
+/// How long a soft-deleted task remains visible in the Recently Deleted view.
+///
+/// This is a display-only window: the local SQLite tombstone row is retained
+/// regardless, and restoring re-pushes the task so it syncs to other devices.
+/// 30 days mirrors the server's default tombstone retention horizon.
+pub const RECENTLY_DELETED_WINDOW_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TaskFilterState {
     #[default]
@@ -8,6 +15,7 @@ pub enum TaskFilterState {
     Upcoming,
     NoDueDate,
     Done,
+    RecentlyDeleted,
 }
 
 impl TaskFilterState {
@@ -18,7 +26,13 @@ impl TaskFilterState {
             Self::Upcoming => "Upcoming",
             Self::NoDueDate => "Anytime",
             Self::Done => "Done",
+            Self::RecentlyDeleted => "Recently Deleted",
         }
+    }
+
+    /// Whether this view shows soft-deleted tasks instead of live tasks.
+    pub fn is_deleted_view(self) -> bool {
+        matches!(self, Self::RecentlyDeleted)
     }
 
     pub fn to_filter(self, now_ms: i64) -> TaskFilter {
@@ -35,6 +49,9 @@ impl TaskFilterState {
                 filter.status = Some(TaskStatus::Open);
             }
             Self::Done => filter.status = Some(TaskStatus::Done),
+            Self::RecentlyDeleted => {
+                filter.include_deleted = true;
+            }
         }
         filter
     }
@@ -55,6 +72,12 @@ pub fn task_matches_view(
     now_ms: i64,
     show_completed: bool,
 ) -> bool {
+    if view.is_deleted_view() {
+        return task.deleted && task.updated_at >= now_ms - RECENTLY_DELETED_WINDOW_MS;
+    }
+    if task.deleted {
+        return false;
+    }
     let visible_status = show_completed || task.status == TaskStatus::Open;
     match view {
         TaskFilterState::Inbox => visible_status && task.project_id.is_none(),
@@ -67,6 +90,7 @@ pub fn task_matches_view(
         TaskFilterState::Upcoming => visible_status && task.due_at.is_some(),
         TaskFilterState::NoDueDate => visible_status && task.due_at.is_none(),
         TaskFilterState::Done => task.status == TaskStatus::Done,
+        TaskFilterState::RecentlyDeleted => unreachable!("handled by is_deleted_view guard"),
     }
 }
 
@@ -117,5 +141,80 @@ mod tests {
             false
         ));
         assert!(task_matches_view(&task, TaskFilterState::Today, 100, true));
+    }
+
+    #[test]
+    fn recently_deleted_view_shows_only_recent_tombstones() {
+        let now = RECENTLY_DELETED_WINDOW_MS + 1_000_000;
+        let mut task = Task {
+            id: uuid::Uuid::nil(),
+            title: "Deleted task".to_owned(),
+            body: String::new(),
+            due_at: None,
+            reminder_offset_ms: None,
+            status: TaskStatus::Open,
+            project_id: None,
+            tags: Vec::new(),
+            created_at: 0,
+            updated_at: now,
+            deleted: true,
+            dirty: true,
+        };
+
+        // Recently deleted within the window: shown.
+        assert!(task_matches_view(
+            &task,
+            TaskFilterState::RecentlyDeleted,
+            now,
+            false
+        ));
+
+        // Deleted longer ago than the window: hidden.
+        task.updated_at = now - RECENTLY_DELETED_WINDOW_MS - 1;
+        assert!(!task_matches_view(
+            &task,
+            TaskFilterState::RecentlyDeleted,
+            now,
+            false
+        ));
+
+        // Live tasks never appear in the deleted view.
+        task.deleted = false;
+        task.updated_at = now;
+        assert!(!task_matches_view(
+            &task,
+            TaskFilterState::RecentlyDeleted,
+            now,
+            false
+        ));
+    }
+
+    #[test]
+    fn deleted_tasks_excluded_from_normal_views() {
+        let mut task = Task {
+            id: uuid::Uuid::nil(),
+            title: "Deleted".to_owned(),
+            body: String::new(),
+            due_at: None,
+            reminder_offset_ms: None,
+            status: TaskStatus::Open,
+            project_id: None,
+            tags: Vec::new(),
+            created_at: 0,
+            updated_at: 0,
+            deleted: true,
+            dirty: true,
+        };
+
+        assert!(!task_matches_view(&task, TaskFilterState::Inbox, 0, false));
+        assert!(!task_matches_view(
+            &task,
+            TaskFilterState::NoDueDate,
+            0,
+            true
+        ));
+
+        task.deleted = false;
+        assert!(task_matches_view(&task, TaskFilterState::Inbox, 0, false));
     }
 }

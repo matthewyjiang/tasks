@@ -333,6 +333,8 @@ interface FfiTaskManagerCore {
   [Throws=FfiCoreError]
   void delete_task(string task_id);
   [Throws=FfiCoreError]
+  FfiTask restore_task(string task_id);
+  [Throws=FfiCoreError]
   sequence<FfiTask> list_tasks(FfiTaskFilter filter, FfiTaskSort sort);
   [Throws=FfiCoreError]
   sequence<FfiTask> search_tasks(string query);

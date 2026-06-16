@@ -16,7 +16,7 @@ native-tls = ["reqwest/native-tls"]
 [dependencies]
 taskmanager-core = { path = "../core", default-features = false }
 gtk4 = { version = "0.9", features = ["v4_6"] }
-libadwaita = "0.7"
+libadwaita = { version = "0.7", features = ["v1_2"] }
 directories = "5"
 keyring = { version = "3.6", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust"] }
 notify-rust = "4"

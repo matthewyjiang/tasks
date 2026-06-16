@@ -579,6 +579,13 @@ impl FfiTaskManagerCore {
             .map_err(FfiCoreError::from)
     }
 
+    pub fn restore_task(&self, task_id: String) -> Result<FfiTask, FfiCoreError> {
+        self.inner()?
+            .restore_task(parse_uuid(&task_id)?)
+            .map(FfiTask::from)
+            .map_err(FfiCoreError::from)
+    }
+
     pub fn list_tasks(
         &self,
         filter: FfiTaskFilter,

@@ -576,6 +576,8 @@ public protocol FfiTaskManagerCoreProtocol: AnyObject, Sendable {
 
     func queueSyncRetry(taskId: String, now: Int64) throws  -> FfiRetryQueueEntry
 
+    func restoreTask(taskId: String) throws  -> FfiTask
+
     func retryQueueEntries() throws  -> [FfiRetryQueueEntry]
 
     func revokeSharedTaskRecipient(taskId: String, recipientId: String, remainingRecipientPublicKeys: [FfiSharedTaskRecipientKey], ownerPrivateKey: [UInt8]) throws  -> FfiSharedTaskState
@@ -755,6 +757,15 @@ open func queueSyncRetry(taskId: String, now: Int64)throws  -> FfiRetryQueueEntr
             self.uniffiCloneHandle(),
         FfiConverterString.lower(taskId),
         FfiConverterInt64.lower(now),$0
+    )
+})
+}
+
+open func restoreTask(taskId: String)throws  -> FfiTask  {
+    return try  FfiConverterTypeFfiTask_lift(try rustCallWithError(FfiConverterTypeFfiCoreError_lift) {
+    uniffi_taskmanager_core_fn_method_ffitaskmanagercore_restore_task(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(taskId),$0
     )
 })
 }
@@ -4963,6 +4974,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_queue_sync_retry() != 7478) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_restore_task() != 28927) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_taskmanager_core_checksum_method_ffitaskmanagercore_retry_queue_entries() != 29903) {
