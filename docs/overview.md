@@ -2,32 +2,25 @@
 
 `tsk` is a local-first, end-to-end encrypted task manager.
 
-## Goals
+It is designed around a simple idea: your tasks should feel fast and dependable on the device in front of you, and sync should be an added capability rather than a requirement for basic use.
 
-- Keep task creation, editing, search, completion, and deletion usable while offline.
-- Store task data locally in client databases and sync encrypted blobs when a server is available.
-- Keep server-side sync zero-knowledge: the server stores accounts, sessions, device public keys, cursors, and encrypted blobs, but not plaintext task contents.
-- Share task, sync, auth, crypto, conflict, and enrollment semantics through the native Rust `taskmanager-core` crate.
+## Philosophy
+
+- **Local first.** Task creation, editing, search, completion, and deletion happen against local storage first, so the app remains useful offline.
+- **Private by default.** Task contents are encrypted on the client before they are sent to a sync server.
+- **One shared model.** The Linux app, iOS app, and CLI share the same core task and sync semantics so behavior stays consistent across clients.
+- **Thin platform clients.** Each client should feel native to its platform while relying on shared core behavior for task data, encryption, sync, and conflict handling.
+
+## Why it works
+
+`tsk` separates the parts of task management that must be trusted from the parts that only need to move data around.
+
+Your device owns plaintext task data and cryptographic keys. The sync server stores accounts, sessions, device public keys, cursors, and encrypted blobs, but not readable task titles, notes, tags, or due dates. That keeps the server useful for coordination without making it the source of truth for your private content.
 
 ## Choose your path
 
-- [Choose a client](./getting-started.md) for the platform where you want to manage tasks.
-- [Compare clients](./clients/index.md) to see the current Linux, iOS, and CLI support status.
-- [Use the CLI](./cli.md) for command examples, common flags, output formats, scripted workflows, diagnostics, and sync commands.
-- [Run a sync server](./server.md) when you want self-hosted encrypted blob sync.
-- [Review known limitations](./roadmap.md) before depending on a workflow that is still evolving.
-- [Read the architecture](./architecture.md) or [security model](./security.md) when you want implementation and trust-boundary details.
-
-## Current client status
-
-The Linux and iOS apps provide platform-native task management on top of the shared core. The CLI provides the command-line surface for local tasks, account setup, auth diagnostics, low-level device key operations, scripting, machine-readable output, and encrypted sync.
-
-## Repository structure
-
-- `core/` — Rust client core library, local data model, crypto, sync orchestration, and UniFFI exports.
-- `cli/` — Rust command-line client named `tsk`.
-- `linux/` — GTK/libadwaita Linux desktop app, binary `tsk-gui`.
-- `ios/` — SwiftUI iOS client backed by generated UniFFI bindings.
-- `server/` — Go zero-knowledge sync backend.
-- `packaging/` — platform packaging metadata.
-- `scripts/` — release and integration-test automation.
+- [Get started](./getting-started.md) by choosing the client for your platform.
+- [Compare clients](./clients/index.md) to see current package and distribution status.
+- [Run a sync server](./server.md) when you want self-hosted encrypted sync.
+- [Review known limitations](./roadmap.md) before relying on a workflow that is still evolving.
+- [Read the architecture](./architecture.md) or [security model](./security.md) for a deeper explanation of the design.

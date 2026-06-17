@@ -1,32 +1,27 @@
 # Security model
 
-`tsk` uses client-side encryption so the sync server stores encrypted blobs rather than plaintext tasks.
+`tsk` uses client-side encryption so the sync server stores encrypted task blobs rather than plaintext tasks.
 
-## Key model
+## The basic promise
 
-The core design uses envelope encryption:
+Your clients need to read and edit task contents. The server does not.
 
-- each account has account-level data key material used to protect task data;
-- each device has its own public/private keypair;
-- private keys and account data keys are stored through client platform key-store adapters;
-- adding another device requires wrapping account data key material for that device public key.
+That boundary shapes the system: clients hold the keys needed for task data, and the server coordinates accounts, devices, sessions, and encrypted blobs.
 
-Commands and UI must not print or persist raw private keys or account data keys except in explicit developer diagnostic paths that require opt-in flags.
+## What the server can see
 
-## Client storage
+The server necessarily handles operational metadata, including account records, sessions, device public keys, cursors, and encrypted blob records. It also handles authentication material such as access and refresh tokens.
 
-Secrets are stored with platform-specific mechanisms:
+The server should not receive plaintext task titles, notes, tags, due dates, or list metadata during normal sync.
 
-- CLI: native platform key store by default; an explicitly configured file-backed key directory is available for headless development and tests through `TASKMANAGER_INSECURE_KEY_DIR`.
-- Linux: Freedesktop Secret Service/libsecret-compatible storage.
-- iOS: Keychain device-local items.
+## What clients protect
 
-Plaintext settings such as server URL are separate from encrypted task content.
-
-## Server trust boundary
-
-The server handles account authentication, JWTs, refresh tokens, device public keys, and encrypted blobs. Deployments must not expose the plaintext Go HTTP port directly to the Internet; terminate HTTPS/TLS in a reverse proxy or managed load balancer and proxy to the local server port.
+Clients protect account and device key material with platform storage mechanisms such as the Linux key store, iOS Keychain, or the CLI platform key store. Plaintext settings, such as a server URL, are separate from encrypted task content.
 
 ## Device enrollment
 
-Existing-account enrollment is based on device public keys and wrapped account-data-key payloads. Manual low-level wrap/unwrap commands exist for diagnostics and recovery. Friendlier device-pairing workflows are still planned.
+Adding a device is a trust decision. An enrolled device receives the key material it needs to decrypt synced task data. Current low-level enrollment tools exist for diagnostics and recovery; friendlier pairing workflows are planned.
+
+## Deployment expectations
+
+The server handles sensitive account infrastructure even though it should not see plaintext task contents. Deploy it behind HTTPS/TLS and avoid exposing the plaintext application port directly to the Internet.

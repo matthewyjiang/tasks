@@ -1,34 +1,21 @@
 # iOS app
 
-The iOS client is a native SwiftUI app backed by the shared Rust `taskmanager-core` through UniFFI-generated bindings.
+The iOS app is the mobile client for `tsk`. It uses SwiftUI and the same shared encrypted core as the Linux app and CLI.
 
-## Official packages
+## Download
 
-Public TestFlight/App Store distribution is in progress. Until an official iOS download is available, run the app from source in Xcode.
+Public TestFlight/App Store distribution is in progress.
 
-## Run in Simulator
+Until an official iOS download is available, the app can be run from source in Xcode. Contributor setup details live in [iOS development](../development/ios.md) and the repository's `ios/README.md`.
 
-Generate the bindings/XCFramework first, then open the Xcode project:
+## What it provides
 
-```sh
-./ios/tsk/Scripts/generate-uniffi-bindings.sh
-open ios/tsk/tsk.xcodeproj
-```
+- Local-first task management on iPhone and iPad.
+- Foreground encrypted sync with a compatible `tsk` server.
+- Device and account secrets stored in Keychain.
+- Reminder behavior backed by shared task semantics.
+- Background refresh foundations, subject to iOS scheduling limits.
 
-In Xcode, select the `tsk` scheme from `tsk.xcodeproj` and an iOS Simulator destination, then run with Cmd+R.
+## Why use it
 
-## Current user-visible behavior
-
-The app supports local-first task flows for creating, editing, completing/reopening, deleting, searching, and organizing tasks. It uses shared core for local storage, encrypted sync, token refresh, and reminder semantics.
-
-Foreground sync is the authoritative sync path. Background refresh is registered with iOS, but execution timing is best-effort and controlled by the system.
-
-## Sync and enrollment
-
-Settings provides sync setup for server URL, email, and password. Credentials are transient view state and are not persisted. Access and refresh tokens are stored in Keychain.
-
-Existing-account enrollment currently uses a manual wrapped account-data-key import path. Friendlier device pairing workflows are still planned; see [Known limitations](../roadmap.md).
-
-## Development notes
-
-Contributor checks, generated binding details, and validation steps live in [iOS development](../development/ios.md) and the repository's `ios/README.md`.
+Use the iOS app when you want your tasks on a mobile device without giving up the local-first and encrypted-sync model. Foreground launch, resume, and manual sync remain the dependable sync paths while background refresh support continues to mature.
