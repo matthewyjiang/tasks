@@ -1,5 +1,12 @@
 # Changelog
 
+## linux-app-v0.7.1 - 2026-06-17
+
+- fix(linux-app): improve overdue and settings urgency (#159) (5f74bd6)
+- docs: organize user-facing documentation (#146) (9d639ad)
+- docs: add VitePress documentation site (063559f)
+- docs: refresh implementation trackers (#138) (86323db)
+
 ## server-v1.3.0 - 2026-06-17
 
 - feat(server): deploy prebuilt server image (#161) (54ceae1)
