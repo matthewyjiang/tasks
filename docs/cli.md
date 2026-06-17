@@ -2,7 +2,11 @@
 
 The Rust CLI package is `taskmanager-cli`; the installed binary is `tsk`.
 
-## Install
+## Official binaries
+
+Prebuilt `tsk` binaries are in progress. Install from source with Cargo for now.
+
+## Install from source
 
 From the repository root:
 

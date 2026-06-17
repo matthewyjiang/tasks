@@ -2,6 +2,8 @@
 
 Native SwiftUI iOS client for `tsk`, backed by the shared Rust `taskmanager-core` through UniFFI.
 
+For the user-facing app status and run path, start with [`docs/clients/ios.md`](../docs/clients/ios.md). This README keeps implementation status, generated binding details, and validation notes close to the iOS source.
+
 Current implementation scope covers Issue #92 Phase 5 background sync foundations and polish on top of the Phase 4 foreground sync/auth implementation.
 
 ## Structure
