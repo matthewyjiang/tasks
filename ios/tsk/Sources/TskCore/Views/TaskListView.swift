@@ -108,11 +108,7 @@ public struct TaskListView: View {
             presentMore: { presentRowInterface(.more(task.id)) }
         )
             .listRowSeparator(.hidden)
-            .listRowBackground(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Self.rowBackgroundColor)
-                    .padding(.vertical, 3)
-            )
+            .listRowBackground(Color.clear)
             .swipeActions(edge: .leading) {
                 statusSwipeButton(for: task)
             }
@@ -260,7 +256,7 @@ public struct TaskListView: View {
         }
     }
 
-    private static var rowBackgroundColor: Color {
+    fileprivate static var rowBackgroundColor: Color {
         #if os(iOS)
         Color(.secondarySystemGroupedBackground)
         #else
@@ -324,6 +320,8 @@ private extension View {
 }
 
 private struct InlineTaskRowView: View {
+    enum Field: Hashable { case title, body }
+
     var task: TaskItem
     var listName: String?
     var isExpanded: Bool
@@ -336,78 +334,6 @@ private struct InlineTaskRowView: View {
     var presentListTags: () -> Void
     var presentMore: () -> Void
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Button(action: toggleStatus) {
-                    Image(systemName: task.status == .done ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(task.status == .done ? .green : .secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(task.status == .done ? "Mark Open" : "Mark Done")
-                .accessibilityHint(task.status == .done ? "Reopens this task." : "Completes this task.")
-
-                Button(action: toggleExpansion) {
-                    TaskRowHeader(task: task, listName: listName, isExpanded: isExpanded)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint(isExpanded ? "Collapses inline editing." : "Expands this task for inline editing.")
-                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            }
-
-            if isExpanded {
-                ExpandedTaskEditor(
-                    task: task,
-                    flushEditsToken: flushEditsToken,
-                    saveInline: saveInline,
-                    presentDue: presentDue,
-                    presentListTags: presentListTags,
-                    presentMore: presentMore
-                )
-                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .padding(.vertical, 6)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: isExpanded)
-        .tag(task.id)
-    }
-}
-
-private struct TaskRowHeader: View {
-    var task: TaskItem
-    var listName: String?
-    var isExpanded: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(task.title.isEmpty ? "Untitled" : task.title)
-                        .strikethrough(task.status == .done)
-                        .font(.body.weight(.medium))
-                        .contentTransition(.opacity)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-            TaskRowMetadataSummary(task: task, listName: listName)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ExpandedTaskEditor: View {
-    enum Field: Hashable { case title, body }
-
-    var task: TaskItem
-    var flushEditsToken: Int
-    var saveInline: (String, String) -> Void
-    var presentDue: () -> Void
-    var presentListTags: () -> Void
-    var presentMore: () -> Void
-
     @State private var draftTitle: String
     @State private var draftBody: String
     @State private var bodySaveTask: Task<Void, Never>?
@@ -415,14 +341,24 @@ private struct ExpandedTaskEditor: View {
 
     init(
         task: TaskItem,
+        listName: String?,
+        isExpanded: Bool,
+        reduceMotion: Bool,
         flushEditsToken: Int,
+        toggleExpansion: @escaping () -> Void,
+        toggleStatus: @escaping () -> Void,
         saveInline: @escaping (String, String) -> Void,
         presentDue: @escaping () -> Void,
         presentListTags: @escaping () -> Void,
         presentMore: @escaping () -> Void
     ) {
         self.task = task
+        self.listName = listName
+        self.isExpanded = isExpanded
+        self.reduceMotion = reduceMotion
         self.flushEditsToken = flushEditsToken
+        self.toggleExpansion = toggleExpansion
+        self.toggleStatus = toggleStatus
         self.saveInline = saveInline
         self.presentDue = presentDue
         self.presentListTags = presentListTags
@@ -432,15 +368,85 @@ private struct ExpandedTaskEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Title", text: $draftTitle)
-                .textFieldStyle(.plain)
-                .font(.body.weight(.medium))
-                .submitLabel(.done)
-                .focused($focusedField, equals: .title)
-                .accessibilityLabel("Task Title")
-                .onSubmit { saveNow() }
+        HStack(alignment: .top, spacing: 12) {
+            Button(action: toggleStatus) {
+                Image(systemName: task.status == .done ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(task.status == .done ? .green : .secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+            .accessibilityLabel(task.status == .done ? "Mark Open" : "Mark Done")
+            .accessibilityHint(task.status == .done ? "Reopens this task." : "Completes this task.")
 
+            VStack(alignment: .leading, spacing: 8) {
+                titleArea
+                TaskRowMetadataSummary(task: task, listName: listName)
+
+                if isExpanded {
+                    expandedControls
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(TaskListView.rowBackgroundColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: isExpanded)
+        .onChange(of: draftBody) { _, _ in scheduleBodySave() }
+        .onChange(of: focusedField) { oldValue, newValue in
+            if oldValue != nil, newValue == nil { saveNow() }
+        }
+        .onChange(of: task) { _, newTask in
+            if focusedField == nil {
+                draftTitle = newTask.title
+                draftBody = newTask.body
+            }
+        }
+        .onChange(of: flushEditsToken) { _, _ in saveNow() }
+        .onDisappear { saveNow() }
+        .tag(task.id)
+    }
+
+    @ViewBuilder
+    private var titleArea: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if isExpanded {
+                TextField("Title", text: $draftTitle)
+                    .textFieldStyle(.plain)
+                    .font(.body.weight(.medium))
+                    .strikethrough(task.status == .done)
+                    .submitLabel(.done)
+                    .focused($focusedField, equals: .title)
+                    .accessibilityLabel("Task Title")
+                    .onSubmit { saveNow() }
+            } else {
+                Button(action: toggleExpansion) {
+                    Text(task.title.isEmpty ? "Untitled" : task.title)
+                        .strikethrough(task.status == .done)
+                        .font(.body.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Expands this task for inline editing.")
+                .accessibilityValue("Collapsed")
+            }
+
+            Button(action: toggleExpansion) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse Task" : "Expand Task")
+        }
+    }
+
+    private var expandedControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topLeading) {
                 if draftBody.isEmpty {
                     Text("Notes")
@@ -465,20 +471,6 @@ private struct ExpandedTaskEditor: View {
                 TaskRowIconButton(systemImage: "ellipsis.circle", title: "More Task Actions", action: presentMore)
             }
         }
-        .padding(.leading, 34)
-        .padding(.top, 2)
-        .onChange(of: draftBody) { _, _ in scheduleBodySave() }
-        .onChange(of: focusedField) { oldValue, newValue in
-            if oldValue != nil, newValue == nil { saveNow() }
-        }
-        .onChange(of: task) { _, newTask in
-            if focusedField == nil {
-                draftTitle = newTask.title
-                draftBody = newTask.body
-            }
-        }
-        .onChange(of: flushEditsToken) { _, _ in saveNow() }
-        .onDisappear { saveNow() }
     }
 
     private func scheduleBodySave() {
