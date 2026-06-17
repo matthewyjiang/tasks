@@ -1739,9 +1739,11 @@ fn build_ui(app: &adw::Application) {
             open_search: Rc::clone(&open_search_action),
             close_overlay: Rc::new({
                 let search_panel = search_panel.clone();
+                let settings_panel = settings_panel.clone();
                 let state = Rc::clone(&state);
                 move || {
                     hide_floating_panel(&search_panel);
+                    hide_floating_panel(&settings_panel);
                     if state.editor_panel.is_visible() {
                         state.save_task_editor();
                     }
