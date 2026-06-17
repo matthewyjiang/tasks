@@ -3,7 +3,7 @@ use gtk4 as gtk;
 use regex::Regex;
 use taskmanager_core::Task;
 
-use crate::task_format::format_task_row_summary;
+use crate::task_format::{format_task_row_summary, task_is_overdue};
 
 pub(crate) fn normalize_query(query: &str) -> String {
     query.trim().to_owned()
@@ -25,6 +25,10 @@ pub(crate) fn task_search_result_row(task: &Task) -> gtk::ListBoxRow {
     summary.set_xalign(0.0);
     summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
     summary.add_css_class("task-summary");
+    if task_is_overdue(task) {
+        summary.add_css_class("task-summary-overdue");
+        row.add_css_class("search-result-row-overdue");
+    }
     content.append(&title);
     content.append(&summary);
     row.set_child(Some(&content));

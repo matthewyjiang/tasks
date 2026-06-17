@@ -5,7 +5,7 @@ use gtk4 as gtk;
 use taskmanager_core::{Task, TaskStatus};
 use uuid::Uuid;
 
-use crate::task_format::{format_deleted_summary, format_task_row_summary};
+use crate::task_format::{format_deleted_summary, format_task_row_summary, task_is_overdue};
 use crate::ui::layout::TASK_ACTION_POPOVER_WIDTH;
 use crate::ui::widgets::font_awesome_label;
 
@@ -65,6 +65,9 @@ pub(crate) fn task_row(
         return row;
     }
 
+    if task_is_overdue(task) {
+        row.add_css_class("task-row-overdue");
+    }
     if expansion.is_editing() {
         row.add_css_class("task-row-expanded");
     }
@@ -194,6 +197,9 @@ fn title_stack(task: &Task, editing: bool, title_entry: &gtk::Entry) -> gtk::Box
     summary.set_xalign(0.0);
     summary.set_ellipsize(gtk::pango::EllipsizeMode::End);
     summary.add_css_class("task-summary");
+    if task_is_overdue(task) {
+        summary.add_css_class("task-summary-overdue");
+    }
     summary.set_visible(!summary_text.is_empty());
 
     text.append(&title);

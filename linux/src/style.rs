@@ -257,6 +257,10 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
         .task-row:hover {
             background: color-mix(in srgb, @window_fg_color 5%, transparent);
         }
+        .task-row-overdue,
+        .search-result-row-overdue {
+            box-shadow: inset 3px 0 0 @error_color;
+        }
         .confirm-button {
             background: @accent_bg_color;
             color: @accent_fg_color;
@@ -314,6 +318,10 @@ pub fn install_css(floating_panel_fade_ms: u64, task_editor_inner_padding: i32) 
         .task-summary {
             color: @dim_label_color;
             font-size: 13px;
+        }
+        .task-summary-overdue {
+            color: @error_color;
+            font-weight: 700;
         }
         .task-row-expanded,
         .task-row-expanded:hover {
