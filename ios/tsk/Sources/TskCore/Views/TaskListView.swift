@@ -39,44 +39,62 @@ public struct TaskListView: View {
     private var taskList: some View {
         List(selection: usesSplitSelection ? $model.selectedTaskID : .constant(nil)) {
             ForEach(visibleTasks) { task in
-                taskRow(for: task)
-                .listRowSeparator(.hidden)
-                .listRowBackground(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(.secondarySystemGroupedBackground))
-                        .padding(.vertical, 3)
-                )
-                .swipeActions(edge: .leading) {
-                    Button {
-                        Task { await model.toggleTaskStatus(task) }
-                    } label: {
-                        Label(task.status == .done ? "Mark Open" : "Mark Done", systemImage: task.status == .done ? "arrow.uturn.backward.circle" : "checkmark.circle")
-                    }
-                    .tint(.green)
-                    .accessibilityLabel(task.status == .done ? "Mark Open" : "Mark Done")
-                    .accessibilityHint(task.status == .done ? "Reopens this task." : "Completes this task.")
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        Task { await model.deleteTask(id: task.id) }
-                    } label: {
-                        Label("Delete Task", systemImage: "trash")
-                    }
-                    .accessibilityLabel("Delete Task")
-                    .accessibilityHint("Deletes this task.")
-                }
-                .accessibilityAction(named: task.status == .done ? "Mark Open" : "Mark Done") {
-                    Task { await model.toggleTaskStatus(task) }
-                }
+                taskListRow(for: task)
             }
         }
-        .listStyle(.insetGrouped)
+        .platformTaskListStyle()
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: visibleTasks.map(\.id))
         .overlay {
             if visibleTasks.isEmpty {
                 ContentUnavailableView("No tasks", systemImage: "tray", description: Text("Create a task or adjust search."))
             }
         }
+    }
+
+    private func taskListRow(for task: TaskItem) -> some View {
+        taskRow(for: task)
+            .listRowSeparator(.hidden)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Self.rowBackgroundColor)
+                    .padding(.vertical, 3)
+            )
+            .swipeActions(edge: .leading) {
+                statusSwipeButton(for: task)
+            }
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    Task { await model.deleteTask(id: task.id) }
+                } label: {
+                    Label("Delete Task", systemImage: "trash")
+                }
+                .accessibilityLabel("Delete Task")
+                .accessibilityHint("Deletes this task.")
+            }
+            .accessibilityAction(named: statusActionTitle(for: task)) {
+                Task { await model.toggleTaskStatus(task) }
+            }
+    }
+
+    private func statusActionTitle(for task: TaskItem) -> String {
+        task.status == .done ? "Mark Open" : "Mark Done"
+    }
+
+    private func statusActionImage(for task: TaskItem) -> String {
+        task.status == .done ? "arrow.uturn.backward.circle" : "checkmark.circle"
+    }
+
+    private func statusActionHint(for task: TaskItem) -> String {
+        task.status == .done ? "Reopens this task." : "Completes this task."
+    }
+
+    private func statusSwipeButton(for task: TaskItem) -> some View {
+        Button(statusActionTitle(for: task), systemImage: statusActionImage(for: task)) {
+            Task { await model.toggleTaskStatus(task) }
+        }
+        .tint(.green)
+        .accessibilityLabel(statusActionTitle(for: task))
+        .accessibilityHint(statusActionHint(for: task))
     }
 
     @ViewBuilder
@@ -98,6 +116,14 @@ public struct TaskListView: View {
         }
     }
 
+    private static var rowBackgroundColor: Color {
+        #if os(iOS)
+        Color(.secondarySystemGroupedBackground)
+        #else
+        Color(nsColor: .controlBackgroundColor)
+        #endif
+    }
+
     @ToolbarContentBuilder
     private var newTaskToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
@@ -110,6 +136,17 @@ public struct TaskListView: View {
             .accessibilityHint("Opens a sheet to create a task.")
             .help("New Task")
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func platformTaskListStyle() -> some View {
+        #if os(iOS)
+        self.listStyle(.insetGrouped)
+        #else
+        self.listStyle(.inset)
+        #endif
     }
 }
 
