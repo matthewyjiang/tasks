@@ -72,6 +72,17 @@ def dispatch_linux_arch_package(tag: str) -> None:
     print(f"Dispatched publish-arch-package.yml for {tag}.")
 
 
+def dispatch_server_image(tag: str) -> None:
+    """Start GHCR image publishing for auto-created server tags.
+
+    Release and tag events created with GITHUB_TOKEN do not reliably trigger
+    follow-up workflows, so dispatch the image publisher explicitly.
+    """
+    ref = os.environ.get("GITHUB_REF_NAME", "main")
+    run(["gh", "workflow", "run", "publish-server-image.yml", "--ref", ref, "-f", f"tag={tag}"])
+    print(f"Dispatched publish-server-image.yml for {tag}.")
+
+
 def tags_for_artifact(prefix: str) -> list[tuple[str, Version]]:
     tags = run(["git", "tag", "--list", f"{prefix}-v*"], check=True).splitlines()
     parsed: list[tuple[str, Version]] = []
@@ -433,6 +444,8 @@ def main() -> int:
         run(["gh", "release", "create", tag, "--title", tag, "--notes", notes])
         if args.artifact == "linux-app":
             dispatch_linux_arch_package(tag)
+        if args.artifact == "server":
+            dispatch_server_image(tag)
     else:
         print("GITHUB_TOKEN not set; skipped GitHub Release creation.")
     return 0

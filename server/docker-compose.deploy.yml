@@ -1,11 +1,8 @@
 services:
   app:
-    image: tasks-server-api:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${TASKS_SERVER_IMAGE:-ghcr.io/matthewyjiang/tasks-server:latest}
     env_file:
-      - .env
+      - ${TASKS_SERVER_ENV_FILE:-.env}
     depends_on:
       postgres:
         condition: service_healthy

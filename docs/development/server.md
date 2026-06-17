@@ -1,6 +1,6 @@
-# Server development and deployment
+# Server development
 
-The server is a Go zero-knowledge sync backend for encrypted task blobs.
+The server is a Go zero-knowledge sync backend for encrypted task blobs. This page is for local development. For self-hosted or production deployment, see [Server setup](../server.md).
 
 ## Requirements
 
@@ -18,7 +18,7 @@ From `server/`:
 make dev
 ```
 
-`make dev` starts PostgreSQL with Docker Compose, loads `.env` if present, applies development defaults for `DATABASE_URL` and `JWT_SECRET` when missing, runs migrations, and starts the API.
+`make dev` is a development-only convenience. It starts PostgreSQL with Docker Compose, loads `.env` if present, applies development defaults for `DATABASE_URL` and `JWT_SECRET` when missing, runs migrations, and starts the API.
 
 Manual equivalent:
 
@@ -41,36 +41,32 @@ Then configure a client:
 tsk configure --server-url http://localhost:18080
 ```
 
-## Deployment notes
-
-The API handles passwords, JWTs, and refresh tokens. Do not expose the server's plaintext HTTP port directly to the Internet. Terminate HTTPS/TLS in a reverse proxy such as Caddy, Nginx, or a managed load balancer.
-
-From `server/` on a deployment host:
+Non-interactive CLI setup for tests/scripts:
 
 ```sh
-./scripts/deploy.sh
-```
-
-Non-interactive deploy:
-
-```sh
-./scripts/deploy.sh --yes
-./scripts/deploy.sh --yes --host-port 8080 --health-timeout 120
-```
-
-Operational helpers:
-
-```sh
-./scripts/deploy.sh status
-./scripts/deploy.sh logs
-./scripts/deploy.sh backup
-./scripts/deploy.sh undeploy
+TASKMANAGER_INSECURE_KEY_DIR=/tmp/taskmanager/keys \
+  tsk \
+  --profile ci \
+  --output json \
+  configure \
+  --server-url http://localhost:18080 \
+  --email ci@example.com \
+  --password "$TASKMANAGER_TEST_PASSWORD"
 ```
 
 ## Checks
+
+From `server/`:
 
 ```sh
 make check
 make test
 make build
+```
+
+Useful Docker helpers for local development:
+
+```sh
+make docker-up
+make docker-down
 ```

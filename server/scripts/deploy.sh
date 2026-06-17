@@ -22,7 +22,7 @@ usage() {
 Usage: $0 [deploy|undeploy|status|logs|backup] [options]
 
 Actions:
-  deploy          Configure, build, start, and health-check the server (default)
+  deploy          Configure, pull, start, and health-check the server (default)
   undeploy        Stop and remove deployed containers, preserving database data
   status          Show Docker Compose service status
   logs            Follow recent app and database logs
@@ -31,7 +31,7 @@ Actions:
 Deploy options:
   -y, --yes                  Run non-interactively using existing env/defaults
       --env-file PATH        Env file to read/write (default: .env)
-      --host-port PORT       Public HTTP port (default: existing env or 18080)
+      --host-port PORT       Loopback HTTP port for reverse proxying (default: existing env or 18080)
       --health-timeout SECS  Health-check timeout (default: 60)
       --skip-health          Do not wait for /healthz
       --volumes              With undeploy, also delete the Postgres data volume
@@ -126,6 +126,7 @@ POSTGRES_USER=$POSTGRES_USER
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 DATABASE_URL=postgres://$db_user_encoded:$db_password_encoded@postgres:5432/$db_name_encoded?sslmode=disable
 JWT_SECRET=$JWT_SECRET
+TASKS_SERVER_IMAGE=$TASKS_SERVER_IMAGE
 JWT_ISSUER=$JWT_ISSUER
 ACCESS_TOKEN_TTL=$ACCESS_TOKEN_TTL
 REFRESH_TOKEN_TTL=$REFRESH_TOKEN_TTL
@@ -138,7 +139,7 @@ EOF_ENV
 }
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  TASKS_SERVER_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 parse_args() {
@@ -196,7 +197,7 @@ confirm_deploy() {
   fi
 
   echo
-  echo "This will write $ENV_FILE and run: docker compose --env-file $ENV_FILE -f $COMPOSE_FILE up -d --build"
+  echo "This will write $ENV_FILE and run: docker compose --env-file $ENV_FILE -f $COMPOSE_FILE pull app && docker compose --env-file $ENV_FILE -f $COMPOSE_FILE up -d"
   read -r -p "Continue? [y/N]: " confirm
   case "$confirm" in
     y|Y|yes|YES) ;;
@@ -244,6 +245,8 @@ configure_env() {
     echo "Generated JWT secret."
   fi
 
+  TASKS_SERVER_IMAGE="${TASKS_SERVER_IMAGE:-ghcr.io/matthewyjiang/tasks-server:latest}"
+
   prompt JWT_ISSUER "JWT issuer" "${JWT_ISSUER:-tasks-server}"
   prompt ACCESS_TOKEN_TTL "Access token TTL" "${ACCESS_TOKEN_TTL:-15m}"
   prompt REFRESH_TOKEN_TTL "Refresh token TTL" "${REFRESH_TOKEN_TTL:-720h}"
@@ -267,7 +270,8 @@ deploy() {
   configure_env
   confirm_deploy
   write_env
-  compose up -d --build
+  compose pull app
+  compose up -d
   wait_for_health
 }
 
