@@ -1,49 +1,30 @@
 # Get started
 
-Start by choosing the client for the device where you want to use `tsk` day to day. The graphical clients are the natural entry points for interactive task management, while the CLI remains available for terminal workflows, scripting, diagnostics, and integrations.
+Start by choosing the client for the device where you want to manage tasks day to day.
 
-## Choose a client
+The graphical clients are the natural entry points for interactive task management. The CLI is available for terminal workflows, automation, diagnostics, and integrations.
 
-| Platform | Start here | Notes |
+## Pick a client
+
+| Platform | Client | Package status |
 | --- | --- | --- |
-| Linux desktop | [Linux app](./clients/linux.md) | GTK/libadwaita desktop client with local-first tasks, encrypted sync, token refresh, and reminders. Official Arch package: `tsk-linux`; Flatpak is in progress. |
-| iPhone / iPad | [iOS app](./clients/ios.md) | SwiftUI client with local-first tasks, foreground sync, background refresh foundations, and reminders. TestFlight/App Store distribution is in progress. |
-| Terminal / automation | [CLI guide](./cli.md) | Command-line client for task commands, sync, machine-readable output, diagnostics, and scripted workflows. Prebuilt binaries are in progress. |
+| Linux desktop | [Linux app](./clients/linux.md) | Official Arch package: `tsk-linux` from [repo.matthewyjiang.com](https://repo.matthewyjiang.com/). Flatpak is in progress. |
+| iPhone / iPad | [iOS app](./clients/ios.md) | Public TestFlight/App Store distribution is in progress. |
+| Terminal / automation | [CLI](./cli.md) | Prebuilt binaries are in progress; source install is available today. |
 
-See [Client status](./clients/index.md) for the current support matrix and package/download notes.
+## What to expect
 
-## Local-first basics
+Whichever client you choose, `tsk` follows the same local-first model:
 
-All clients are designed around the same model:
+1. Your device keeps its own local task database.
+2. You can keep working without a network connection.
+3. When sync is configured, task contents are encrypted before leaving the device.
+4. Other enrolled clients can pull and decrypt the same encrypted task history.
 
-1. Create and edit tasks against local storage first.
-2. Keep working while offline.
-3. Encrypt task blobs on the client before sync.
-4. Push and pull encrypted blobs through the server when one is configured.
+## Add sync when you need it
 
-## Add encrypted sync
+Sync is optional for single-device use. Add it when you want multiple devices or a backed-up encrypted task stream.
 
-Run or deploy a compatible `tsk` server, then configure your preferred client with the server URL and account credentials. For local testing, the server usually runs at:
+The server is intentionally not a general-purpose task database. It coordinates accounts, devices, sessions, and encrypted blobs. Your clients remain responsible for plaintext task data and keys.
 
-```text
-http://localhost:18080
-```
-
-The CLI setup flow is useful for scripted or terminal-first setup:
-
-```sh
-tsk configure \
-  --server-url http://127.0.0.1:18080 \
-  --email you@example.com \
-  --password "$TASKMANAGER_PASSWORD"
-```
-
-See [Server setup](./server.md) for local and deployed server options.
-
-## Next steps
-
-- [Linux app](./clients/linux.md) for desktop usage.
-- [iOS app](./clients/ios.md) for mobile usage.
-- [CLI guide](./cli.md) for command examples and output modes.
-- [Security model](./security.md) for the zero-knowledge sync boundary.
-- [Known limitations](./roadmap.md) for workflows that are still evolving.
+Continue with [Server setup](./server.md) when you are ready to run a sync server.

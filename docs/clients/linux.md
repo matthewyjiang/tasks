@@ -1,41 +1,25 @@
 # Linux app
 
-The Linux desktop client is a GTK/libadwaita app for the local-first encrypted task manager. Its Cargo package is `tsk-linux`; the GUI binary is `tsk-gui`.
+The Linux app is the desktop client for `tsk`. It uses GTK/libadwaita and is intended to feel like a native Linux task manager while preserving the same local-first encrypted model as the other clients.
 
-## Official packages
+## Download
 
-The official Linux package currently published by this project is the Arch package `tsk-linux`. It is built from `linux-app-v*` releases and published to the custom package repository at [repo.matthewyjiang.com](https://repo.matthewyjiang.com/).
+The official Linux package currently published by this project is the Arch package `tsk-linux`.
 
-After adding that repository to your package manager, install `tsk-linux`:
-
-```sh
-sudo pacman -S tsk-linux
-```
+It is available from the custom package repository at [repo.matthewyjiang.com](https://repo.matthewyjiang.com/). Add that repository to your package manager, then install the `tsk-linux` package.
 
 Flatpak packaging is in progress.
 
-## Run from source
+## What it provides
 
-From the repository root:
+- Local task management on your desktop.
+- Encrypted sync with a compatible `tsk` server.
+- Account and device secrets stored in the Linux platform key store.
+- Automatic access-token refresh during sync when a valid refresh token is available.
+- Reminder support through the desktop environment.
 
-```sh
-cargo run -p tsk-linux
-```
+## Why use it
 
-The app stores account/device keys and auth tokens in the Linux platform key store.
+Use the Linux app when you want a graphical, platform-native way to manage tasks on a Linux desktop. It is the preferred interactive Linux surface; the CLI remains available alongside it for terminal and automation workflows.
 
-## Sync and auth
-
-The Linux app uses the same zero-knowledge blob sync protocol as the CLI and server. During sync, it uses the stored access token. If the server rejects it as expired, the app calls `/auth/refresh` with the stored refresh token, saves the rotated token pair, and retries sync once.
-
-Failed outbound task changes stay dirty with retry metadata, so pending retries survive app restart. Conflicts are resolved automatically by shared core and surfaced in sync status text where implemented.
-
-## Reminders
-
-Reminder intent is stored in core as encrypted task data. The Linux app schedules open, non-deleted tasks at `due_at - reminder_offset_ms` and cancels reminders when tasks are done, deleted, missing due dates, or have reminders disabled.
-
-Persistent scheduling uses per-task `systemd --user` timers. Only the task id is stored in the timer; the task title is read from the local database when the reminder fires.
-
-## Development notes
-
-Contributor checks and lower-level implementation notes live in [Linux development](../development/linux.md) and the repository's `linux/README.md`.
+Contributor checks and implementation notes live in [Linux development](../development/linux.md) and the repository's `linux/README.md`.

@@ -1,38 +1,36 @@
 # Architecture and sync model
 
-`tsk` is organized around a shared Rust core with thin platform clients.
+`tsk` is organized around a shared local-first core with thin platform clients.
 
-## Local-first clients
+The goal is to make task behavior consistent across platforms without forcing every client to reimplement encryption, sync, conflict handling, and local persistence rules.
 
-Client apps use `taskmanager-core` for task CRUD, local SQLite persistence, encryption, sync queue management, conflict handling, and shared platform-independent behavior. Platform layers own command parsing or UI, key-store adapters, HTTP transport, notifications, reachability, and OS integration.
+## Shape of the system
 
-Task commands operate against a local database first. Sync is an explicit or scheduled pull/push of encrypted task blobs between the local database and the server.
+- **Clients** provide the user interface or command-line surface for a platform.
+- **Shared core** owns platform-independent task behavior, local persistence, encryption, sync orchestration, and conflict rules.
+- **Platform adapters** handle OS-specific concerns such as key stores, HTTP transport, notifications, reachability, and UI.
+- **Server** coordinates encrypted blob sync without reading task contents.
 
-## Zero-knowledge server
+## Why this structure works
 
-The Go server provides:
+Local task operations are fast and resilient because they happen on the device first. Sync can fail, pause, or retry without making the client unusable.
 
-- account registration and login;
-- short-lived access tokens and longer-lived refresh tokens;
-- device public-key directory APIs;
-- encrypted blob upload, download, and cursor-based listing;
-- health checks and deployment tooling.
+Encryption belongs to the client side because clients are the only place plaintext task data should be needed. The server can still coordinate devices and blobs, but it does not need to understand the task content it stores.
 
-The server should not receive plaintext task titles, notes, tags, due dates, or list metadata. Normal users should use a client rather than hand-crafting encrypted blob requests.
+Shared core keeps behavior predictable. A task created from the CLI, edited on Linux, and synced to iOS should follow the same rules for storage, encryption, sync, and conflict handling.
 
 ## Sync flow
 
-A typical user flow is:
+At a high level, sync works like this:
 
-1. Configure a client with a server URL, email, and password.
-2. Initialize or load local account/device keys.
-3. Create and edit tasks offline against local SQLite.
-4. Push dirty local rows as encrypted blobs.
-5. Pull remote blobs newer than the local cursor.
-6. Decrypt and apply remote changes locally.
-
-Linux and iOS clients can refresh expired access tokens during sync when a valid refresh token is available. The CLI currently documents auth-token refresh as future work.
+1. A client changes local task data.
+2. The client encrypts the change into a blob.
+3. The server stores and indexes the encrypted blob.
+4. Another enrolled client asks for newer blobs.
+5. That client downloads, decrypts, and applies the change locally.
 
 ## Conflict behavior
 
-Core resolves conflicts with a deterministic last-write-wins policy using `updated_at`, then a stable id tie-breaker. Linux and iOS surface sync status including failed counts, retry queue depth, dirty counts, cursor information, and automatically resolved conflicts where implemented.
+When multiple clients change the same task, core resolves supported conflicts deterministically. The current policy favors the newest update and uses a stable tie-breaker when timestamps are equal.
+
+This is intentionally simple and predictable. Richer conflict inspection and resolution workflows are tracked as future work.
