@@ -9,6 +9,19 @@
 - Keep server-side sync zero-knowledge: the server stores accounts, sessions, device public keys, cursors, and encrypted blobs, but not plaintext task contents.
 - Share task, sync, auth, crypto, conflict, and enrollment semantics through the native Rust `taskmanager-core` crate.
 
+## Choose your path
+
+- [Choose a client](./getting-started.md) for the platform where you want to manage tasks.
+- [Compare clients](./clients/index.md) to see the current Linux, iOS, and CLI support status.
+- [Use the CLI](./cli.md) for command examples, common flags, output formats, scripted workflows, diagnostics, and sync commands.
+- [Run a sync server](./server.md) when you want self-hosted encrypted blob sync.
+- [Review known limitations](./roadmap.md) before depending on a workflow that is still evolving.
+- [Read the architecture](./architecture.md) or [security model](./security.md) when you want implementation and trust-boundary details.
+
+## Current client status
+
+The Linux and iOS apps provide platform-native task management on top of the shared core. The CLI provides the command-line surface for local tasks, account setup, auth diagnostics, low-level device key operations, scripting, machine-readable output, and encrypted sync.
+
 ## Repository structure
 
 - `core/` — Rust client core library, local data model, crypto, sync orchestration, and UniFFI exports.
@@ -18,7 +31,3 @@
 - `server/` — Go zero-knowledge sync backend.
 - `packaging/` — platform packaging metadata.
 - `scripts/` — release and integration-test automation.
-
-## Current client status
-
-The CLI is the primary supported command-line surface for local tasks, account setup, auth diagnostics, low-level device key operations, and encrypted sync. The Linux and iOS apps use the shared core for local-first task storage, encrypted sync, token refresh, and reminders through platform-specific adapters.

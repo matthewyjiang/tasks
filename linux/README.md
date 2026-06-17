@@ -2,6 +2,8 @@
 
 GTK/libadwaita desktop client for the local-first encrypted task manager.
 
+For the user-facing app page, start with [`docs/clients/linux.md`](../docs/clients/linux.md). This README keeps package-specific run, sync, reminder, and development notes close to the Linux source.
+
 ## Build and run
 
 From the repository root:

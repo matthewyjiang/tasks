@@ -2,6 +2,8 @@
 
 Go zero-knowledge sync backend for encrypted task blobs.
 
+For the user/operator path, start with [`docs/server.md`](../docs/server.md). This README keeps local development, sample API, deployment, and maintenance details close to the server source.
+
 ## Requirements
 
 - Go 1.23 or newer

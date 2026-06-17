@@ -12,7 +12,18 @@ npm run docs:dev
 npm run docs:build
 ```
 
-Start at [`docs/overview.md`](./docs/overview.md) for project goals, architecture, security, client usage, development workflows, releases, and roadmap notes.
+Start with the user-facing docs:
+
+- [Overview](./docs/overview.md)
+- [Get started](./docs/getting-started.md)
+- [Client status](./docs/clients/index.md)
+- [Linux app](./docs/clients/linux.md)
+- [iOS app](./docs/clients/ios.md)
+- [CLI guide](./docs/cli.md)
+- [Server setup](./docs/server.md)
+- [Known limitations](./docs/roadmap.md)
+
+Architecture, security, release, and development details remain available from the docs site's Reference and Contributing sections.
 
 ## Structure
 
@@ -25,9 +36,21 @@ Start at [`docs/overview.md`](./docs/overview.md) for project goals, architectur
 - `macos/` — macOS app shell
 - `linux/` — GTK/libadwaita Linux desktop app (`tsk-gui`)
 
-## CLI installation
+## Linux desktop app
 
-From the repository root, install the Rust CLI with the repo helper:
+The Linux app is the GTK/libadwaita desktop client. The official Arch package is `tsk-linux`, published to the custom package repository at [repo.matthewyjiang.com](https://repo.matthewyjiang.com/) from `linux-app-v*` releases. Flatpak packaging is in progress.
+
+Run from source with:
+
+```sh
+cargo run -p tsk-linux
+```
+
+The app stores account/device keys and auth tokens in the platform key store, syncs encrypted blobs through the server API, and automatically refreshes expired access tokens during sync when a valid refresh token is available.
+
+## Command-line client
+
+Prebuilt `tsk` binaries are in progress. From the repository root, install the Rust CLI with the repo helper:
 
 ```sh
 make cli-install
@@ -69,17 +92,7 @@ tsk generate completion powershell > tsk.ps1
 tsk generate man > tsk.1
 ```
 
-See [`cli/README.md`](./cli/README.md) for usage examples and development setup.
-
-## Linux desktop app
-
-The Linux app is the GTK/libadwaita desktop client. Run it from the repository root with:
-
-```sh
-cargo run -p tsk-linux
-```
-
-The app stores account/device keys and auth tokens in the platform key store, syncs encrypted blobs through the server API, and automatically refreshes expired access tokens during sync when a valid refresh token is available.
+See the [CLI guide](./docs/cli.md) for user-facing examples. [`cli/README.md`](./cli/README.md) includes deeper CLI reference and development setup.
 
 ## Specification
 

@@ -2,6 +2,8 @@
 
 Rust command-line client for the local-first encrypted task manager.
 
+For the canonical user-facing CLI guide, start with [`docs/cli.md`](../docs/cli.md) or [`docs/getting-started.md`](../docs/getting-started.md). This README keeps the local package reference, diagnostics, and development/testing details close to the CLI source.
+
 The CLI is intended for both human terminal use and deterministic integration testing. It is thin by design: command parsing, output formatting, path resolution, and platform/key-store adaptation live here; task and crypto behavior comes from `taskmanager-core`.
 
 ## Build and test
