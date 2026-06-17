@@ -3,11 +3,14 @@ import SwiftUI
 public struct TaskListView: View {
     @ObservedObject var model: AppModel
     private var selectionOverride: TaskSelection?
+    private var usesSplitSelection: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isNewTaskPresented = false
 
-    public init(model: AppModel, selection: TaskSelection? = nil) {
+    public init(model: AppModel, selection: TaskSelection? = nil, usesSplitSelection: Bool = false) {
         self.model = model
         self.selectionOverride = selection
+        self.usesSplitSelection = usesSplitSelection
     }
 
     private var activeSelection: TaskSelection {
@@ -34,32 +37,63 @@ public struct TaskListView: View {
     }
 
     private var taskList: some View {
-        List {
+        List(selection: usesSplitSelection ? $model.selectedTaskID : .constant(nil)) {
             ForEach(visibleTasks) { task in
-                NavigationLink {
-                    TaskDetailView(model: model, task: task)
-                } label: {
-                    TaskRowView(task: task, listName: model.listName(for: task.listID))
-                }
+                taskRow(for: task)
+                .listRowSeparator(.hidden)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .padding(.vertical, 3)
+                )
                 .swipeActions(edge: .leading) {
-                    Button(task.status == .done ? "Open" : "Done") {
+                    Button {
                         Task { await model.toggleTaskStatus(task) }
+                    } label: {
+                        Label(task.status == .done ? "Mark Open" : "Mark Done", systemImage: task.status == .done ? "arrow.uturn.backward.circle" : "checkmark.circle")
                     }
                     .tint(.green)
+                    .accessibilityLabel(task.status == .done ? "Mark Open" : "Mark Done")
+                    .accessibilityHint(task.status == .done ? "Reopens this task." : "Completes this task.")
                 }
                 .swipeActions(edge: .trailing) {
-                    Button("Delete", role: .destructive) {
+                    Button(role: .destructive) {
                         Task { await model.deleteTask(id: task.id) }
+                    } label: {
+                        Label("Delete Task", systemImage: "trash")
                     }
+                    .accessibilityLabel("Delete Task")
+                    .accessibilityHint("Deletes this task.")
                 }
                 .accessibilityAction(named: task.status == .done ? "Mark Open" : "Mark Done") {
                     Task { await model.toggleTaskStatus(task) }
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: visibleTasks.map(\.id))
         .overlay {
             if visibleTasks.isEmpty {
                 ContentUnavailableView("No tasks", systemImage: "tray", description: Text("Create a task or adjust search."))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func taskRow(for task: TaskItem) -> some View {
+        if usesSplitSelection {
+            Button {
+                model.selectedTaskID = task.id
+            } label: {
+                TaskRowView(task: task, listName: model.listName(for: task.listID))
+            }
+            .buttonStyle(.plain)
+            .tag(task.id)
+        } else {
+            NavigationLink {
+                TaskDetailView(model: model, task: task)
+            } label: {
+                TaskRowView(task: task, listName: model.listName(for: task.listID))
             }
         }
     }
@@ -73,6 +107,8 @@ public struct TaskListView: View {
                 Label("New Task", systemImage: "plus")
             }
             .accessibilityLabel("New Task")
+            .accessibilityHint("Opens a sheet to create a task.")
+            .help("New Task")
         }
     }
 }
@@ -191,29 +227,38 @@ public struct TaskRowView: View {
     public var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: task.status == .done ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
                 .foregroundStyle(task.status == .done ? .green : .secondary)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(task.title.isEmpty ? "Untitled" : task.title)
                     .strikethrough(task.status == .done)
-                    .font(.body)
-                HStack(spacing: 8) {
-                    if let dueAt = task.dueAt {
-                        Label(dueAt.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
-                    }
-                    if let listName {
-                        Label(listName, systemImage: "list.bullet")
-                    }
-                    if !task.tags.isEmpty {
-                        Label(task.tags.joined(separator: ", "), systemImage: "tag")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                    .font(.body.weight(.medium))
+                    .contentTransition(.opacity)
+                metadataSummary
             }
         }
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var metadataSummary: some View {
+        HStack(spacing: 8) {
+            if let dueAt = task.dueAt {
+                Label(dueAt.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
+            }
+            if let listName {
+                Label(listName, systemImage: "list.bullet")
+            }
+            if !task.tags.isEmpty {
+                Label("\(task.tags.count)", systemImage: "tag")
+                    .accessibilityLabel("\(task.tags.count) tags")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
     }
 }
 
@@ -226,20 +271,38 @@ struct TaskMetadataEditor: View {
 
     var body: some View {
         Section("Metadata") {
-            Toggle("Due Date", isOn: $hasDueDate)
-            if hasDueDate {
-                DatePicker("Due", selection: $dueAt, displayedComponents: [.date, .hourAndMinute])
-            }
-
-            Picker("List", selection: $listID) {
-                Text("Inbox").tag(UUID?.none)
-                ForEach(lists) { list in
-                    Text(list.name).tag(Optional(list.id))
-                }
-            }
-
-            TextField("Tags", text: $tagsText, prompt: Text("ios, errands"))
+            TaskMetadataFields(
+                lists: lists,
+                hasDueDate: $hasDueDate,
+                dueAt: $dueAt,
+                listID: $listID,
+                tagsText: $tagsText
+            )
         }
+    }
+}
+
+struct TaskMetadataFields: View {
+    var lists: [TaskListItem]
+    @Binding var hasDueDate: Bool
+    @Binding var dueAt: Date
+    @Binding var listID: UUID?
+    @Binding var tagsText: String
+
+    var body: some View {
+        Toggle("Due Date", isOn: $hasDueDate)
+        if hasDueDate {
+            DatePicker("Due", selection: $dueAt, displayedComponents: [.date, .hourAndMinute])
+        }
+
+        Picker("List", selection: $listID) {
+            Text("Inbox").tag(UUID?.none)
+            ForEach(lists) { list in
+                Text(list.name).tag(Optional(list.id))
+            }
+        }
+
+        TextField("Tags", text: $tagsText, prompt: Text("ios, errands"))
     }
 }
 
