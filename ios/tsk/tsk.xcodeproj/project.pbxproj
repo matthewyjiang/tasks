@@ -1,65 +1,66 @@
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
-	classes = {};
+	classes = {
+	};
 	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* SecureSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* SecureSecretStore.swift */; };
-		A10000000000000000000002 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* KeychainSecretStore.swift */; };
-		A10000000000000000000003 /* LocalFirstBootstrapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LocalFirstBootstrapService.swift */; };
-		A10000000000000000000004 /* NotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* NotificationScheduler.swift */; };
-		A10000000000000000000005 /* ReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* ReachabilityMonitor.swift */; };
-		A10000000000000000000006 /* BackgroundSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* BackgroundSyncService.swift */; };
-		A10000000000000000000008 /* CorePlatformAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* CorePlatformAdapter.swift */; };
-		A10000000000000000000009 /* SyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* SyncCoordinator.swift */; };
-		A1000000000000000000000A /* SyncHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* SyncHTTPClient.swift */; };
-		7ABB6B5BA8B141E7BD3B8CDB /* StartupFailedRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102066F2F8994ED898431844 /* StartupFailedRepository.swift */; };
-		FA494AF7D3E5475B9B33359B /* TskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CB85414C9C40F0A6D187D1 /* TskApp.swift */; };
-		20F2EC00E7364FA88CA59BC8 /* taskmanager_core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A7A2EB40684703865A794B /* taskmanager_core.swift */; };
-		077D06F90C764BD0AE5B2D6A /* TaskFiltering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69DD31A06C93492F8B1F7775 /* TaskFiltering.swift */; };
-		FF7169C0A12B43B39AD3EA1F /* TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE9BBD9CDE64D6AB8834F89 /* TaskModels.swift */; };
-		971534EC317A43C6875950F0 /* AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E57C3920C9496E8028E0A7 /* AppPaths.swift */; };
-		C0A26763FB6642A289A95525 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0124E614FF084E3C8F7C8573 /* AppModel.swift */; };
-		5A34C48815C243B8A11F3B6C /* CoreTaskRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD2CD39752A4ACFAB7DABF0 /* CoreTaskRepository.swift */; };
-		A11A756FAFEC441CA643F390 /* TaskRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD92960663468DA781C637 /* TaskRepository.swift */; };
-		59226D0211474445A504E037 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DD5D29DDAAA40EC84E315C7 /* RootView.swift */; };
-		79FFC70344694AC192BABA95 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4E42DC9AE5475FAAF593A9 /* SettingsView.swift */; };
-		754AD5A479EF4964900AEDB7 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A016A8640D041C687FDEE4B /* SidebarView.swift */; };
-		0C3A674AAE584F3A8BE29C72 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFA79A0701B46B6AA912FF8 /* TaskDetailView.swift */; };
-		230BE4E16E844A0D8E7A3D91 /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A8EE52B5A7445E9145E40E /* TaskListView.swift */; };
-		E8C10DE619804275A13CBBCE /* TaskmanagerCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C381EF213224265B7048A85 /* TaskmanagerCore.xcframework */; };
+		077D06F90C764BD0AE5B2D6A /* Sources/TskCore/Models/TaskFiltering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69DD31A06C93492F8B1F7775 /* Sources/TskCore/Models/TaskFiltering.swift */; };
+		0C3A674AAE584F3A8BE29C72 /* Sources/TskCore/Views/TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFA79A0701B46B6AA912FF8 /* Sources/TskCore/Views/TaskDetailView.swift */; };
+		20F2EC00E7364FA88CA59BC8 /* Sources/TskCore/Generated/taskmanager_core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A7A2EB40684703865A794B /* Sources/TskCore/Generated/taskmanager_core.swift */; };
+		230BE4E16E844A0D8E7A3D91 /* Sources/TskCore/Views/TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A8EE52B5A7445E9145E40E /* Sources/TskCore/Views/TaskListView.swift */; };
 		55B3BC7BA74A415CAF865B7C /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000001 /* libiconv.tbd */; };
+		59226D0211474445A504E037 /* Sources/TskCore/Views/RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DD5D29DDAAA40EC84E315C7 /* Sources/TskCore/Views/RootView.swift */; };
+		5A34C48815C243B8A11F3B6C /* Sources/TskCore/Services/CoreTaskRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD2CD39752A4ACFAB7DABF0 /* Sources/TskCore/Services/CoreTaskRepository.swift */; };
+		754AD5A479EF4964900AEDB7 /* Sources/TskCore/Views/SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A016A8640D041C687FDEE4B /* Sources/TskCore/Views/SidebarView.swift */; };
+		79FFC70344694AC192BABA95 /* Sources/TskCore/Views/SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4E42DC9AE5475FAAF593A9 /* Sources/TskCore/Views/SettingsView.swift */; };
+		7ABB6B5BA8B141E7BD3B8CDB /* Sources/TskCore/Services/StartupFailedRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102066F2F8994ED898431844 /* Sources/TskCore/Services/StartupFailedRepository.swift */; };
+		971534EC317A43C6875950F0 /* Sources/TskCore/Platform/AppPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E57C3920C9496E8028E0A7 /* Sources/TskCore/Platform/AppPaths.swift */; };
+		A10000000000000000000001 /* Sources/TskCore/Platform/SecureSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* Sources/TskCore/Platform/SecureSecretStore.swift */; };
+		A10000000000000000000002 /* Sources/TskCore/Platform/KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* Sources/TskCore/Platform/KeychainSecretStore.swift */; };
+		A10000000000000000000003 /* Sources/TskCore/Platform/LocalFirstBootstrapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* Sources/TskCore/Platform/LocalFirstBootstrapService.swift */; };
+		A10000000000000000000004 /* Sources/TskCore/Platform/NotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* Sources/TskCore/Platform/NotificationScheduler.swift */; };
+		A10000000000000000000005 /* Sources/TskCore/Platform/ReachabilityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* Sources/TskCore/Platform/ReachabilityMonitor.swift */; };
+		A10000000000000000000006 /* Sources/TskCore/Services/BackgroundSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* Sources/TskCore/Services/BackgroundSyncService.swift */; };
+		A10000000000000000000008 /* Sources/TskCore/Platform/CorePlatformAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* Sources/TskCore/Platform/CorePlatformAdapter.swift */; };
+		A10000000000000000000009 /* Sources/TskCore/Services/SyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* Sources/TskCore/Services/SyncCoordinator.swift */; };
+		A1000000000000000000000A /* Sources/TskCore/Services/SyncHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* Sources/TskCore/Services/SyncHTTPClient.swift */; };
+		A11A756FAFEC441CA643F390 /* Sources/TskCore/Services/TaskRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD92960663468DA781C637 /* Sources/TskCore/Services/TaskRepository.swift */; };
+		C0A26763FB6642A289A95525 /* Sources/TskCore/Services/AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0124E614FF084E3C8F7C8573 /* Sources/TskCore/Services/AppModel.swift */; };
+		E8C10DE619804275A13CBBCE /* Frameworks/TaskmanagerCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C381EF213224265B7048A85 /* Frameworks/TaskmanagerCore.xcframework */; };
+		FA494AF7D3E5475B9B33359B /* Sources/tsk/TskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41CB85414C9C40F0A6D187D1 /* Sources/tsk/TskApp.swift */; };
+		FF7169C0A12B43B39AD3EA1F /* Sources/TskCore/Models/TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE9BBD9CDE64D6AB8834F89 /* Sources/TskCore/Models/TaskModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		B10000000000000000000001 /* SecureSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/SecureSecretStore.swift"; sourceTree = "<group>"; };
-		B10000000000000000000002 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/KeychainSecretStore.swift"; sourceTree = "<group>"; };
-		B10000000000000000000003 /* LocalFirstBootstrapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/LocalFirstBootstrapService.swift"; sourceTree = "<group>"; };
-		B10000000000000000000004 /* NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/NotificationScheduler.swift"; sourceTree = "<group>"; };
-		B10000000000000000000005 /* ReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/ReachabilityMonitor.swift"; sourceTree = "<group>"; };
-		B10000000000000000000006 /* BackgroundSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/BackgroundSyncService.swift"; sourceTree = "<group>"; };
-		B10000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		B10000000000000000000008 /* CorePlatformAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/CorePlatformAdapter.swift"; sourceTree = "<group>"; };
-		B10000000000000000000009 /* SyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/SyncCoordinator.swift"; sourceTree = "<group>"; };
-		B1000000000000000000000A /* SyncHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/SyncHTTPClient.swift"; sourceTree = "<group>"; };
-		102066F2F8994ED898431844 /* StartupFailedRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/StartupFailedRepository.swift; sourceTree = "<group>"; };
-		41CB85414C9C40F0A6D187D1 /* TskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/tsk/TskApp.swift"; sourceTree = "<group>"; };
-		74A7A2EB40684703865A794B /* taskmanager_core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Generated/taskmanager_core.swift"; sourceTree = "<group>"; };
-		69DD31A06C93492F8B1F7775 /* TaskFiltering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Models/TaskFiltering.swift"; sourceTree = "<group>"; };
-		7EE9BBD9CDE64D6AB8834F89 /* TaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Models/TaskModels.swift"; sourceTree = "<group>"; };
-		51E57C3920C9496E8028E0A7 /* AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Platform/AppPaths.swift"; sourceTree = "<group>"; };
-		0124E614FF084E3C8F7C8573 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/AppModel.swift"; sourceTree = "<group>"; };
-		7BD2CD39752A4ACFAB7DABF0 /* CoreTaskRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/CoreTaskRepository.swift"; sourceTree = "<group>"; };
-		5DFD92960663468DA781C637 /* TaskRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Services/TaskRepository.swift"; sourceTree = "<group>"; };
-		9DD5D29DDAAA40EC84E315C7 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Views/RootView.swift"; sourceTree = "<group>"; };
-		AC4E42DC9AE5475FAAF593A9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Views/SettingsView.swift"; sourceTree = "<group>"; };
-		2A016A8640D041C687FDEE4B /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Views/SidebarView.swift"; sourceTree = "<group>"; };
-		3AFA79A0701B46B6AA912FF8 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Views/TaskDetailView.swift"; sourceTree = "<group>"; };
-		04A8EE52B5A7445E9145E40E /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TskCore/Views/TaskListView.swift"; sourceTree = "<group>"; };
-		5C381EF213224265B7048A85 /* TaskmanagerCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/TaskmanagerCore.xcframework; sourceTree = "<group>"; };
 		000000000000000000000001 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
+		0124E614FF084E3C8F7C8573 /* Sources/TskCore/Services/AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/AppModel.swift; sourceTree = "<group>"; };
+		04A8EE52B5A7445E9145E40E /* Sources/TskCore/Views/TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Views/TaskListView.swift; sourceTree = "<group>"; };
+		102066F2F8994ED898431844 /* Sources/TskCore/Services/StartupFailedRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/StartupFailedRepository.swift; sourceTree = "<group>"; };
+		2A016A8640D041C687FDEE4B /* Sources/TskCore/Views/SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Views/SidebarView.swift; sourceTree = "<group>"; };
+		3AFA79A0701B46B6AA912FF8 /* Sources/TskCore/Views/TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Views/TaskDetailView.swift; sourceTree = "<group>"; };
+		41CB85414C9C40F0A6D187D1 /* Sources/tsk/TskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/tsk/TskApp.swift; sourceTree = "<group>"; };
+		51E57C3920C9496E8028E0A7 /* Sources/TskCore/Platform/AppPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/AppPaths.swift; sourceTree = "<group>"; };
+		5C381EF213224265B7048A85 /* Frameworks/TaskmanagerCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/TaskmanagerCore.xcframework; sourceTree = "<group>"; };
+		5DFD92960663468DA781C637 /* Sources/TskCore/Services/TaskRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/TaskRepository.swift; sourceTree = "<group>"; };
+		69DD31A06C93492F8B1F7775 /* Sources/TskCore/Models/TaskFiltering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Models/TaskFiltering.swift; sourceTree = "<group>"; };
+		74A7A2EB40684703865A794B /* Sources/TskCore/Generated/taskmanager_core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Generated/taskmanager_core.swift; sourceTree = "<group>"; };
+		7BD2CD39752A4ACFAB7DABF0 /* Sources/TskCore/Services/CoreTaskRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/CoreTaskRepository.swift; sourceTree = "<group>"; };
+		7EE9BBD9CDE64D6AB8834F89 /* Sources/TskCore/Models/TaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Models/TaskModels.swift; sourceTree = "<group>"; };
+		9DD5D29DDAAA40EC84E315C7 /* Sources/TskCore/Views/RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Views/RootView.swift; sourceTree = "<group>"; };
+		AC4E42DC9AE5475FAAF593A9 /* Sources/TskCore/Views/SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Views/SettingsView.swift; sourceTree = "<group>"; };
+		B10000000000000000000001 /* Sources/TskCore/Platform/SecureSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/SecureSecretStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* Sources/TskCore/Platform/KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/KeychainSecretStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* Sources/TskCore/Platform/LocalFirstBootstrapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/LocalFirstBootstrapService.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* Sources/TskCore/Platform/NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/NotificationScheduler.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* Sources/TskCore/Platform/ReachabilityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/ReachabilityMonitor.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* Sources/TskCore/Services/BackgroundSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/BackgroundSyncService.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000008 /* Sources/TskCore/Platform/CorePlatformAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Platform/CorePlatformAdapter.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* Sources/TskCore/Services/SyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/SyncCoordinator.swift; sourceTree = "<group>"; };
+		B1000000000000000000000A /* Sources/TskCore/Services/SyncHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/TskCore/Services/SyncHTTPClient.swift; sourceTree = "<group>"; };
 		F5D3C6D7F6504595A3BB853A /* tsk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = tsk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -68,7 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E8C10DE619804275A13CBBCE /* TaskmanagerCore.xcframework in Frameworks */,
+				E8C10DE619804275A13CBBCE /* Frameworks/TaskmanagerCore.xcframework in Frameworks */,
 				55B3BC7BA74A415CAF865B7C /* libiconv.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -89,29 +90,29 @@
 		5CF9D46A93854749964E9DD8 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
-				41CB85414C9C40F0A6D187D1 /* TskApp.swift */,
-				74A7A2EB40684703865A794B /* taskmanager_core.swift */,
-				69DD31A06C93492F8B1F7775 /* TaskFiltering.swift */,
-				7EE9BBD9CDE64D6AB8834F89 /* TaskModels.swift */,
-				51E57C3920C9496E8028E0A7 /* AppPaths.swift */,
-				B10000000000000000000001 /* SecureSecretStore.swift */,
-				B10000000000000000000002 /* KeychainSecretStore.swift */,
-				B10000000000000000000003 /* LocalFirstBootstrapService.swift */,
-				B10000000000000000000004 /* NotificationScheduler.swift */,
-				B10000000000000000000005 /* ReachabilityMonitor.swift */,
-				B10000000000000000000008 /* CorePlatformAdapter.swift */,
-				B10000000000000000000006 /* BackgroundSyncService.swift */,
-				0124E614FF084E3C8F7C8573 /* AppModel.swift */,
-				102066F2F8994ED898431844 /* StartupFailedRepository.swift */,
-				B10000000000000000000009 /* SyncCoordinator.swift */,
-				B1000000000000000000000A /* SyncHTTPClient.swift */,
-				7BD2CD39752A4ACFAB7DABF0 /* CoreTaskRepository.swift */,
-				5DFD92960663468DA781C637 /* TaskRepository.swift */,
-				9DD5D29DDAAA40EC84E315C7 /* RootView.swift */,
-				AC4E42DC9AE5475FAAF593A9 /* SettingsView.swift */,
-				2A016A8640D041C687FDEE4B /* SidebarView.swift */,
-				3AFA79A0701B46B6AA912FF8 /* TaskDetailView.swift */,
-				04A8EE52B5A7445E9145E40E /* TaskListView.swift */,
+				41CB85414C9C40F0A6D187D1 /* Sources/tsk/TskApp.swift */,
+				74A7A2EB40684703865A794B /* Sources/TskCore/Generated/taskmanager_core.swift */,
+				69DD31A06C93492F8B1F7775 /* Sources/TskCore/Models/TaskFiltering.swift */,
+				7EE9BBD9CDE64D6AB8834F89 /* Sources/TskCore/Models/TaskModels.swift */,
+				51E57C3920C9496E8028E0A7 /* Sources/TskCore/Platform/AppPaths.swift */,
+				B10000000000000000000001 /* Sources/TskCore/Platform/SecureSecretStore.swift */,
+				B10000000000000000000002 /* Sources/TskCore/Platform/KeychainSecretStore.swift */,
+				B10000000000000000000003 /* Sources/TskCore/Platform/LocalFirstBootstrapService.swift */,
+				B10000000000000000000004 /* Sources/TskCore/Platform/NotificationScheduler.swift */,
+				B10000000000000000000005 /* Sources/TskCore/Platform/ReachabilityMonitor.swift */,
+				B10000000000000000000008 /* Sources/TskCore/Platform/CorePlatformAdapter.swift */,
+				B10000000000000000000006 /* Sources/TskCore/Services/BackgroundSyncService.swift */,
+				0124E614FF084E3C8F7C8573 /* Sources/TskCore/Services/AppModel.swift */,
+				102066F2F8994ED898431844 /* Sources/TskCore/Services/StartupFailedRepository.swift */,
+				B10000000000000000000009 /* Sources/TskCore/Services/SyncCoordinator.swift */,
+				B1000000000000000000000A /* Sources/TskCore/Services/SyncHTTPClient.swift */,
+				7BD2CD39752A4ACFAB7DABF0 /* Sources/TskCore/Services/CoreTaskRepository.swift */,
+				5DFD92960663468DA781C637 /* Sources/TskCore/Services/TaskRepository.swift */,
+				9DD5D29DDAAA40EC84E315C7 /* Sources/TskCore/Views/RootView.swift */,
+				AC4E42DC9AE5475FAAF593A9 /* Sources/TskCore/Views/SettingsView.swift */,
+				2A016A8640D041C687FDEE4B /* Sources/TskCore/Views/SidebarView.swift */,
+				3AFA79A0701B46B6AA912FF8 /* Sources/TskCore/Views/TaskDetailView.swift */,
+				04A8EE52B5A7445E9145E40E /* Sources/TskCore/Views/TaskListView.swift */,
 			);
 			name = Sources;
 			sourceTree = "<group>";
@@ -119,7 +120,7 @@
 		93F509BDF3834EEE97607A9B /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				5C381EF213224265B7048A85 /* TaskmanagerCore.xcframework */,
+				5C381EF213224265B7048A85 /* Frameworks/TaskmanagerCore.xcframework */,
 				000000000000000000000001 /* libiconv.tbd */,
 			);
 			name = Frameworks;
@@ -143,8 +144,10 @@
 				58F98278E50B418D97C72E8D /* Sources */,
 				D736E0E75C884496A51BEFBF /* Frameworks */,
 			);
-			buildRules = ();
-			dependencies = ();
+			buildRules = (
+			);
+			dependencies = (
+			);
 			name = tsk;
 			productName = tsk;
 			productReference = F5D3C6D7F6504595A3BB853A /* tsk.app */;
@@ -155,17 +158,30 @@
 /* Begin PBXProject section */
 		D4883C4A7F5645F5B307F1E8 /* Project object */ = {
 			isa = PBXProject;
-			attributes = { LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = { CC9E07D0C3FE4E90A2BD122E = { CreatedOnToolsVersion = 16.0; }; }; };
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					CC9E07D0C3FE4E90A2BD122E = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
 			buildConfigurationList = F5AADF9B74464426975E48A8 /* Build configuration list for PBXProject "tsk" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			knownRegions = (en, Base);
+			knownRegions = (
+				en,
+				Base,
+			);
 			mainGroup = 0B92F2D5280E4503A3101F29;
 			productRefGroup = C912CAF65AB349A1A30DB1B8 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (CC9E07D0C3FE4E90A2BD122E /* tsk */);
+			targets = (
+				CC9E07D0C3FE4E90A2BD122E /* tsk */,
+			);
 		};
 /* End PBXProject section */
 
@@ -174,44 +190,119 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7ABB6B5BA8B141E7BD3B8CDB /* StartupFailedRepository.swift in Sources */,
-				FA494AF7D3E5475B9B33359B /* TskApp.swift in Sources */,
-				20F2EC00E7364FA88CA59BC8 /* taskmanager_core.swift in Sources */,
-				077D06F90C764BD0AE5B2D6A /* TaskFiltering.swift in Sources */,
-				FF7169C0A12B43B39AD3EA1F /* TaskModels.swift in Sources */,
-				971534EC317A43C6875950F0 /* AppPaths.swift in Sources */,
-				A10000000000000000000001 /* SecureSecretStore.swift in Sources */,
-				A10000000000000000000002 /* KeychainSecretStore.swift in Sources */,
-				A10000000000000000000003 /* LocalFirstBootstrapService.swift in Sources */,
-				A10000000000000000000004 /* NotificationScheduler.swift in Sources */,
-				A10000000000000000000005 /* ReachabilityMonitor.swift in Sources */,
-				A10000000000000000000008 /* CorePlatformAdapter.swift in Sources */,
-				A10000000000000000000006 /* BackgroundSyncService.swift in Sources */,
-				C0A26763FB6642A289A95525 /* AppModel.swift in Sources */,
-				A10000000000000000000009 /* SyncCoordinator.swift in Sources */,
-				A1000000000000000000000A /* SyncHTTPClient.swift in Sources */,
-				5A34C48815C243B8A11F3B6C /* CoreTaskRepository.swift in Sources */,
-				A11A756FAFEC441CA643F390 /* TaskRepository.swift in Sources */,
-				59226D0211474445A504E037 /* RootView.swift in Sources */,
-				79FFC70344694AC192BABA95 /* SettingsView.swift in Sources */,
-				754AD5A479EF4964900AEDB7 /* SidebarView.swift in Sources */,
-				0C3A674AAE584F3A8BE29C72 /* TaskDetailView.swift in Sources */,
-				230BE4E16E844A0D8E7A3D91 /* TaskListView.swift in Sources */,
+				7ABB6B5BA8B141E7BD3B8CDB /* Sources/TskCore/Services/StartupFailedRepository.swift in Sources */,
+				FA494AF7D3E5475B9B33359B /* Sources/tsk/TskApp.swift in Sources */,
+				20F2EC00E7364FA88CA59BC8 /* Sources/TskCore/Generated/taskmanager_core.swift in Sources */,
+				077D06F90C764BD0AE5B2D6A /* Sources/TskCore/Models/TaskFiltering.swift in Sources */,
+				FF7169C0A12B43B39AD3EA1F /* Sources/TskCore/Models/TaskModels.swift in Sources */,
+				971534EC317A43C6875950F0 /* Sources/TskCore/Platform/AppPaths.swift in Sources */,
+				A10000000000000000000001 /* Sources/TskCore/Platform/SecureSecretStore.swift in Sources */,
+				A10000000000000000000002 /* Sources/TskCore/Platform/KeychainSecretStore.swift in Sources */,
+				A10000000000000000000003 /* Sources/TskCore/Platform/LocalFirstBootstrapService.swift in Sources */,
+				A10000000000000000000004 /* Sources/TskCore/Platform/NotificationScheduler.swift in Sources */,
+				A10000000000000000000005 /* Sources/TskCore/Platform/ReachabilityMonitor.swift in Sources */,
+				A10000000000000000000008 /* Sources/TskCore/Platform/CorePlatformAdapter.swift in Sources */,
+				A10000000000000000000006 /* Sources/TskCore/Services/BackgroundSyncService.swift in Sources */,
+				C0A26763FB6642A289A95525 /* Sources/TskCore/Services/AppModel.swift in Sources */,
+				A10000000000000000000009 /* Sources/TskCore/Services/SyncCoordinator.swift in Sources */,
+				A1000000000000000000000A /* Sources/TskCore/Services/SyncHTTPClient.swift in Sources */,
+				5A34C48815C243B8A11F3B6C /* Sources/TskCore/Services/CoreTaskRepository.swift in Sources */,
+				A11A756FAFEC441CA643F390 /* Sources/TskCore/Services/TaskRepository.swift in Sources */,
+				59226D0211474445A504E037 /* Sources/TskCore/Views/RootView.swift in Sources */,
+				79FFC70344694AC192BABA95 /* Sources/TskCore/Views/SettingsView.swift in Sources */,
+				754AD5A479EF4964900AEDB7 /* Sources/TskCore/Views/SidebarView.swift in Sources */,
+				0C3A674AAE584F3A8BE29C72 /* Sources/TskCore/Views/TaskDetailView.swift in Sources */,
+				230BE4E16E844A0D8E7A3D91 /* Sources/TskCore/Views/TaskListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		140C36E6FEA6409D9DD9A874 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; }; name = Debug; };
-		C26BE07264354B8FB3DE7042 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; }; name = Release; };
-		5FBB4FAC202B4633B07D3E18 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64; DEVELOPMENT_ASSET_PATHS = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; INFOPLIST_KEY_CFBundleDisplayName = tsk; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
-		0D0FB4C6D6FB4585B15BE2DB /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; INFOPLIST_KEY_CFBundleDisplayName = tsk; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		0D0FB4C6D6FB4585B15BE2DB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = MH224URC5Y;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = tsk;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		140C36E6FEA6409D9DD9A874 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+			};
+			name = Debug;
+		};
+		5FBB4FAC202B4633B07D3E18 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = MH224URC5Y;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = tsk;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.matthewyjiang.tsk;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C26BE07264354B8FB3DE7042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		F5AADF9B74464426975E48A8 = {isa = XCConfigurationList; buildConfigurations = (140C36E6FEA6409D9DD9A874 /* Debug */, C26BE07264354B8FB3DE7042 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-		92765BA31D3A49EF94766F40 = {isa = XCConfigurationList; buildConfigurations = (5FBB4FAC202B4633B07D3E18 /* Debug */, 0D0FB4C6D6FB4585B15BE2DB /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		92765BA31D3A49EF94766F40 /* Build configuration list for PBXNativeTarget "tsk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5FBB4FAC202B4633B07D3E18 /* Debug */,
+				0D0FB4C6D6FB4585B15BE2DB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F5AADF9B74464426975E48A8 /* Build configuration list for PBXProject "tsk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				140C36E6FEA6409D9DD9A874 /* Debug */,
+				C26BE07264354B8FB3DE7042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 	};
 	rootObject = D4883C4A7F5645F5B307F1E8 /* Project object */;
