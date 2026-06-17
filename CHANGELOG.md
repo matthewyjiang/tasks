@@ -1,5 +1,10 @@
 # Changelog
 
+## server-v1.3.0 - 2026-06-17
+
+- feat(server): deploy prebuilt server image (#161) (54ceae1)
+- docs: organize user-facing documentation (#146) (9d639ad)
+
 ## core-v0.19.0 - 2026-06-16
 
 - feat(core,linux): add recently deleted task restoration (#131) (e7db790)
