@@ -1,5 +1,5 @@
 use gtk4 as gtk;
-use taskmanager_core::Task;
+use taskmanager_core::{Task, TaskStatus};
 
 use crate::task_model::{task_matches_view, TaskFilterState};
 
@@ -59,14 +59,56 @@ pub(crate) fn markdown_to_pango_markup(markdown: &str) -> String {
 }
 
 pub(crate) fn format_task_row_summary(task: &Task) -> String {
+    let now = gtk::glib::DateTime::now_local().ok();
+    format_task_row_summary_at(task, now.as_ref())
+}
+
+fn format_task_row_summary_at(task: &Task, now: Option<&gtk::glib::DateTime>) -> String {
     let mut parts = Vec::new();
     if let Some(due_at) = task.due_at {
-        parts.push(format!("Due {}", format_due_date(due_at)));
+        let due_label = if task_is_overdue_at(task, now) {
+            "Overdue"
+        } else {
+            "Due"
+        };
+        parts.push(format!("{due_label} {}", format_due_date_at(due_at, now)));
     }
     if !task.tags.is_empty() {
         parts.push(format!("#{}", task.tags.join(" #")));
     }
     parts.join(" · ")
+}
+
+pub(crate) fn task_is_overdue(task: &Task) -> bool {
+    let Ok(now) = gtk::glib::DateTime::now_local() else {
+        return false;
+    };
+    task_is_overdue_at(task, Some(&now))
+}
+
+fn task_is_overdue_at(task: &Task, now: Option<&gtk::glib::DateTime>) -> bool {
+    if task.status != TaskStatus::Open || task.deleted {
+        return false;
+    }
+    let (Some(due_at), Some(now)) = (task.due_at, now) else {
+        return false;
+    };
+    due_at_is_overdue_at(due_at, now)
+}
+
+fn due_at_is_overdue_at(due_at_ms: i64, now: &gtk::glib::DateTime) -> bool {
+    let Ok(due_at) = gtk::glib::DateTime::from_unix_local(due_at_ms / 1000) else {
+        return false;
+    };
+    local_day_key(&due_at) < local_day_key(now)
+}
+
+fn local_day_key(date_time: &gtk::glib::DateTime) -> (i32, i32, i32) {
+    (
+        date_time.year(),
+        date_time.month(),
+        date_time.day_of_month(),
+    )
 }
 
 pub(crate) fn format_deleted_summary(deleted_at_ms: i64) -> String {
@@ -91,18 +133,18 @@ pub(crate) fn format_deleted_summary(deleted_at_ms: i64) -> String {
         .unwrap_or_else(|_| "Deleted".to_owned())
 }
 
-pub(crate) fn format_due_date(due_at_ms: i64) -> String {
+fn format_due_date_at(due_at_ms: i64, now: Option<&gtk::glib::DateTime>) -> String {
     let Ok(date_time) = gtk::glib::DateTime::from_unix_local(due_at_ms / 1000) else {
         return "unknown".to_owned();
     };
-    let Ok(now) = gtk::glib::DateTime::now_local() else {
+    let Some(now) = now else {
         return date_time
             .format("%b %d, %Y")
             .map(|value| value.to_string())
             .unwrap_or_else(|_| "unknown".to_owned());
     };
 
-    if same_local_day(&date_time, &now) {
+    if same_local_day(&date_time, now) {
         "today".to_owned()
     } else if now
         .add_days(1)
@@ -172,4 +214,92 @@ pub(crate) fn count_for_filter(tasks: &[Task], filter: TaskFilterState, now_ms: 
         .iter()
         .filter(|task| task_matches_view(task, filter, now_ms, false))
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn local_ms(year: i32, month: i32, day: i32) -> i64 {
+        gtk::glib::DateTime::from_local(year, month, day, 12, 0, 0.0)
+            .expect("valid local test date")
+            .to_unix()
+            * 1000
+    }
+
+    fn open_task(due_at: Option<i64>) -> Task {
+        Task {
+            id: Uuid::nil(),
+            title: "Task".to_owned(),
+            body: String::new(),
+            due_at,
+            reminder_offset_ms: None,
+            status: TaskStatus::Open,
+            project_id: None,
+            tags: vec!["urgent".to_owned()],
+            created_at: 0,
+            updated_at: 0,
+            deleted: false,
+            dirty: false,
+        }
+    }
+
+    #[test]
+    fn due_at_is_overdue_only_before_current_local_day() {
+        let now =
+            gtk::glib::DateTime::from_local(2026, 6, 17, 9, 0, 0.0).expect("valid local test date");
+
+        assert!(due_at_is_overdue_at(local_ms(2026, 6, 16), &now));
+        assert!(!due_at_is_overdue_at(local_ms(2026, 6, 17), &now));
+        assert!(!due_at_is_overdue_at(local_ms(2026, 6, 18), &now));
+    }
+
+    fn assert_summary_prefix_and_tags(summary: &str, prefix: &str) {
+        assert!(
+            summary.starts_with(prefix),
+            "expected summary {summary:?} to start with {prefix:?}"
+        );
+        assert!(
+            summary.ends_with(" · #urgent"),
+            "expected summary {summary:?} to preserve tags"
+        );
+    }
+
+    #[test]
+    fn row_summary_marks_only_open_live_past_due_tasks_overdue() {
+        let mut task = open_task(Some(local_ms(2026, 6, 16)));
+        let now =
+            gtk::glib::DateTime::from_local(2026, 6, 17, 9, 0, 0.0).expect("valid local test date");
+
+        let summary = format_task_row_summary_at(&task, Some(&now));
+        assert_summary_prefix_and_tags(&summary, "Overdue ");
+
+        task.due_at = Some(local_ms(2026, 6, 17));
+        assert_eq!(
+            format_task_row_summary_at(&task, Some(&now)),
+            "Due today · #urgent"
+        );
+
+        task.due_at = Some(local_ms(2026, 6, 18));
+        assert_eq!(
+            format_task_row_summary_at(&task, Some(&now)),
+            "Due tomorrow · #urgent"
+        );
+
+        task.due_at = None;
+        assert_eq!(format_task_row_summary_at(&task, Some(&now)), "#urgent");
+
+        task.due_at = Some(local_ms(2026, 6, 16));
+        task.status = TaskStatus::Done;
+        let summary = format_task_row_summary_at(&task, Some(&now));
+        assert_summary_prefix_and_tags(&summary, "Due ");
+        assert!(!summary.starts_with("Overdue "));
+
+        task.status = TaskStatus::Open;
+        task.deleted = true;
+        let summary = format_task_row_summary_at(&task, Some(&now));
+        assert_summary_prefix_and_tags(&summary, "Due ");
+        assert!(!summary.starts_with("Overdue "));
+    }
 }
