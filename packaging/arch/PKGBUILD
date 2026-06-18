@@ -6,7 +6,7 @@ pkgdesc="GTK/libadwaita desktop client for the local-first encrypted task manage
 arch=("x86_64")
 url="https://github.com/matthewyjiang/tasks"
 license=("custom")
-depends=("gcc-libs" "glibc" "gtk4" "libadwaita" "libsecret" "sqlite")
+depends=("gcc-libs" "glibc" "gtk4" "hicolor-icon-theme" "libadwaita" "libsecret" "sqlite")
 makedepends=("cargo" "sqlite")
 source=()
 sha256sums=()
@@ -64,4 +64,8 @@ package() {
     "$pkgdir/usr/share/applications/io.github.matthewyjiang.tsk.desktop"
   install -Dm644 "$repo_root/linux/resources/io.github.matthewyjiang.tsk.metainfo.xml" \
     "$pkgdir/usr/share/metainfo/io.github.matthewyjiang.tsk.metainfo.xml"
+  install -Dm644 "$repo_root/linux/resources/icons/hicolor/scalable/apps/io.github.matthewyjiang.tsk.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.matthewyjiang.tsk.svg"
+  install -Dm644 "$repo_root/linux/resources/icons/hicolor/scalable/apps/io.github.matthewyjiang.tsk-dark.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.matthewyjiang.tsk-dark.svg"
 }

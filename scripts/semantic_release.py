@@ -26,7 +26,7 @@ ARTIFACT_PATHS = {
     "server": ["server"],
     "core": ["core"],
     "cli": ["cli"],
-    "linux-app": ["linux"],
+    "linux-app": ["linux", "packaging/arch"],
 }
 
 

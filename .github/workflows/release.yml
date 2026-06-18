@@ -30,7 +30,7 @@ jobs:
           - artifact: cli
             path: cli
           - artifact: linux-app
-            path: linux
+            path: linux packaging/arch
     steps:
       - uses: actions/checkout@v4
         with:
