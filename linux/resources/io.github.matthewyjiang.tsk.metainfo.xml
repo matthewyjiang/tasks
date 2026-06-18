@@ -9,4 +9,5 @@
     <p>tsk is a local-first, end-to-end encrypted task manager.</p>
   </description>
   <launchable type="desktop-id">io.github.matthewyjiang.tsk.desktop</launchable>
+  <url type="homepage">https://github.com/matthewyjiang/tasks</url>
 </component>

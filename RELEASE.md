@@ -9,7 +9,7 @@ Each independently shipped artifact has its own tag stream:
 - `server-vX.Y.Z` for `server/**`
 - `core-vX.Y.Z` for `core/**`
 - `cli-vX.Y.Z` for `cli/**`
-- `linux-app-vX.Y.Z` for the Linux GTK/libadwaita app in `linux/**`
+- `linux-app-vX.Y.Z` for the Linux GTK/libadwaita app in `linux/**` and its Arch package metadata in `packaging/arch/**`
 
 Additional platform app shells should get descriptive platform-specific artifact streams when they become releasable, e.g. `macos-app-vX.Y.Z`, `windows-app-vX.Y.Z`, `android-app-vX.Y.Z`, and `ios-app-vX.Y.Z`.
 
@@ -56,5 +56,5 @@ feat(server)!: change sync API response format
 python3 scripts/semantic_release.py --artifact server --path server --dry-run
 python3 scripts/semantic_release.py --artifact core --path core --dry-run
 python3 scripts/semantic_release.py --artifact cli --path cli --dry-run
-python3 scripts/semantic_release.py --artifact linux-app --path linux --dry-run
+python3 scripts/semantic_release.py --artifact linux-app --path linux packaging/arch --dry-run
 ```
