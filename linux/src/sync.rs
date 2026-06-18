@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 use taskmanager_core::{
     load_access_token, normalize_sync_server_url, refresh_auth, sync_auth_configured, sync_pull,
     sync_push, AuthClient, Blob, BlobPush, CoreError, CoreResult, DeleteSessionRequest,
-    LocalDatabase, LoginRequest, Platform, PlatformError, PullResponse, PushResponse,
-    PutCurrentDeviceKeyRequest, RefreshTokenRequest, RegisterRequest, RemoteBlob, SharedTaskInvite,
-    SyncClient, SyncError, TaskManagerCore, TokenResponse, ACCOUNT_DATA_KEY_ID,
-    DEVICE_PRIVATE_KEY_ID,
+    EnrollmentClient, LocalDatabase, LoginRequest, PendingEnrollmentRequest, Platform,
+    PlatformError, PullResponse, PushResponse, PutCurrentDeviceKeyRequest, RefreshTokenRequest,
+    RegisterRequest, RemoteBlob, SharedTaskInvite, SyncClient, SyncError, TaskManagerCore,
+    TokenResponse, WrappedAccountDataKeyPayload, ACCOUNT_DATA_KEY_ID, DEVICE_PRIVATE_KEY_ID,
 };
 use uuid::Uuid;
 
@@ -130,6 +130,134 @@ impl LinuxHttpSyncClient {
             response.user_id,
             response.keys.into_iter().map(|key| key.pub_key).collect(),
         ))
+    }
+}
+
+impl EnrollmentClient for LinuxHttpSyncClient {
+    fn create_request(
+        &self,
+        public_key: &[u8],
+        device_name: &str,
+        platform: &str,
+    ) -> CoreResult<String> {
+        let response: LinuxEnrollmentCreateResponse = self
+            .auth(
+                self.client
+                    .post(format!("{}/enrollment/request", self.base_url)),
+            )
+            .json(&LinuxEnrollmentCreateRequest {
+                pub_key: public_key.to_vec(),
+                device_name: device_name.to_owned(),
+                platform: platform.to_owned(),
+            })
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(response.request_id)
+    }
+
+    fn list_pending_requests(&self) -> CoreResult<Vec<PendingEnrollmentRequest>> {
+        let response: LinuxEnrollmentListResponse = self
+            .auth(
+                self.client
+                    .get(format!("{}/enrollment/requests", self.base_url)),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(response
+            .requests
+            .into_iter()
+            .map(|request| PendingEnrollmentRequest {
+                request_id: request.request_id,
+                recipient_public_key: request.pub_key,
+                device_name: request.device_name,
+                platform: request.platform,
+                created_at: request.created_at,
+            })
+            .collect())
+    }
+
+    fn approve_request(
+        &self,
+        request_id: &str,
+        payload: &WrappedAccountDataKeyPayload,
+    ) -> CoreResult<()> {
+        self.auth(self.client.post(format!(
+            "{}/enrollment/requests/{}/approve",
+            self.base_url, request_id
+        )))
+        .json(&LinuxEnrollmentApproveRequest {
+            recipient_pub_key: payload.recipient_public_key.clone(),
+            sender_pub_key: payload.sender_public_key.clone(),
+            wrapped_key: payload.wrapped_account_data_key.ciphertext.clone(),
+            nonce: payload.wrapped_account_data_key.nonce,
+        })
+        .send()
+        .map_err(|_| SyncError::NetworkUnavailable)?
+        .error_for_status()
+        .map_err(linux_http_error)?;
+        Ok(())
+    }
+
+    fn reject_request(&self, request_id: &str) -> CoreResult<()> {
+        self.auth(self.client.post(format!(
+            "{}/enrollment/requests/{}/reject",
+            self.base_url, request_id
+        )))
+        .send()
+        .map_err(|_| SyncError::NetworkUnavailable)?
+        .error_for_status()
+        .map_err(linux_http_error)?;
+        Ok(())
+    }
+
+    fn approved_payload(
+        &self,
+        public_key: &[u8],
+    ) -> CoreResult<Option<WrappedAccountDataKeyPayload>> {
+        let response = self
+            .auth(
+                self.client
+                    .get(format!("{}/enrollment/payload", self.base_url))
+                    .query(&[(
+                        "pub_key",
+                        base64::engine::general_purpose::STANDARD.encode(public_key),
+                    )]),
+            )
+            .send()
+            .map_err(|_| SyncError::NetworkUnavailable)?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let payload: LinuxEnrollmentPayloadResponse = response
+            .error_for_status()
+            .map_err(linux_http_error)?
+            .json()
+            .map_err(|error| SyncError::ServerError {
+                status: 0,
+                body: error.to_string(),
+            })?;
+        Ok(Some(WrappedAccountDataKeyPayload {
+            sender_public_key: payload.sender_pub_key,
+            recipient_public_key: payload.recipient_pub_key,
+            wrapped_account_data_key: Blob {
+                ciphertext: payload.wrapped_key,
+                nonce: payload.nonce,
+            },
+        }))
     }
 }
 
@@ -259,6 +387,58 @@ impl LinuxSharedTaskWire {
     }
 }
 
+#[derive(Serialize)]
+struct LinuxEnrollmentCreateRequest {
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    pub_key: Vec<u8>,
+    device_name: String,
+    platform: String,
+}
+
+#[derive(Deserialize)]
+struct LinuxEnrollmentCreateResponse {
+    request_id: String,
+}
+
+#[derive(Deserialize)]
+struct LinuxEnrollmentListResponse {
+    requests: Vec<LinuxEnrollmentRequestResponse>,
+}
+
+#[derive(Deserialize)]
+struct LinuxEnrollmentRequestResponse {
+    request_id: String,
+    #[serde(deserialize_with = "deserialize_base64_bytes")]
+    pub_key: Vec<u8>,
+    device_name: String,
+    platform: String,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+struct LinuxEnrollmentApproveRequest {
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    recipient_pub_key: Vec<u8>,
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    sender_pub_key: Vec<u8>,
+    #[serde(serialize_with = "serialize_base64_bytes")]
+    wrapped_key: Vec<u8>,
+    #[serde(serialize_with = "serialize_base64_nonce")]
+    nonce: [u8; 12],
+}
+
+#[derive(Deserialize)]
+struct LinuxEnrollmentPayloadResponse {
+    #[serde(deserialize_with = "deserialize_base64_bytes")]
+    sender_pub_key: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_base64_bytes")]
+    recipient_pub_key: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_base64_bytes")]
+    wrapped_key: Vec<u8>,
+    #[serde(deserialize_with = "deserialize_base64_nonce")]
+    nonce: [u8; 12],
+}
+
 #[derive(Deserialize)]
 struct LinuxKeysResponse {
     user_id: Uuid,
@@ -368,6 +548,16 @@ where
     base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .map_err(serde::de::Error::custom)
+}
+
+fn deserialize_base64_nonce<'de, D>(deserializer: D) -> Result<[u8; 12], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let bytes = deserialize_base64_bytes(deserializer)?;
+    bytes
+        .try_into()
+        .map_err(|_| serde::de::Error::custom("nonce must be 12 bytes"))
 }
 
 #[derive(Default)]

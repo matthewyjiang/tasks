@@ -2204,6 +2204,12 @@ mod tests {
         platform
             .store_key(device_private_key_id(), recipient.private_key)
             .unwrap();
+        platform
+            .store_key(
+                crate::auth::AUTH_ENROLLMENT_PENDING_ID.to_owned(),
+                b"true".to_vec(),
+            )
+            .unwrap();
         assert_eq!(
             accept_ffi_wrapped_account_data_key_payload(Box::new(platform), payload).unwrap(),
             FfiEnrollmentState::SyncReady

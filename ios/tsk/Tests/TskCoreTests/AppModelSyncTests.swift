@@ -125,6 +125,7 @@ private final class AppModelSyncRecordingRepository: TaskRepository, @unchecked 
     let store = AppModelSyncSecretStore()
     store.values[SecureSecretID.devicePrivateKey] = Data(recipient.devicePrivateKey)
     let coordinator = SyncCoordinator(serverURL: "https://example.com", platform: CorePlatformAdapter(secretStore: store), authClient: AppModelSyncAuthClient())
+    _ = try await coordinator.beginExistingAccountEnrollment()
     let model = AppModel(repository: PreviewTaskRepository(), syncCoordinator: coordinator, serverURLDefaults: defaults)
     await model.refreshSyncState()
     #expect(model.enrollmentState == .existingAccountPending)

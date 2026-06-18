@@ -362,6 +362,54 @@ impl LocalDatabase {
         Ok(())
     }
 
+    pub fn mark_all_user_tasks_dirty(&self) -> CoreResult<usize> {
+        self.connection.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> CoreResult<usize> {
+            self.connection.execute("DELETE FROM sync_cursor", [])?;
+            let updated_at = now_ms();
+            Ok(self.connection.execute(
+                "UPDATE tasks SET updated_at = max(updated_at + 1, ?1), dirty = 1 WHERE id != ?2 AND deleted = 0",
+                params![updated_at, Uuid::nil().to_string()],
+            )?)
+        })();
+        match result {
+            Ok(marked) => {
+                self.connection.execute_batch("COMMIT")?;
+                Ok(marked)
+            }
+            Err(error) => {
+                let _ = self.connection.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+
+    pub fn clear_user_tasks_for_remote_replace(&self) -> CoreResult<usize> {
+        self.connection.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> CoreResult<usize> {
+            self.connection
+                .execute("DELETE FROM shared_task_recipients", [])?;
+            self.connection
+                .execute("DELETE FROM shared_task_state", [])?;
+            self.connection.execute("DELETE FROM sync_queue", [])?;
+            self.connection.execute("DELETE FROM sync_cursor", [])?;
+            Ok(self.connection.execute(
+                "DELETE FROM tasks WHERE id != ?1",
+                params![Uuid::nil().to_string()],
+            )?)
+        })();
+        match result {
+            Ok(deleted) => {
+                self.connection.execute_batch("COMMIT")?;
+                Ok(deleted)
+            }
+            Err(error) => {
+                let _ = self.connection.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+
     pub fn task_encryption_key(
         &self,
         task_id: Uuid,

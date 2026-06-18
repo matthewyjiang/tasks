@@ -11,6 +11,7 @@ import (
 	"github.com/matthewyjiang/tasks/server/internal/auth"
 	"github.com/matthewyjiang/tasks/server/internal/blobs"
 	"github.com/matthewyjiang/tasks/server/internal/config"
+	"github.com/matthewyjiang/tasks/server/internal/enrollment"
 	"github.com/matthewyjiang/tasks/server/internal/keys"
 	appmw "github.com/matthewyjiang/tasks/server/internal/middleware"
 	"github.com/matthewyjiang/tasks/server/internal/respond"
@@ -49,6 +50,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	blobHandler := blobs.Handler{Repo: blobs.Repository{DB: deps.DB}, MaxBlobBytes: deps.Config.MaxBlobBytes, MaxBatchBlobs: deps.Config.MaxBatchBlobs}
 	keyHandler := keys.Handler{Repo: keys.Repository{DB: deps.DB}}
 	shareHandler := share.Handler{Repo: share.Repository{DB: deps.DB}}
+	enrollmentHandler := enrollment.Handler{Repo: enrollment.Repository{DB: deps.DB}}
 	settingsHandler := settings.Handler{Repo: settings.Repository{DB: deps.DB}}
 	writeLimiter := appmw.NewRateLimiter(deps.Config.WriteRateLimitPerMin, time.Minute)
 	r.Group(func(r chi.Router) {
@@ -63,6 +65,11 @@ func NewRouter(deps Dependencies) http.Handler {
 		r.With(writeLimiter.Middleware).Post("/share/{task_id}", shareHandler.Create)
 		r.Get("/share/inbox", shareHandler.Inbox)
 		r.With(writeLimiter.Middleware).Delete("/share/{task_id}/{recipient_id}", shareHandler.Delete)
+		r.With(writeLimiter.Middleware).Post("/enrollment/request", enrollmentHandler.Create)
+		r.Get("/enrollment/requests", enrollmentHandler.ListPending)
+		r.With(writeLimiter.Middleware).Post("/enrollment/requests/{request_id}/approve", enrollmentHandler.Approve)
+		r.With(writeLimiter.Middleware).Post("/enrollment/requests/{request_id}/reject", enrollmentHandler.Reject)
+		r.Get("/enrollment/payload", enrollmentHandler.Payload)
 		r.Get("/settings/plaintext", settingsHandler.Get)
 		r.With(writeLimiter.Middleware).Put("/settings/plaintext", settingsHandler.Put)
 	})
