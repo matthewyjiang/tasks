@@ -1,4 +1,4 @@
-use taskmanager_core::{Task, TaskFilter, TaskSort, TaskStatus};
+use taskmanager_core::{DefaultSort, Task, TaskFilter, TaskSort, TaskStatus};
 
 /// How long a soft-deleted task remains visible in the Recently Deleted view.
 ///
@@ -57,8 +57,11 @@ impl TaskFilterState {
     }
 }
 
-pub fn default_sort() -> TaskSort {
-    TaskSort::DueAtAsc
+pub fn default_sort(sort: DefaultSort) -> TaskSort {
+    match sort {
+        DefaultSort::DueAtAsc => TaskSort::DueAtAsc,
+        DefaultSort::UpdatedAtDesc => TaskSort::UpdatedAtDesc,
+    }
 }
 
 pub fn end_of_today_ms(now_ms: i64) -> i64 {

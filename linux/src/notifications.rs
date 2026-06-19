@@ -134,7 +134,12 @@ pub(crate) fn reconcile_task_notification(
 pub(crate) fn emit_task_reminder(database_path: &Path, task_id: Uuid) -> CoreResult<()> {
     let core = TaskManagerCore::open(database_path)?;
     let task = core.get_task(task_id)?;
-    if task.notification_due(now_ms()) {
+    if task.notification_due(now_ms())
+        && core
+            .vault_settings()
+            .map(|settings| settings.notification_sound != "silent")
+            .unwrap_or(true)
+    {
         show_desktop_notification(task.id, &task.title)?;
     }
     Ok(())

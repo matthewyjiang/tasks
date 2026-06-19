@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk4 as gtk;
-use taskmanager_core::{Task, TaskStatus};
+use taskmanager_core::{DisplayDensity, Task, TaskStatus};
 use uuid::Uuid;
 
 use crate::task_format::{format_deleted_summary, format_task_row_summary, task_is_overdue};
@@ -48,9 +48,32 @@ impl TaskRowExpansion {
     }
 }
 
+struct RowSpacing {
+    vertical_margin: i32,
+    horizontal_margin: i32,
+}
+
+fn row_spacing(density: DisplayDensity) -> RowSpacing {
+    match density {
+        DisplayDensity::Compact => RowSpacing {
+            vertical_margin: 3,
+            horizontal_margin: 12,
+        },
+        DisplayDensity::Comfortable => RowSpacing {
+            vertical_margin: 7,
+            horizontal_margin: 14,
+        },
+        DisplayDensity::Spacious => RowSpacing {
+            vertical_margin: 11,
+            horizontal_margin: 18,
+        },
+    }
+}
+
 pub(crate) fn task_row(
     task: &Task,
     expansion: TaskRowExpansion,
+    density: DisplayDensity,
     actions: &TaskRowActions,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
@@ -61,7 +84,7 @@ pub(crate) fn task_row(
         row.add_css_class("task-row-deleted");
         row.set_selectable(false);
         row.set_activatable(false);
-        row.set_child(Some(&build_deleted_row(task, actions)));
+        row.set_child(Some(&build_deleted_row(task, density, actions)));
         return row;
     }
 
@@ -74,11 +97,12 @@ pub(crate) fn task_row(
     row.set_selectable(true);
     row.set_activatable(true);
 
+    let spacing = row_spacing(density);
     let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    container.set_margin_top(7);
-    container.set_margin_bottom(7);
-    container.set_margin_start(14);
-    container.set_margin_end(14);
+    container.set_margin_top(spacing.vertical_margin);
+    container.set_margin_bottom(spacing.vertical_margin);
+    container.set_margin_start(spacing.horizontal_margin);
+    container.set_margin_end(spacing.horizontal_margin);
 
     let title_entry = gtk::Entry::new();
     let notes = gtk::TextView::new();
@@ -578,12 +602,13 @@ fn delete_button(task: &Task, actions: &TaskRowActions) -> gtk::Button {
     delete
 }
 
-fn build_deleted_row(task: &Task, actions: &TaskRowActions) -> gtk::Box {
+fn build_deleted_row(task: &Task, density: DisplayDensity, actions: &TaskRowActions) -> gtk::Box {
+    let spacing = row_spacing(density);
     let container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    container.set_margin_top(7);
-    container.set_margin_bottom(7);
-    container.set_margin_start(14);
-    container.set_margin_end(14);
+    container.set_margin_top(spacing.vertical_margin);
+    container.set_margin_bottom(spacing.vertical_margin);
+    container.set_margin_start(spacing.horizontal_margin);
+    container.set_margin_end(spacing.horizontal_margin);
 
     let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text.set_hexpand(true);
