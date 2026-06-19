@@ -22,6 +22,10 @@ During sync, the app uses the stored access token. If the server rejects it as e
 
 Failed outbound task changes stay dirty and are recorded in the SQLite `sync_queue` with exponential backoff metadata, so pending retries survive app restart and are retried by later sync runs. Conflicts are resolved automatically with the core last-write-wins policy (`updated_at`, then a deterministic id tie-breaker); the Linux UI surfaces the number of automatically resolved conflicts and pending retry entries in sync status text.
 
+## Settings
+
+Local plaintext settings store the sync server URL, account email, theme choice, and last sync status. Encrypted vault settings store cross-device task preferences: default sort (`due_at_asc` by default), completed-task visibility, display density (`comfortable`), first day of week (`1`/Monday), notification sound (`default`), default reminder (`30` minutes before due), and keybindings.
+
 ## Reminders
 
 Task reminder intent is stored in core as an encrypted `reminder_offset_ms` value on each task. The Linux app schedules open, non-deleted tasks at `due_at - reminder_offset_ms` and cancels reminders when a task is done, deleted, has no due date, or has reminders disabled.

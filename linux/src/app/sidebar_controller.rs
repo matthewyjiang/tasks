@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 
-use taskmanager_core::{Task, TaskFilter, TaskList};
+use taskmanager_core::{DefaultSort, Task, TaskFilter, TaskList};
 
 use super::AppState;
 use crate::task_format::{count_for_filter, sidebar_filter_order};
@@ -13,7 +13,12 @@ use crate::ui::widgets::update_entry_width;
 
 impl AppState {
     pub(super) fn refresh_sidebar_metadata(self: &Rc<Self>) {
-        let Ok(tasks) = self.core.list_tasks(TaskFilter::default(), default_sort()) else {
+        let sort = self
+            .core
+            .vault_settings()
+            .map(|settings| default_sort(settings.default_sort))
+            .unwrap_or_else(|_| default_sort(DefaultSort::DueAtAsc));
+        let Ok(tasks) = self.core.list_tasks(TaskFilter::default(), sort) else {
             return;
         };
         let now = now_ms();

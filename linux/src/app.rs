@@ -9,7 +9,8 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{
-    init_account, Task, TaskFilter, TaskList, TaskManagerCore, TaskPatch, TaskStatus,
+    init_account, DefaultSort, DisplayDensity, Task, TaskFilter, TaskList, TaskManagerCore,
+    TaskPatch, TaskStatus,
 };
 use uuid::Uuid;
 
@@ -52,6 +53,25 @@ pub fn run() {
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_activate(build_ui);
     app.run();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_show_completed_is_honored_without_stamping_vault_settings() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let mut vault_settings = core.vault_settings().unwrap();
+        vault_settings.show_completed = false;
+        core.update_vault_settings(vault_settings).unwrap();
+
+        assert!(show_completed_preference(
+            core.vault_settings().unwrap().show_completed,
+            true
+        ));
+        assert!(!core.vault_settings().unwrap().show_completed);
+    }
 }
 
 fn handle_helper_command() -> bool {
@@ -148,11 +168,12 @@ impl AppState {
     fn load_tasks(self: &Rc<Self>) {
         let query = self.search_query.borrow().clone();
         let selected_list_id = *self.selected_list_id.borrow();
-        let show_completed = self
-            .core
-            .vault_settings()
+        let vault_settings = self.core.vault_settings().unwrap_or_default();
+        let legacy_show_completed = read_settings(&self.settings_path)
             .map(|settings| settings.show_completed)
             .unwrap_or(false);
+        let show_completed =
+            show_completed_preference(vault_settings.show_completed, legacy_show_completed);
         let result = if query.is_empty() {
             let mut filter = if selected_list_id.is_some() {
                 TaskFilter::default()
@@ -166,7 +187,8 @@ impl AppState {
                 filter.status = None;
             }
             filter.project_id = selected_list_id;
-            self.core.list_tasks(filter, default_sort())
+            self.core
+                .list_tasks(filter, default_sort(vault_settings.default_sort))
         } else if self.active_filter.borrow().is_deleted_view() && selected_list_id.is_none() {
             self.core.search_tasks_including_deleted(query)
         } else {
@@ -351,6 +373,11 @@ impl AppState {
             }),
         };
 
+        let display_density = self
+            .core
+            .vault_settings()
+            .map(|settings| settings.display_density)
+            .unwrap_or(DisplayDensity::Comfortable);
         let editing_task_id = *self.current_editing_task_id.borrow();
         let expanding_task_id = *self.current_expanding_task_id.borrow();
         let collapsing_task_id = *self.current_collapsing_task_id.borrow();
@@ -372,7 +399,8 @@ impl AppState {
             } else {
                 TaskRowExpansion::Collapsed
             };
-            self.list.append(&task_row(task, expansion, &actions));
+            self.list
+                .append(&task_row(task, expansion, display_density, &actions));
         }
 
         self.rendering_list.set(false);
@@ -893,7 +921,12 @@ impl AppState {
             include_deleted: true,
             ..TaskFilter::default()
         };
-        match self.core.list_tasks(filter, default_sort()) {
+        let sort = self
+            .core
+            .vault_settings()
+            .map(|settings| default_sort(settings.default_sort))
+            .unwrap_or_else(|_| default_sort(DefaultSort::DueAtAsc));
+        match self.core.list_tasks(filter, sort) {
             Ok(tasks) => {
                 let now = now_ms();
                 for task in tasks {
@@ -936,6 +969,10 @@ impl AppState {
     }
 }
 
+fn show_completed_preference(vault_show_completed: bool, legacy_show_completed: bool) -> bool {
+    vault_show_completed || legacy_show_completed
+}
+
 fn build_ui(app: &adw::Application) {
     let paths = match resolve_paths() {
         Ok(paths) => paths,
@@ -967,7 +1004,6 @@ fn build_ui(app: &adw::Application) {
             return;
         }
     };
-
     install_css(FLOATING_PANEL_FADE_MS, TASK_EDITOR_INNER_PADDING);
 
     let window = adw::ApplicationWindow::builder()

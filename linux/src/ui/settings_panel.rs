@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -6,8 +7,9 @@ use gtk4 as gtk;
 use libadwaita as adw;
 use taskmanager_core::{
     approve_pending_enrollment_request, load_access_token, normalize_sync_server_url,
-    public_key_fingerprint, sync_auth_state as core_sync_auth_state, EnrollmentClient, Keybindings,
-    LocalDataEnrollmentStrategy, PendingEnrollmentRequest, SyncAuthState, TaskManagerCore,
+    public_key_fingerprint, sync_auth_state as core_sync_auth_state, DefaultSort, DisplayDensity,
+    EnrollmentClient, Keybindings, LocalDataEnrollmentStrategy, PendingEnrollmentRequest,
+    SyncAuthState, TaskManagerCore, VaultSettings,
 };
 
 use crate::platform::LinuxPlatform;
@@ -36,7 +38,13 @@ pub(crate) fn show_settings_panel(
     on_auth_changed: Option<Rc<dyn Fn()>>,
 ) {
     let settings = read_settings(&settings_path).unwrap_or_default();
-    let vault_settings = core.vault_settings().unwrap_or_default();
+    let (vault_settings, vault_settings_error) = match core.vault_settings() {
+        Ok(settings) => (settings, None),
+        Err(error) => {
+            eprintln!("Failed to read encrypted settings: {error}");
+            (VaultSettings::default(), Some(error.to_string()))
+        }
+    };
     while let Some(child) = panel.first_child() {
         panel.remove(&child);
     }
@@ -54,7 +62,7 @@ pub(crate) fn show_settings_panel(
     settings_nav.set_selection_mode(gtk::SelectionMode::Single);
     settings_nav.set_width_request(170);
     settings_nav.set_vexpand(true);
-    for name in ["Sync", "Appearance", "Keybindings"] {
+    for name in ["Sync", "Tasks", "Appearance", "Keybindings"] {
         let row = gtk::ListBoxRow::new();
         row.add_css_class("sidebar-row");
         let label = gtk::Label::new(Some(name));
@@ -73,6 +81,7 @@ pub(crate) fn show_settings_panel(
     settings_stack.set_vexpand(true);
 
     let sync_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    let tasks_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
     let appearance_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
     let keybindings_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
 
@@ -169,10 +178,65 @@ pub(crate) fn show_settings_panel(
     sync_page.append(&pending_list);
 
     if enrollment_available {
-        refresh_pending_enrollment_requests(&settings_path, &pending_list, &enrollment_status);
+        enrollment_status
+            .set_text("Use Refresh pending requests to check for devices waiting for approval.");
     } else {
         enrollment_status.set_text("Sign in before managing device enrollment.");
     }
+
+    let tasks_title = gtk::Label::new(Some("Tasks"));
+    tasks_title.set_xalign(0.0);
+    tasks_title.add_css_class("pane-title");
+    tasks_page.append(&tasks_title);
+
+    let default_sort_label = gtk::Label::new(Some("Default sort"));
+    default_sort_label.set_xalign(0.0);
+    let default_sort_combo = gtk::ComboBoxText::new();
+    default_sort_combo.append(Some("due_at_asc"), "Due date, soonest first");
+    default_sort_combo.append(Some("updated_at_desc"), "Recently updated first");
+    default_sort_combo.set_active_id(Some(match vault_settings.default_sort {
+        DefaultSort::DueAtAsc => "due_at_asc",
+        DefaultSort::UpdatedAtDesc => "updated_at_desc",
+    }));
+    tasks_page.append(&default_sort_label);
+    tasks_page.append(&default_sort_combo);
+
+    let default_reminder_label = gtk::Label::new(Some("Default reminder"));
+    default_reminder_label.set_xalign(0.0);
+    let default_reminder_combo = gtk::ComboBoxText::new();
+    default_reminder_combo.append(Some("0"), "No default reminder");
+    default_reminder_combo.append(Some("5"), "5 minutes before");
+    default_reminder_combo.append(Some("15"), "15 minutes before");
+    default_reminder_combo.append(Some("30"), "30 minutes before");
+    default_reminder_combo.append(Some("60"), "1 hour before");
+    default_reminder_combo.append(Some("1440"), "1 day before");
+    default_reminder_combo
+        .set_active_id(Some(&vault_settings.default_reminder_minutes.to_string()));
+    tasks_page.append(&default_reminder_label);
+    tasks_page.append(&default_reminder_combo);
+
+    let first_day_label = gtk::Label::new(Some("First day of week"));
+    first_day_label.set_xalign(0.0);
+    let first_day_combo = gtk::ComboBoxText::new();
+    first_day_combo.append(Some("0"), "Sunday");
+    first_day_combo.append(Some("1"), "Monday");
+    first_day_combo.set_active_id(Some(&vault_settings.first_day_of_week.to_string()));
+    tasks_page.append(&first_day_label);
+    tasks_page.append(&first_day_combo);
+
+    let notification_sound_label = gtk::Label::new(Some("Notification sound"));
+    notification_sound_label.set_xalign(0.0);
+    let notification_sound_combo = gtk::ComboBoxText::new();
+    notification_sound_combo.append(Some("default"), "Default");
+    notification_sound_combo.append(Some("silent"), "Silent");
+    match vault_settings.notification_sound.as_str() {
+        "default" | "silent" => {
+            notification_sound_combo.set_active_id(Some(&vault_settings.notification_sound));
+        }
+        _ => {}
+    }
+    tasks_page.append(&notification_sound_label);
+    tasks_page.append(&notification_sound_combo);
 
     let appearance_title = gtk::Label::new(Some("Appearance"));
     appearance_title.set_xalign(0.0);
@@ -194,8 +258,22 @@ pub(crate) fn show_settings_panel(
     appearance_page.append(&theme_combo);
 
     let show_completed = gtk::CheckButton::with_label("Show completed tasks");
-    show_completed.set_active(vault_settings.show_completed);
+    show_completed.set_active(vault_settings.show_completed || settings.show_completed);
     appearance_page.append(&show_completed);
+
+    let density_label = gtk::Label::new(Some("Display density"));
+    density_label.set_xalign(0.0);
+    let density_combo = gtk::ComboBoxText::new();
+    density_combo.append(Some("compact"), "Compact");
+    density_combo.append(Some("comfortable"), "Comfortable");
+    density_combo.append(Some("spacious"), "Spacious");
+    density_combo.set_active_id(Some(match vault_settings.display_density {
+        DisplayDensity::Compact => "compact",
+        DisplayDensity::Comfortable => "comfortable",
+        DisplayDensity::Spacious => "spacious",
+    }));
+    appearance_page.append(&density_label);
+    appearance_page.append(&density_combo);
 
     let keybind_label = gtk::Label::new(Some("Keybindings (encrypted + synced)"));
     keybind_label.set_xalign(0.0);
@@ -241,8 +319,20 @@ pub(crate) fn show_settings_panel(
     save_button.set_halign(gtk::Align::End);
     save_button.set_margin_end(22);
     save_button.set_margin_bottom(22);
+    if let Some(error) = &vault_settings_error {
+        let error_label = gtk::Label::new(Some(&format!(
+            "Encrypted settings could not be loaded, so settings cannot be saved until this is resolved: {error}"
+        )));
+        error_label.set_xalign(0.0);
+        error_label.set_wrap(true);
+        error_label.add_css_class("dim-label");
+        error_label.add_css_class("error");
+        tasks_page.append(&error_label);
+        save_button.set_sensitive(false);
+    }
 
     settings_stack.add_named(&sync_page, Some("sync"));
+    settings_stack.add_named(&tasks_page, Some("tasks"));
     settings_stack.add_named(&appearance_page, Some("appearance"));
     settings_stack.add_named(&keybindings_page, Some("keybindings"));
     settings_stack.set_visible_child_name("sync");
@@ -254,8 +344,9 @@ pub(crate) fn show_settings_panel(
             };
             settings_stack.set_visible_child_name(match row.index() {
                 0 => "sync",
-                1 => "appearance",
-                2 => "keybindings",
+                1 => "tasks",
+                2 => "appearance",
+                3 => "keybindings",
                 _ => "sync",
             });
         }
@@ -438,9 +529,15 @@ pub(crate) fn show_settings_panel(
         }
     });
 
+    let saving_settings = Rc::new(Cell::new(false));
     save_button.connect_clicked({
         let panel = panel.clone();
-        move |_| {
+        let saving_settings = Rc::clone(&saving_settings);
+        move |button| {
+            if saving_settings.replace(true) {
+                return;
+            }
+            button.set_sensitive(false);
             let theme = match theme_combo.active_id().as_deref() {
                 Some("light") => ThemeChoice::Light,
                 Some("dark") => ThemeChoice::Dark,
@@ -454,8 +551,40 @@ pub(crate) fn show_settings_panel(
                 show_completed: false,
                 sync_status: current_settings.sync_status,
             };
-            let mut vault_settings = core.vault_settings().unwrap_or_default();
+            let mut vault_settings = match core.vault_settings() {
+                Ok(settings) => settings,
+                Err(error) => {
+                    eprintln!("Failed to read encrypted settings: {error}");
+                    saving_settings.set(false);
+                    button.set_sensitive(true);
+                    return;
+                }
+            };
             vault_settings.show_completed = show_completed.is_active();
+            vault_settings.default_sort = match default_sort_combo.active_id().as_deref() {
+                Some("updated_at_desc") => DefaultSort::UpdatedAtDesc,
+                _ => DefaultSort::DueAtAsc,
+            };
+            if let Some(default_reminder_minutes) = default_reminder_combo
+                .active_id()
+                .and_then(|id| id.parse::<i32>().ok())
+            {
+                vault_settings.default_reminder_minutes = default_reminder_minutes;
+            }
+            if let Some(first_day_of_week) = first_day_combo
+                .active_id()
+                .and_then(|id| id.parse::<i32>().ok())
+            {
+                vault_settings.first_day_of_week = first_day_of_week;
+            }
+            if let Some(notification_sound) = notification_sound_combo.active_id() {
+                vault_settings.notification_sound = notification_sound.to_string();
+            }
+            vault_settings.display_density = match density_combo.active_id().as_deref() {
+                Some("compact") => DisplayDensity::Compact,
+                Some("spacious") => DisplayDensity::Spacious,
+                _ => DisplayDensity::Comfortable,
+            };
             vault_settings.keybindings = Keybindings {
                 add_task: add_task_key.text().to_string(),
                 search: search_key.text().to_string(),
@@ -464,16 +593,21 @@ pub(crate) fn show_settings_panel(
                 delete_task: delete_task_key.text().to_string(),
                 toggle_done: toggle_done_key.text().to_string(),
             };
-            if let Err(error) = write_settings(&settings_path, &settings) {
-                eprintln!("Failed to save local settings: {error}");
-            } else if let Err(error) = core.update_vault_settings(vault_settings) {
+            if let Err(error) = core.update_vault_settings(vault_settings) {
                 eprintln!("Failed to save encrypted settings: {error}");
+                saving_settings.set(false);
+                button.set_sensitive(true);
+            } else if let Err(error) = write_settings(&settings_path, &settings) {
+                eprintln!("Failed to save local settings: {error}");
+                saving_settings.set(false);
+                button.set_sensitive(true);
             } else {
                 apply_theme_choice(theme);
-                if let Some(on_auth_changed) = &on_auth_changed {
-                    on_auth_changed();
-                }
                 hide_floating_panel(&panel);
+                if let Some(on_auth_changed) = &on_auth_changed {
+                    let on_auth_changed = Rc::clone(on_auth_changed);
+                    gtk::glib::idle_add_local_once(move || on_auth_changed());
+                }
             }
         }
     });
