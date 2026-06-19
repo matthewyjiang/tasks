@@ -1,5 +1,7 @@
 use base64::Engine;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use taskmanager_core::{
@@ -27,6 +29,27 @@ impl LinuxHttpSyncClient {
             base_url: normalize_sync_server_url(base_url)?,
             token,
             client: reqwest::blocking::Client::new(),
+        })
+    }
+
+    pub(crate) fn backend_reachable(base_url: &str) -> bool {
+        let Ok(base_url) = normalize_sync_server_url(base_url) else {
+            return false;
+        };
+        let Ok(url) = reqwest::Url::parse(&base_url) else {
+            return false;
+        };
+        let Some(host) = url.host_str() else {
+            return false;
+        };
+        let Some(port) = url.port_or_known_default() else {
+            return false;
+        };
+        let Ok(addresses) = (host, port).to_socket_addrs() else {
+            return false;
+        };
+        addresses.into_iter().any(|address| {
+            TcpStream::connect_timeout(&address, Duration::from_millis(1500)).is_ok()
         })
     }
 
@@ -818,6 +841,9 @@ pub(crate) fn run_linux_sync(db_path: &Path, settings_path: &Path) -> CoreResult
     }
     let platform = LinuxPlatform::new();
     let server_url = normalize_sync_server_url(&settings.server_url)?;
+    if !LinuxHttpSyncClient::backend_reachable(&server_url) {
+        return Err(SyncError::NetworkUnavailable.into());
+    }
     let data_key = platform.load_key(ACCOUNT_DATA_KEY_ID)?;
     let database = LocalDatabase::open(db_path)?;
 

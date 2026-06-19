@@ -4,7 +4,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
-use taskmanager_core::TaskManagerCore;
+use taskmanager_core::{CoreError, SyncError, TaskManagerCore};
 
 use super::AppState;
 use crate::sync::{linux_sync_configured, run_linux_sync, LinuxSyncSummary};
@@ -111,6 +111,7 @@ fn record_sync_status(
     let cursor = core_status
         .map(|status| status.cursor)
         .unwrap_or(settings.sync_status.cursor);
+    let network_unavailable = matches!(result, Err(CoreError::Sync(SyncError::NetworkUnavailable)));
     settings.sync_status = match result {
         Ok(summary) => SyncStatus {
             last_attempt_at: Some(now),
@@ -123,6 +124,8 @@ fn record_sync_status(
             dirty_count,
             cursor,
             conflicts: summary.conflicts,
+            network_available: true,
+            backend_available: true,
         },
         Err(error) => SyncStatus {
             last_attempt_at: Some(now),
@@ -135,6 +138,8 @@ fn record_sync_status(
             dirty_count,
             cursor,
             conflicts: settings.sync_status.conflicts,
+            network_available: !network_unavailable,
+            backend_available: !network_unavailable,
         },
     };
     if let Err(error) = write_settings(settings_path, &settings) {

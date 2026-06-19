@@ -794,11 +794,19 @@ fn format_sync_settings_status(status: &SyncStatus) -> String {
             let previous_success = last_success
                 .map(|success_at| format!(" Last successful sync {}.", relative_time(success_at)))
                 .unwrap_or_default();
+            let availability = if !status.network_available {
+                " Network unavailable; sync will retry when connectivity returns."
+            } else if !status.backend_available {
+                " Sync server unreachable; check your server URL or try again later."
+            } else {
+                ""
+            };
             format!(
-                "Last sync failed {}. {}{}",
+                "Last sync failed {}. {}{}{}",
                 relative_time(*attempt_at),
                 status.last_error,
-                previous_success
+                previous_success,
+                availability
             )
         }
     }
