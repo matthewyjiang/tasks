@@ -1,5 +1,9 @@
 # Changelog
 
+## linux-app-v0.9.0 - 2026-06-19
+
+- feat(linux-app): complete settings dialog (#172) (0ed2363)
+
 ## server-v1.4.0 - 2026-06-19
 
 - feat(sync): complete multi-device enrollment flow (#169) (f3602b2)
