@@ -4,12 +4,20 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use libadwaita as adw;
-use taskmanager_core::{Keybindings, TaskManagerCore};
+use taskmanager_core::{
+    approve_pending_enrollment_request, load_access_token, normalize_sync_server_url,
+    public_key_fingerprint, sync_auth_state as core_sync_auth_state, EnrollmentClient, Keybindings,
+    LocalDataEnrollmentStrategy, PendingEnrollmentRequest, SyncAuthState, TaskManagerCore,
+};
 
 use crate::platform::LinuxPlatform;
+use crate::sync::LinuxHttpSyncClient;
 use crate::ui::floating_panel::{hide_floating_panel, show_floating_panel};
 use crate::ui::settings::{read_settings, write_settings, LinuxSettings, SyncStatus, ThemeChoice};
-use crate::ui::sync_setup::{logout_sync_auth, show_sync_setup_window, sync_auth_configured};
+use crate::ui::sync_setup::{
+    complete_linux_enrollment, complete_linux_enrollment_for_local_data,
+    confirm_replace_local_data, logout_sync_auth, show_sync_setup_window, sync_auth_configured,
+};
 use crate::ui::widgets::settings_entry;
 
 pub(crate) fn apply_theme_choice(theme: ThemeChoice) {
@@ -82,7 +90,10 @@ pub(crate) fn show_settings_panel(
     sync_page.append(&server_entry);
 
     let platform = LinuxPlatform::new();
-    let signed_in = sync_auth_configured(&platform, &settings);
+    let auth_state = core_sync_auth_state(&platform, &settings.server_url);
+    let signed_in = auth_state == SyncAuthState::SyncReady;
+    let enrollment_pending = auth_state == SyncAuthState::AuthenticatedEnrollmentPending;
+    let enrollment_available = enrollment_pending || signed_in;
     let sync_setup_button = gtk::Button::with_label("Sync login / setup…");
     sync_setup_button.set_halign(gtk::Align::Start);
     sync_setup_button.set_visible(!signed_in);
@@ -116,6 +127,52 @@ pub(crate) fn show_settings_panel(
     sync_status_label.set_wrap(true);
     sync_status_label.add_css_class("dim-label");
     sync_page.append(&sync_status_label);
+
+    let enrollment_title = gtk::Label::new(Some("Device enrollment"));
+    enrollment_title.set_xalign(0.0);
+    enrollment_title.add_css_class("task-menu-heading");
+    sync_page.append(&enrollment_title);
+    let enrollment_help = gtk::Label::new(Some(if enrollment_pending {
+        "This device is waiting for approval. Choose Merge local data to keep local tasks or Replace local data to delete local tasks on this device and download server data. Private keys and plaintext account data keys never leave devices."
+    } else if signed_in {
+        "Approve only devices you recognize. Private keys and plaintext account data keys never leave devices; approval wraps your account data key for the requested public key."
+    } else {
+        "Sign in to manage device enrollment."
+    }));
+    enrollment_help.set_xalign(0.0);
+    enrollment_help.set_wrap(true);
+    enrollment_help.add_css_class("dim-label");
+    sync_page.append(&enrollment_help);
+    let enrollment_status = gtk::Label::new(None);
+    enrollment_status.set_xalign(0.0);
+    enrollment_status.set_wrap(true);
+    enrollment_status.add_css_class("dim-label");
+    sync_page.append(&enrollment_status);
+    let enrollment_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    enrollment_actions.set_halign(gtk::Align::Start);
+    let check_enrollment_button = gtk::Button::with_label("Check approval / complete");
+    check_enrollment_button.set_visible(false);
+    let merge_enrollment_button = gtk::Button::with_label("Merge local data");
+    merge_enrollment_button.set_visible(enrollment_pending);
+    let replace_enrollment_button = gtk::Button::with_label("Replace local data");
+    replace_enrollment_button.add_css_class("destructive-action");
+    replace_enrollment_button.set_visible(enrollment_pending);
+    let refresh_enrollment_button = gtk::Button::with_label("Refresh pending requests");
+    enrollment_actions.append(&check_enrollment_button);
+    enrollment_actions.append(&merge_enrollment_button);
+    enrollment_actions.append(&replace_enrollment_button);
+    enrollment_actions.append(&refresh_enrollment_button);
+    enrollment_actions.set_visible(enrollment_available);
+    sync_page.append(&enrollment_actions);
+    let pending_list = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    pending_list.set_visible(enrollment_available);
+    sync_page.append(&pending_list);
+
+    if enrollment_available {
+        refresh_pending_enrollment_requests(&settings_path, &pending_list, &enrollment_status);
+    } else {
+        enrollment_status.set_text("Sign in before managing device enrollment.");
+    }
 
     let appearance_title = gtk::Label::new(Some("Appearance"));
     appearance_title.set_xalign(0.0);
@@ -222,6 +279,7 @@ pub(crate) fn show_settings_panel(
         let sync_account = sync_account.clone();
         let sync_status_label = sync_status_label.clone();
         let on_auth_changed = on_auth_changed.clone();
+        let core = Rc::clone(&core);
         move |_| {
             let refresh_settings_sync_state: Rc<dyn Fn()> = Rc::new({
                 let settings_path = settings_path.clone();
@@ -261,10 +319,110 @@ pub(crate) fn show_settings_panel(
                 &root,
                 settings_path.clone(),
                 false,
+                Some(Rc::clone(&core)),
                 Some(refresh_settings_sync_state),
             );
         }
     });
+    check_enrollment_button.connect_clicked({
+        let settings_path = settings_path.clone();
+        let enrollment_status = enrollment_status.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        move |_| match complete_linux_enrollment(&LinuxPlatform::new(), &settings_path) {
+            Ok(taskmanager_core::EnrollmentState::SyncReady) => {
+                enrollment_status.set_text("Enrollment complete. Sync ready.");
+                if let Some(on_auth_changed) = &on_auth_changed {
+                    on_auth_changed();
+                }
+            }
+            Ok(_) => enrollment_status.set_text("No approved key yet. Approve this device from an enrolled device, then check again."),
+            Err(error) => enrollment_status.set_text(&enrollment_error_message(
+                "Could not complete enrollment",
+                &error,
+                "Check your network and server URL, then try again. If your session expired, log out and sign in again. If no approval is available yet, approve this device from a sync-ready device first.",
+            )),
+        }
+    });
+    merge_enrollment_button.connect_clicked({
+        let settings_path = settings_path.clone();
+        let enrollment_status = enrollment_status.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        let core = Rc::clone(&core);
+        move |_| {
+            match complete_linux_enrollment_for_local_data(
+                &core,
+                &LinuxPlatform::new(),
+                &settings_path,
+                LocalDataEnrollmentStrategy::MergeLocalData,
+            ) {
+                Ok((taskmanager_core::EnrollmentState::SyncReady, count)) => {
+                    enrollment_status.set_text(&format!(
+                        "Enrollment complete. Kept local tasks and queued {count} local item(s) to merge on next sync."
+                    ));
+                    if let Some(on_auth_changed) = &on_auth_changed {
+                        on_auth_changed();
+                    }
+                },
+                Ok(_) => enrollment_status.set_text("No approved key yet. Approve this device from an enrolled device, then try again."),
+                Err(error) => enrollment_status.set_text(&enrollment_error_message(
+                    "Could not merge local data into this account",
+                    &error,
+                    "First approve this device from a sync-ready device. This option keeps local tasks and uploads them with the approved account key on next sync.",
+                )),
+            }
+        }
+    });
+    replace_enrollment_button.connect_clicked({
+        let panel = panel.clone();
+        let settings_path = settings_path.clone();
+        let enrollment_status = enrollment_status.clone();
+        let on_auth_changed = on_auth_changed.clone();
+        let core = Rc::clone(&core);
+        move |_| {
+            let Some(root) = panel.root().and_then(|root| root.downcast::<gtk::Window>().ok()) else {
+                enrollment_status.set_text("Could not show confirmation dialog.");
+                return;
+            };
+            confirm_replace_local_data(&root, {
+                let settings_path = settings_path.clone();
+                let enrollment_status = enrollment_status.clone();
+                let on_auth_changed = on_auth_changed.clone();
+                let core = Rc::clone(&core);
+                move || {
+                    match complete_linux_enrollment_for_local_data(
+                        &core,
+                        &LinuxPlatform::new(),
+                        &settings_path,
+                        LocalDataEnrollmentStrategy::ReplaceLocalData,
+                    ) {
+                        Ok((taskmanager_core::EnrollmentState::SyncReady, count)) => {
+                            enrollment_status.set_text(&format!(
+                                "Enrollment complete. Removed {count} local item(s); server data will download on next sync."
+                            ));
+                            if let Some(on_auth_changed) = &on_auth_changed {
+                                on_auth_changed();
+                            }
+                        },
+                        Ok(_) => enrollment_status.set_text("No approved key yet. Approve this device from an enrolled device, then try again."),
+                        Err(error) => enrollment_status.set_text(&enrollment_error_message(
+                            "Could not replace local data with this account",
+                            &error,
+                            "Approve this device from a sync-ready device first, then try Replace local data again.",
+                        )),
+                    }
+                }
+            });
+        }
+    });
+    refresh_enrollment_button.connect_clicked({
+        let settings_path = settings_path.clone();
+        let pending_list = pending_list.clone();
+        let enrollment_status = enrollment_status.clone();
+        move |_| {
+            refresh_pending_enrollment_requests(&settings_path, &pending_list, &enrollment_status)
+        }
+    });
+
     sync_logout_button.connect_clicked({
         let panel = panel.clone();
         let settings_path = settings_path.clone();
@@ -322,6 +480,150 @@ pub(crate) fn show_settings_panel(
 
     panel.append(&content);
     show_floating_panel(panel);
+}
+
+fn refresh_pending_enrollment_requests(
+    settings_path: &PathBuf,
+    pending_list: &gtk::Box,
+    enrollment_status: &gtk::Label,
+) {
+    while let Some(child) = pending_list.first_child() {
+        pending_list.remove(&child);
+    }
+    match enrollment_client(settings_path).and_then(|client| {
+        client
+            .list_pending_requests()
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(requests) if requests.is_empty() => {
+            enrollment_status.set_text("No pending device requests. If this device is waiting for approval, use Check approval / complete.");
+        }
+        Ok(requests) => {
+            enrollment_status.set_text(&format!("{} pending device request(s).", requests.len()));
+            for request in requests {
+                pending_list.append(&pending_enrollment_row(
+                    settings_path.clone(),
+                    request,
+                    enrollment_status.clone(),
+                    pending_list.clone(),
+                ));
+            }
+        }
+        Err(error) => enrollment_status.set_text(&enrollment_error_message(
+            "Could not load pending requests",
+            &error,
+            "Check your network and server URL. If your session expired, log out and sign in again.",
+        )),
+    }
+}
+
+fn pending_enrollment_row(
+    settings_path: PathBuf,
+    request: PendingEnrollmentRequest,
+    enrollment_status: gtk::Label,
+    pending_list: gtk::Box,
+) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    row.add_css_class("setup-panel");
+    let title = gtk::Label::new(Some(&format!(
+        "{} on {}",
+        display_device_name(&request),
+        display_platform(&request)
+    )));
+    title.set_xalign(0.0);
+    let details = gtk::Label::new(Some(&format!(
+        "Requested {} · public key fingerprint {}",
+        request.created_at,
+        public_key_fingerprint(&request.recipient_public_key)
+    )));
+    details.set_xalign(0.0);
+    details.set_wrap(true);
+    details.add_css_class("dim-label");
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    actions.set_halign(gtk::Align::Start);
+    let approve_button = gtk::Button::with_label("Approve");
+    approve_button.add_css_class("suggested-action");
+    let reject_button = gtk::Button::with_label("Reject");
+    reject_button.add_css_class("destructive-action");
+    actions.append(&approve_button);
+    actions.append(&reject_button);
+    row.append(&title);
+    row.append(&details);
+    row.append(&actions);
+
+    approve_button.connect_clicked({
+        let settings_path = settings_path.clone();
+        let request = request.clone();
+        let enrollment_status = enrollment_status.clone();
+        let pending_list = pending_list.clone();
+        move |_| match enrollment_client(&settings_path).and_then(|client| {
+            approve_pending_enrollment_request(&LinuxPlatform::new(), &client, &request)
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(()) => {
+                enrollment_status.set_text(
+                    "Device approved. The account data key was wrapped locally for that device.",
+                );
+                refresh_pending_enrollment_requests(&settings_path, &pending_list, &enrollment_status);
+            }
+            Err(error) => enrollment_status.set_text(&enrollment_error_message(
+                "Approve failed",
+                &error,
+                "Make sure this device has a local account data key and is sync-ready. If your session expired, log out and sign in again, then refresh pending requests.",
+            )),
+        }
+    });
+    reject_button.connect_clicked({
+        let settings_path = settings_path.clone();
+        let request_id = request.request_id.clone();
+        let enrollment_status = enrollment_status.clone();
+        let pending_list = pending_list.clone();
+        move |_| match enrollment_client(&settings_path).and_then(|client| {
+            client
+                .reject_request(&request_id)
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(()) => {
+                enrollment_status.set_text("Device request rejected.");
+                refresh_pending_enrollment_requests(&settings_path, &pending_list, &enrollment_status);
+            }
+            Err(error) => enrollment_status.set_text(&enrollment_error_message(
+                "Reject failed",
+                &error,
+                "Check your network and server URL. If your session expired, log out and sign in again, then refresh pending requests.",
+            )),
+        }
+    });
+
+    row
+}
+
+fn enrollment_error_message(context: &str, error: &str, recovery: &str) -> String {
+    format!("{context}: {error}. {recovery}")
+}
+
+fn display_device_name(request: &PendingEnrollmentRequest) -> &str {
+    if request.device_name.is_empty() {
+        "Unknown device"
+    } else {
+        &request.device_name
+    }
+}
+
+fn display_platform(request: &PendingEnrollmentRequest) -> &str {
+    if request.platform.is_empty() {
+        "unknown platform"
+    } else {
+        &request.platform
+    }
+}
+
+fn enrollment_client(settings_path: &PathBuf) -> Result<LinuxHttpSyncClient, String> {
+    let settings = read_settings(settings_path).unwrap_or_default();
+    let server_url =
+        normalize_sync_server_url(&settings.server_url).map_err(|error| error.to_string())?;
+    let token = load_access_token(&LinuxPlatform::new()).map_err(|error| error.to_string())?;
+    LinuxHttpSyncClient::new(&server_url, token).map_err(|error| error.to_string())
 }
 
 fn format_sync_settings_status(status: &SyncStatus) -> String {

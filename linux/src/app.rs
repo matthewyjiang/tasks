@@ -1328,10 +1328,14 @@ fn build_ui(app: &adw::Application) {
                 &setup_email.text(),
                 &setup_password.text(),
             ) {
-                Ok(()) => {
-                    setup_status.set_text("Sync configured.");
+                Ok(taskmanager_core::SyncAuthState::SyncReady) => {
+                    setup_status.set_text("Sync ready.");
                     setup_panel.set_visible(false);
                 }
+                Ok(taskmanager_core::SyncAuthState::AuthenticatedEnrollmentPending) => {
+                    setup_status.set_text("Signed in — waiting for approval from an enrolled device. Private keys stay on this device.");
+                }
+                Ok(_) => setup_status.set_text("Signed in, but sync is not ready. Open Settings → Sync for recovery actions."),
                 Err(error) => setup_status.set_text(&format!("Sync setup failed: {error}")),
             }
         }

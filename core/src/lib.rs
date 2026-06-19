@@ -33,9 +33,13 @@ pub use crypto::{
 };
 pub use db::LocalDatabase;
 pub use enrollment::{
-    accept_wrapped_account_data_key_payload, begin_existing_account_enrollment,
-    create_wrapped_account_data_key_payload, existing_account_enrollment_state, EnrollmentState,
-    WrappedAccountDataKeyPayload,
+    accept_wrapped_account_data_key_payload, announce_existing_account_enrollment,
+    approve_pending_enrollment_request, approved_payload_for_current_device,
+    begin_existing_account_enrollment, complete_pending_enrollment,
+    complete_pending_enrollment_with_strategy, create_wrapped_account_data_key_payload,
+    existing_account_enrollment_state, public_key_fingerprint, store_completed_account_data_key,
+    unwrap_pending_account_data_key_with_strategy, EnrollmentClient, EnrollmentState,
+    LocalDataEnrollmentStrategy, PendingEnrollmentRequest, WrappedAccountDataKeyPayload,
 };
 pub use error::{
     CoreError, CoreResult, CryptoError, DbError, PlatformError, SettingsError, SyncError,

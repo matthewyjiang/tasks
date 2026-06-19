@@ -4,6 +4,10 @@ use uuid::Uuid;
 
 use crate::crypto::{generate_data_key, unwrap_data_key, wrap_data_key};
 use crate::db::LocalDatabase;
+use crate::enrollment::{
+    approved_payload_for_current_device, unwrap_pending_account_data_key_with_strategy,
+    EnrollmentClient, EnrollmentState, LocalDataEnrollmentStrategy,
+};
 use crate::error::CoreResult;
 use crate::platform::Platform;
 use crate::settings::VaultSettings;
@@ -223,6 +227,42 @@ impl TaskManagerCore {
             .find(|entry| entry.task_id == task_id)
             .ok_or_else(|| crate::error::DbError::TaskNotFound(task_id).into())
     }
+
+    pub fn mark_all_user_tasks_dirty_for_sync_merge(&self) -> CoreResult<usize> {
+        self.database.mark_all_user_tasks_dirty()
+    }
+
+    pub fn clear_user_tasks_for_sync_replace(&self) -> CoreResult<usize> {
+        self.database.clear_user_tasks_for_remote_replace()
+    }
+
+    pub fn complete_pending_enrollment_for_local_data(
+        &self,
+        platform: &dyn Platform,
+        client: &dyn EnrollmentClient,
+        strategy: LocalDataEnrollmentStrategy,
+    ) -> CoreResult<(EnrollmentState, usize)> {
+        let Some(payload) = approved_payload_for_current_device(platform, client)? else {
+            return Ok((
+                crate::enrollment::existing_account_enrollment_state(platform),
+                0,
+            ));
+        };
+        let account_data_key =
+            unwrap_pending_account_data_key_with_strategy(platform, &payload, strategy)?;
+        platform.store_key(crate::ACCOUNT_DATA_KEY_ID, &account_data_key)?;
+        let changed = match strategy {
+            LocalDataEnrollmentStrategy::RequireEmptyLocalKey => 0,
+            LocalDataEnrollmentStrategy::MergeLocalData => {
+                self.database.mark_all_user_tasks_dirty()?
+            }
+            LocalDataEnrollmentStrategy::ReplaceLocalData => {
+                self.database.clear_user_tasks_for_remote_replace()?
+            }
+        };
+        crate::auth::clear_enrollment_pending(platform)?;
+        Ok((EnrollmentState::SyncReady, changed))
+    }
 }
 
 #[cfg(test)]
@@ -255,6 +295,41 @@ mod tests {
         assert_eq!(reopened.get_task(created.id).unwrap(), created);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn merge_marks_all_user_tasks_dirty() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let first = core
+            .create_task("first".to_owned(), String::new(), None)
+            .unwrap();
+        let second = core
+            .create_task("second".to_owned(), String::new(), None)
+            .unwrap();
+        core.database.set_last_pull_cursor(456).unwrap();
+
+        assert_eq!(core.mark_all_user_tasks_dirty_for_sync_merge().unwrap(), 2);
+        assert!(core.get_task(first.id).unwrap().dirty);
+        assert!(core.get_task(second.id).unwrap().dirty);
+        assert_eq!(core.sync_status().unwrap().cursor, 0);
+    }
+
+    #[test]
+    fn replace_clears_user_tasks_and_sync_state() {
+        let core = TaskManagerCore::open_in_memory().unwrap();
+        let task = core
+            .create_task("local".to_owned(), String::new(), None)
+            .unwrap();
+        core.queue_sync_retry(task.id, 123).unwrap();
+        core.database.set_last_pull_cursor(456).unwrap();
+
+        assert_eq!(core.clear_user_tasks_for_sync_replace().unwrap(), 1);
+        assert!(matches!(
+            core.get_task(task.id),
+            Err(CoreError::Database(DbError::TaskNotFound(_)))
+        ));
+        assert_eq!(core.sync_status().unwrap().retry_queue_depth, 0);
+        assert_eq!(core.sync_status().unwrap().cursor, 0);
     }
 
     #[test]
