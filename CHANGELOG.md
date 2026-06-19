@@ -1,5 +1,9 @@
 # Changelog
 
+## core-v0.20.0 - 2026-06-19
+
+- feat(sync): complete multi-device enrollment flow (#169) (f3602b2)
+
 ## linux-app-v0.8.0 - 2026-06-19
 
 - feat(sync): complete multi-device enrollment flow (#169) (f3602b2)
