@@ -1,5 +1,15 @@
 # Changelog
 
+## linux-app-v0.8.0 - 2026-06-19
+
+- feat(sync): complete multi-device enrollment flow (#169) (f3602b2)
+- chore(linux-app): release linux-app-v0.7.1 (#160) (651e85d)
+- feat(linux-app): add desktop icons (#166) (5464041)
+- fix(linux-app): improve overdue and settings urgency (#159) (5f74bd6)
+- docs: organize user-facing documentation (#146) (9d639ad)
+- docs: add VitePress documentation site (063559f)
+- docs: refresh implementation trackers (#138) (86323db)
+
 ## linux-app-v0.7.1 - 2026-06-17
 
 - fix(linux-app): improve overdue and settings urgency (#159) (5f74bd6)
