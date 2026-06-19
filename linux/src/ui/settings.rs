@@ -11,7 +11,7 @@ pub struct LinuxSettings {
     pub sync_status: SyncStatus,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncStatus {
     pub last_attempt_at: Option<i64>,
     pub last_success_at: Option<i64>,
@@ -31,6 +31,37 @@ pub struct SyncStatus {
     pub cursor: i64,
     #[serde(default)]
     pub conflicts: usize,
+    #[serde(default = "default_network_available")]
+    pub network_available: bool,
+    #[serde(default = "default_backend_available")]
+    pub backend_available: bool,
+}
+
+fn default_network_available() -> bool {
+    true
+}
+
+fn default_backend_available() -> bool {
+    true
+}
+
+impl Default for SyncStatus {
+    fn default() -> Self {
+        Self {
+            last_attempt_at: None,
+            last_success_at: None,
+            last_pushed: 0,
+            last_pulled: 0,
+            last_failed: 0,
+            last_error: String::new(),
+            pending_retries: 0,
+            dirty_count: 0,
+            cursor: 0,
+            conflicts: 0,
+            network_available: true,
+            backend_available: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
