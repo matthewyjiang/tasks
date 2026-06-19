@@ -1,6 +1,6 @@
 # Maintainer: Matthew Jiang <matthewyjiang@users.noreply.github.com>
 pkgname=tsk-linux
-pkgver=0.7.1
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="GTK/libadwaita desktop client for the local-first encrypted task manager"
 arch=("x86_64")
