@@ -48,10 +48,14 @@ public struct SettingsView: View {
                 if let message = model.lastSyncStatusMessage {
                     Text(message).foregroundStyle(.secondary)
                 }
-                Button("Sync Now") {
+                Button {
                     Task { await model.syncNow() }
+                } label: {
+                    Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(!model.canSyncNow)
+                .accessibilityLabel("Sync Now")
+                .accessibilityHint("Starts a foreground sync with the configured server.")
             }
 
             if model.syncAuthState == .authenticatedEnrollmentPending || model.enrollmentState == .existingAccountPending {

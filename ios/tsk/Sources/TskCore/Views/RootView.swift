@@ -57,11 +57,24 @@ public struct RootView: View {
         } else {
             NavigationSplitView {
                 SidebarView(model: model)
+            } content: {
+                switch model.destination {
+                case .tasks(let selection):
+                    NavigationStack {
+                        TaskListView(model: model, selection: selection, usesSplitSelection: true)
+                    }
+                case .settings:
+                    ContentUnavailableView("Settings", systemImage: "gear", description: Text("Select settings details."))
+                }
             } detail: {
                 NavigationStack {
                     switch model.destination {
-                    case .tasks(let selection):
-                        TaskListView(model: model, selection: selection)
+                    case .tasks:
+                        if let selectedTask = model.selectedTask {
+                            TaskDetailView(model: model, task: selectedTask)
+                        } else {
+                            ContentUnavailableView("Select a Task", systemImage: "checklist", description: Text("Choose a task from the list to view or edit details."))
+                        }
                     case .settings:
                         SettingsView(model: model)
                     }
